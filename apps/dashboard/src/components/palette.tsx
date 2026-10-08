@@ -44,7 +44,6 @@ import { partsOf, PART_PAGE, projectHome, type Part } from "@/lib/sections";
 import { keyCaps, requestCommand, useCommands } from "@/lib/shortcuts";
 import { useSwitchToProject } from "@/lib/switch";
 import { useMe } from "@/lib/me";
-import { soloParts } from "@/lib/starters";
 import { signOut } from "@/lib/command-history";
 import { toast } from "./toast";
 
@@ -266,19 +265,11 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
     text: `project ${p}`,
     icon: <ProjectGlyph project={p} />,
     aside: p === current ? "here" : undefined,
-    run: () => void (current ? switchTo(p) : navigate(projectHome(p, stateOf(p)))),
+    run: () => void (current ? switchTo(p) : navigate(projectHome(p))),
   }));
   const general: Entry[] = [
     { id: "go:projects", label: "Projects", text: "Projects", icon: <ScrollText />, kw: ["home", "all projects"], run: go("/") },
     { id: "go:new", label: "New project", text: "New project", icon: <Plus />, kw: ["create", "start", "starter", "database", "kv", "files", "schedule"], keys: "g n", run: go("/new") },
-    ...soloParts.map((s): Entry => ({
-      id: `go:new:${s.part}`,
-      label: <>New project: {s.title.toLowerCase()}</>,
-      text: `New project ${s.title}`,
-      icon: <Plus />,
-      kw: ["create", "standalone", "only", "console"],
-      run: () => void navigate({ to: "/new", search: { starter: `part:${s.part}` } }),
-    })),
     { id: "go:activity", label: "Activity: every project’s changes", text: "Activity", icon: <ScrollText />, kw: ["activity", "changes", "ledger", "undo"], run: () => void navigate({ to: "/ledger", search: {} }) },
     { id: "go:health", label: "Health", text: "Health", icon: <Gauge />, kw: ["status", "checks"], run: go("/status") },
     { id: "go:settings", label: "Settings", text: "Settings", icon: <Gauge />, kw: ["box", "export", "import", "domain"], run: go("/settings") },

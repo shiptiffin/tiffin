@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useSyncExternalStore } from "react";
 import { q } from "@/api/queries";
@@ -42,7 +42,7 @@ export function useArrival(project: string): string | null {
   return a && a.project === project ? (a.part === "apps" ? "an app" : partA(a.part)) : null;
 }
 
-/** Where a link to a project goes: its one part when it is standalone, else its Overview. */
+/** Where a link to a project goes: its Overview. */
 export function useProjectHome(project: string) {
-  return projectHome(project, useQuery(q.project(project)).data);
+  return projectHome(project);
 }

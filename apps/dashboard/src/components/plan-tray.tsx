@@ -42,8 +42,11 @@ export function ChangeConfirm() {
 
 const cap = (x?: string) => (x ? x.charAt(0).toUpperCase() + x.slice(1).replace(/\.$/, "") + "." : "");
 
+/** Delete all data and its restore, in the dialog's words. */
+const DATA_NAMES: Record<string, string> = { postgres: "Database", valkey: "KV", storage: "Files" };
+
 function Sheet({ req }: { req: ConfirmRequest }) {
-  const { project, edits, desired, plan } = req;
+  const { project, edits, desired, plan, data } = req;
   const { can } = useMe();
   const [typed, setTyped] = useState("");
   const [details, setDetails] = useState(false);
@@ -55,14 +58,20 @@ function Sheet({ req }: { req: ConfirmRequest }) {
   const lost = ops.filter((o) => asTier(o.risk) === "irreversible");
   const out = ops.filter((o) => asTier(o.risk) === "outbound");
   const main = lost[0] ?? out[0] ?? ops[0];
-  const title = main ? opTitle(main, project, apps, edits).title : "Make this change";
+  const title = data
+    ? data.action === "empty"
+      ? `Delete all data in ${DATA_NAMES[data.part]}`
+      : `Restore the data deleted from ${DATA_NAMES[data.part]}`
+    : main
+      ? opTitle(main, project, apps, edits).title
+      : "Make this change";
   const others = ops.filter((o) => o !== main).slice(0, 2);
   const realLoss = lost.some((o) => o.loss && !lossEmpty(o.loss));
   const needsName = irreversible && (realLoss || lost.some((o) => !o.loss));
   const armed = !needsName || typed.trim() === project;
   const allowed = !irreversible || can("apply:irreversible");
 
-  const apply = useMutation({ mutationFn: () => applyPlan(project, edits, desired, plan) });
+  const apply = useMutation({ mutationFn: () => applyPlan(req) });
   const stale = apply.error instanceof ApiError && apply.error.status === 428;
 
   return (
@@ -83,7 +92,9 @@ function Sheet({ req }: { req: ConfirmRequest }) {
         </p>
         <D.Title className="text-[1.25rem] leading-7 font-[550] tracking-[-0.015em] text-ink">{title.replace(/\.$/, "")}?</D.Title>
 
-        {lost.length > 0 ? (
+        {data ? (
+          <DataWords data={data} loss={main?.loss} />
+        ) : lost.length > 0 ? (
           <div className="mt-3 rounded-[10px] bg-danger-wash px-3.5 py-3 text-[0.9375rem] leading-[1.375rem] text-ink">
             {lost.map((o, i) => (
               <p key={o.address + i}>
@@ -159,7 +170,7 @@ function Sheet({ req }: { req: ConfirmRequest }) {
                 <Step key={op.address + i} n={i + 1} op={op} project={project} apps={apps} edits={edits} />
               ))}
             </ol>
-            <ConfigDiff project={project} before={manifest.data?.config} desired={desired} />
+            {desired && <ConfigDiff project={project} before={manifest.data?.config} desired={desired} />}
             <p className="mt-2 text-xs text-ink-3">
               Plan <span className="ident">{plan.hash.slice(0, 12)}</span>. The same change as editing tiffin.config.ts and running <span className="ident">tiffin apply</span>.
             </p>
@@ -174,15 +185,39 @@ function Sheet({ req }: { req: ConfirmRequest }) {
           </Button>
         </D.Cancel>
         <Button
-          variant={irreversible ? "danger" : "primary"}
+          variant={irreversible && data?.action !== "restore" ? "danger" : "primary"}
           size="lg"
           disabled={!armed || !allowed || apply.isPending || stale}
           onClick={() => apply.mutate()}
         >
-          {apply.isPending ? "Working…" : irreversible ? "Delete for good" : "Confirm"}
+          {apply.isPending ? "Working…" : data ? (data.action === "empty" ? "Delete data" : "Restore") : irreversible ? "Delete for good" : "Confirm"}
         </Button>
       </footer>
     </D.Content>
+  );
+}
+
+/** What Delete all data takes (and that it comes back for 7 days), or what its restore replaces. */
+function DataWords({ data, loss }: { data: NonNullable<ConfirmRequest["data"]>; loss?: Op["loss"] }) {
+  const what = loss && !lossEmpty(loss) ? lossParts(loss).join(" · ") : undefined;
+  if (data.action === "restore") {
+    return (
+      <p className="mt-3 text-[0.9375rem] leading-[1.375rem] text-ink-2">
+        {what ? (
+          <>
+            What it holds now (<b className="font-[550] text-ink">{what}</b>) is replaced by the data you deleted.
+          </>
+        ) : (
+          "It’s empty now, so nothing is replaced."
+        )}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-3 rounded-[10px] bg-danger-wash px-3.5 py-3 text-[0.9375rem] leading-[1.375rem] text-ink">
+      <p>{what ? <><b className="font-[550]">{what}</b> will be deleted.</> : loss ? "It’s empty, so nothing is deleted." : "Everything in it will be deleted."}</p>
+      <p className="mt-1 text-sm text-ink-2">You can restore it for 7 days. After that it’s gone for good.</p>
+    </div>
   );
 }
 
@@ -361,7 +396,7 @@ function Step({ n, op, project, apps, edits }: { n: number; op: Op; project: str
   );
 }
 
-function ConfigDiff({ project, before, desired }: { project: string; before?: string; desired: ConfirmRequest["desired"] }) {
+function ConfigDiff({ project, before, desired }: { project: string; before?: string; desired: NonNullable<ConfirmRequest["desired"]> }) {
   const rendered = useQuery({ queryKey: ["render", JSON.stringify(desired)], queryFn: () => api.renderConfig(desired), retry: false, staleTime: Infinity });
   const after = rendered.data?.config;
   const error = rendered.error;

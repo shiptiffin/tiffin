@@ -7,7 +7,7 @@ import { bytes, int } from "@/lib/format";
 
 type Loss = NonNullable<Op["loss"]>;
 
-const plurals: Record<string, string> = { row: "rows", table: "tables", file: "files", event: "events", job: "jobs", user: "people", database: "databases" };
+const plurals: Record<string, string> = { row: "rows", table: "tables", file: "files", event: "events", job: "jobs", user: "people", database: "databases", key: "keys" };
 const singular: Record<string, string> = { user: "person" };
 
 function countWords(n: number, unit: string, approx?: boolean) {

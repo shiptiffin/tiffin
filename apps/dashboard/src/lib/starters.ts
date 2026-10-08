@@ -120,42 +120,11 @@ export function freeName(base: string, taken: { projects: string[]; routes: stri
   return "";
 }
 
-/**
- * The parts a new project can start with, in the order they are offered.
- * Each one is added or removed later from the project's Add menu.
- */
-export type NewPart = "postgres" | "valkey" | "storage" | "auth" | "email" | "analytics";
-export const NEW_PARTS: NewPart[] = ["postgres", "valkey", "storage", "auth", "email", "analytics"];
-
-/** A part as the new project's manifest asks for it. Files start with one private bucket, so the page isn't empty. */
-const partSpec = (p: NewPart): unknown => (p === "storage" ? { buckets: { files: { public: false } } } : {});
-
-/**
- * Standalone projects: no app and exactly one of these parts. The project
- * opens straight on that part, like its console (sections.ts standalonePart).
- */
-export type SoloPart = "postgres" | "valkey" | "storage";
-export const soloParts: Array<{ part: SoloPart; title: string; name: string }> = [
-  { part: "postgres", title: "Just a database", name: "data" },
-  { part: "valkey", title: "Just KV", name: "kv" },
-  { part: "storage", title: "Just files", name: "uploads" },
-];
-
 export type Source =
   | { kind: "starter"; starter: Starter }
   | { kind: "none" }
   | { kind: "git"; url: string; ref: string; path: string; framework: string; preset: string }
   | { kind: "github"; repo: string; branch: string; path: string; framework: string; preset: string; env: Array<{ k: string; v: string }>; build?: BuildOverrides };
-
-/** The parts a source can't do without: a starter's own services. */
-export function neededParts(source: Source): NewPart[] {
-  if (source.kind !== "starter") return [];
-  const s = Object.keys(source.starter.fragment.services ?? {});
-  return NEW_PARTS.filter((p) => s.includes(p));
-}
-
-/** The parts ticked when a source is picked: a starter's own, else a database (most apps want one). */
-export const defaultParts = (source: Source): NewPart[] => (source.kind === "starter" ? neededParts(source) : ["postgres"]);
 
 /** The app a source puts in the project (none for an empty project). */
 export function appFor(source: Source): { name: string; framework: string } | null {
@@ -166,11 +135,12 @@ export function appFor(source: Source): { name: string; framework: string } | nu
 
 /**
  * The whole manifest for a new project: its app (from the source) and the
- * parts picked for it. A starter's app sets no routes, so the box serves it
- * at the project's own name (guestbook.<domain>), never on another project's
+ * services a starter adds (Database, KV, Files, Email and Analytics are
+ * always there). A starter's app sets no routes, so the box serves it at the
+ * project's own name (guestbook.<domain>), never on another project's
  * hostname.
  */
-export function newProjectManifest(project: string, source: Source, parts: NewPart[]): Manifest {
+export function newProjectManifest(project: string, source: Source): Manifest {
   const m: Manifest = { project, version: 1 };
   const services: Record<string, unknown> = {};
   if (source.kind === "starter") {
@@ -188,10 +158,6 @@ export function newProjectManifest(project: string, source: Source, parts: NewPa
     const path = source.path.trim().replace(/^\/+|\/+$/g, "");
     const git = { repo: source.repo, branch: source.branch, ...(path ? { path } : {}) };
     m.apps = { web: { framework: source.framework, git, ...pickBuild(source.build, source.framework) } } as unknown as Manifest["apps"];
-  }
-  for (const p of NEW_PARTS) {
-    if (!parts.includes(p)) delete services[p];
-    else services[p] ??= partSpec(p);
   }
   if (Object.keys(services).length) m.services = services as Manifest["services"];
   return m;

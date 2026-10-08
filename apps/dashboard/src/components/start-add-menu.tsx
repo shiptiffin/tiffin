@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { BarChart3, ChevronDown, Clock, Database, FolderPlus, Inbox, KeyRound, LayoutTemplate, Mail, Zap } from "lucide-react";
+import { ChevronDown, Clock, FolderPlus, Inbox, KeyRound, LayoutTemplate } from "lucide-react";
 import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, request, type Manifest } from "@/api/client";
 import { q, queryClient } from "@/api/queries";
@@ -32,25 +32,21 @@ export type Kind = "app" | "bucket" | "queue" | "cron" | "env";
 const ScheduleForm = lazy(() => import("@/routes/jobs/forms").then((m) => ({ default: m.ScheduleForm })));
 const QueueForm = lazy(() => import("@/routes/jobs/forms").then((m) => ({ default: m.QueueForm })));
 
+/** The built-in parts that are added (Database, KV, Files, Email, Analytics and Jobs are always there). */
 const FRIENDLY: Record<string, { label: string; icon: ReactNode }> = {
-  postgres: { label: PARTS.postgres.name, icon: <Database /> },
-  storage: { label: PARTS.storage.name, icon: <FolderPlus /> },
   auth: { label: PARTS.auth.name, icon: <KeyRound /> },
-  email: { label: PARTS.email.name, icon: <Mail /> },
-  analytics: { label: PARTS.analytics.name, icon: <BarChart3 /> },
-  valkey: { label: PARTS.valkey.name, icon: <Zap /> },
 };
 
 /**
- * "Add" on a project. A built-in part (database, files, sign-in…) is added
- * the moment you pick it; an app, bucket, queue, schedule or setting asks
+ * "Add" on a project. Sign-in (Auth) is added the moment you pick it; an
+ * app, bucket, queue, schedule or setting asks
  * for a name and the one or two things it needs, then is added. Each is one
  * change in History, with Undo in the toast.
  */
 export function AddMenu({ project, manifest, className, trigger, only }: { project: string; manifest?: Manifest; className?: string; trigger?: ReactNode; /** Skip the menu: the trigger opens this one form. */ only?: Kind }) {
   const [open, setOpen] = useState<Kind | null>(null);
   const services = (manifest?.services ?? {}) as Record<string, unknown>;
-  const off = ["postgres", "storage", "auth", "email", "analytics", "valkey"].filter((s) => !(s in services));
+  const off = ["auth"].filter((s) => !(s in services));
   const dialog = (
     <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
       <DialogContent className={open === "cron" || open === "queue" || open === "app" ? "sm:max-w-2xl" : "sm:max-w-lg"}>
@@ -411,7 +407,7 @@ async function addFromGitHub(project: string, app: string, edit: StagedEdit, env
       change(project, edit, { immediate: true });
       return;
     }
-    await applyPlan(project, [edit], desired, plan);
+    await applyPlan({ project, edits: [edit], desired, plan });
   } catch (err) {
     toast({ title: `Couldn’t add ${app} to ${project}.`, detail: why(err), tone: "danger" });
     return;
@@ -469,7 +465,7 @@ function AddBucket({ project, manifest, done }: { project: string; manifest: Man
         say(`add the ${name} bucket`);
       }}
     >
-      <Field label="Name" error={err} note={!manifest.services?.storage ? "Adds Storage to the project too." : undefined}>
+      <Field label="Name" error={err}>
         <input autoFocus value={name} onChange={(e) => setName(slugify(e.target.value))} placeholder="uploads" spellCheck={false} className={cn(field, "ident")} />
       </Field>
       <label className="flex items-start gap-2.5 text-sm text-ink-2">

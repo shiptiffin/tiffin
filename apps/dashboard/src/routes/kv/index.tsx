@@ -11,9 +11,7 @@ import { ProblemNote } from "@/components/problem";
 import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { bytes, bytesParts, int } from "@/lib/format";
-import { useMe } from "@/lib/me";
 import { PARTS } from "@/lib/names";
-import { change } from "@/lib/staged";
 import { relative } from "@/lib/time";
 import { ConnectButton } from "@/components/connect";
 import { useCommand, useKeyHelp, useShortcut } from "@/lib/shortcuts";
@@ -37,7 +35,6 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
   const [filters, setFilters] = useState<Filters>({ search: match ?? "", type: "", expiry: "" });
   const [making, setMaking] = useState(!!isNew);
   const browser = useRef<BrowserHandle>(null);
-  const { can } = useMe();
 
   const go = useCallback(
     (o: { key?: string; match?: string }) =>
@@ -81,15 +78,8 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
           }
         />
         {missing ? (
-          <Empty className="mt-10" title={`${project} doesn’t have ${PARTS.valkey.a} yet.`}>
-            It’s built in: adding it takes a few seconds, and History can undo it.
-            {can("apply:reversible") && (
-              <div className="mt-4 flex justify-center">
-                <Button variant="primary" onClick={() => change(project, { kind: "service", service: "valkey", from: "off", to: "on" }, { immediate: true })}>
-                  Add {name}
-                </Button>
-              </div>
-            )}
+          <Empty className="mt-10" title={`${project}’s ${name} is being set up.`}>
+            Every project has one; it’s ready in a few seconds.
           </Empty>
         ) : (
           <>

@@ -9,7 +9,7 @@ import { boxName } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { setNavigator, useConfirmRequest } from "@/lib/staged";
 import { rememberProject } from "@/lib/recent";
-import { PART_PAGE, partsOf, standalonePart, type Part, type ProjectPage } from "@/lib/sections";
+import { PART_PAGE, partsOf, type Part, type ProjectPage } from "@/lib/sections";
 import { listen, useShortcut } from "@/lib/shortcuts";
 import { passkeyWords } from "@/lib/webauthn";
 import { useFavicon } from "./favicon";
@@ -329,25 +329,24 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
 /**
  * A project's sections, the way a hosting dashboard reads: what's running
  * (Overview, Deployments, Logs), how it's doing (Analytics, Observability),
- * how it's reached and configured (Domains, Environment Variables), then
- * every built-in service, then History and Settings. Every service shows,
- * added or not: one that isn't added yet opens on what it is and Add. A
- * standalone project (just a database, say) shows only its part, so it
- * reads like that part's console.
+ * how it's reached and configured (Domains, Environment Variables), then its
+ * services, then History and Settings. Database, KV, Files, Email, Analytics
+ * and Jobs are always there; Auth's page offers to add it. A project with no
+ * apps shows only what works without one: Overview, Database, KV, Files and
+ * Jobs (schedules and queues can call any address), Activity and Settings.
  */
 function ProjectNav({ project, path }: { project: string; path: string }) {
   const p = useQuery(q.project(project));
-  const one = standalonePart(p.data);
+  const noApps = !!p.data && !partsOf(p.data).has("apps");
   const params = { project };
   const base = `/projects/${project}`;
   const at = (s: string) => path === `${base}/${s}` || path.startsWith(`${base}/${s}/`);
-  const item = (part: Part, active?: boolean, label = PART_PAGE[part].label) =>
-    (!one || one === part) && <NavItem to={PART_PAGE[part].to} params={params} label={label} active={active} />;
+  const item = (part: Part, active?: boolean, label = PART_PAGE[part].label) => <NavItem to={PART_PAGE[part].to} params={params} label={label} active={active} />;
   return (
     <>
-      {!one && (
+      <NavItem to="/projects/$project" params={params} exact label="Overview" aside={<Failing project={project} />} />
+      {!noApps && (
         <>
-          <NavItem to="/projects/$project" params={params} exact label="Overview" aside={<Failing project={project} />} />
           <NavItem to="/projects/$project/deployments" params={params} label="Deployments" active={at("deployments") || at("apps")} />
           <NavItem to="/projects/$project/logs" params={params} label="Logs" />
           {item("analytics")}
@@ -360,11 +359,10 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
       {item("postgres", at("data") && !at("data/kv"))}
       {item("valkey")}
       {item("storage")}
-      {item("email")}
-      {item("auth", at("users") || at("orgs"))}
+      {!noApps && item("email")}
+      {!noApps && item("auth", at("users") || at("orgs"))}
       {item("jobs", at("queues") || at("workflows") || at("jobs") || at("schedules"))}
       <div className="my-2 h-px bg-rule" aria-hidden />
-      {one && <NavItem to="/projects/$project/observability" params={params} label="Observability" active={at("observability") || at("usage")} />}
       <NavItem to="/projects/$project/history" params={params} label="Activity" />
       <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings")} />
     </>

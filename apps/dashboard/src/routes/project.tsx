@@ -55,7 +55,6 @@ export function ProjectPage({ project }: { project: string }) {
   const queues = res.filter((r) => r.address.startsWith("queue/"));
   const empty = p.data && res.filter((r) => r.address !== "project").length === 0;
   const services = (["postgres", "valkey", "storage", "email", "auth", "analytics"] as const).filter((x) => has(`service/${x}`));
-  const hasJobs = crons.length > 0 || queues.length > 0;
   const addingApps = staged.flatMap((e) => (e.kind === "set" && e.path[0] === "apps" && e.path.length === 2 && e.to !== undefined && !apps.some((a) => a.name === e.path[1]) ? [e.path[1] as string] : []));
   const addingParts = staged.flatMap((e) => (e.kind === "service" && e.to === "on" && !has(`service/${e.service}`) ? [progressWords(e, project)] : []));
 
@@ -136,7 +135,7 @@ export function ProjectPage({ project }: { project: string }) {
         </div>
       ) : empty && addingApps.length === 0 && addingParts.length === 0 ? (
         <Empty className="mt-10" title={`Nothing in ${project} yet.`}>
-          <p>Add an app from a starter, GitHub or a git URL, or a database, files, email or sign-in. Each part is ready in seconds.</p>
+          <p>Add an app from a starter, GitHub or a git URL. Its database, KV, files, email and jobs are already there.</p>
           <div className="mt-4 flex justify-center">
             <AddMenu project={project} manifest={man} trigger={<Button variant="primary" size="lg" disabled={!man}><Plus />Add the first part</Button>} />
           </div>
@@ -180,22 +179,18 @@ export function ProjectPage({ project }: { project: string }) {
                   }
                 />
               </SectionHead>
-              {services.length === 0 && !hasJobs && addingParts.length === 0 ? (
-                <p className="border-y border-rule py-4 text-sm text-ink-3">No database, files or email yet. Add one and it’s ready in seconds.</p>
-              ) : (
-                <ul className="divide-y divide-rule border-y border-rule">
+              <ul className="divide-y divide-rule border-y border-rule">
                   {services.includes("postgres") && <DatabaseRow project={project} />}
                   {services.includes("valkey") && <CacheRow project={project} />}
                   {services.includes("storage") && <FilesRow project={project} />}
                   {services.includes("email") && <EmailRow project={project} />}
                   {services.includes("auth") && <SignInRow project={project} />}
                   {services.includes("analytics") && <AnalyticsRow project={project} />}
-                  {hasJobs && <JobsRow project={project} crons={crons.map((c) => c.spec as { schedule?: string })} queues={queues.length} />}
+                  <JobsRow project={project} crons={crons.map((c) => c.spec as { schedule?: string })} queues={queues.length} />
                   {addingParts.map((w) => (
                     <PendingRow key={w} words={w} />
                   ))}
-                </ul>
-              )}
+              </ul>
             </section>
             {apps.some((a) => a.spec?.role !== "worker") && <DomainsSummary project={project} />}
           </aside>
@@ -476,7 +471,7 @@ function AnalyticsRow({ project }: { project: string }) {
 
 function JobsRow({ project, crons, queues }: { project: string; crons: Array<{ schedule?: string }>; queues: number }) {
   const bits = [crons.length === 1 && crons[0].schedule ? `Runs ${cronWords(crons[0].schedule)}` : crons.length > 1 ? count(crons.length, "schedule") : "", queues > 0 ? count(queues, "queue") : ""].filter(Boolean);
-  return <ServiceRow icon={<Clock />} title={PARTS.jobs.name} to={pth(project, "/jobs")} fact={bits.join(" · ")} />;
+  return <ServiceRow icon={<Clock />} title={PARTS.jobs.name} to={pth(project, "/jobs")} fact={bits.join(" · ") || "No schedules or queues yet"} />;
 }
 
 /** Something being added right now, where its row will be. */

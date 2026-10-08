@@ -391,7 +391,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
         <aside className="flex min-w-0 flex-col gap-9" aria-label="Settings">
           {spec?.git && <AppRepo project={project} app={app} git={spec.git} writer={writer} />}
           {spec && !isStatic && (
-            <Scale project={project} app={app} spec={spec} free={free} hasKV={!!m.data?.manifest.services?.valkey} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
+            <Scale project={project} app={app} spec={spec} free={free} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
           )}
           {spec && !isStatic && !["hono", "fastapi", "python"].includes(spec.framework ?? "") && <RuntimeSetting project={project} app={app} spec={spec} writer={writer} />}
           {!isStatic && instances.length > 0 && (
@@ -450,7 +450,6 @@ export function Scale({
   instances,
   memory,
   writer,
-  hasKV,
 }: {
   project: string;
   app: string;
@@ -459,7 +458,6 @@ export function Scale({
   instances?: StagedEdit;
   memory?: StagedEdit;
   writer: boolean;
-  hasKV: boolean;
 }) {
   const applied = spec.instances ?? 1;
   // No limit (0) is the default: an app's copies share the project's memory.
@@ -537,16 +535,6 @@ export function Scale({
         )}
       </p>
       {!fits && <p className="mt-2 text-sm text-danger">That needs more memory than the box has free ({mbWords(free ?? 0)}).</p>}
-      {spec.framework === "next" && copies > 1 && !hasKV && (
-        <div className="mt-3 rounded-[8px] bg-warn-wash px-3.5 py-2.5 text-sm text-ink">
-          <p>Each copy of a Next.js app keeps its own cache without KV, so ISR pages and cached data can differ between requests.</p>
-          {writer && (
-            <Button size="sm" className="mt-2" onClick={() => change(project, { kind: "service", service: "valkey", from: "off", to: "on" }, { immediate: true })}>
-              Add KV, one shared cache
-            </Button>
-          )}
-        </div>
-      )}
       {writer && dirty && (
         <div className="mt-3 flex items-center gap-2">
           <Button variant="primary" size="sm" onClick={save} disabled={saving || !fits}>
@@ -1037,7 +1025,8 @@ function DeployRuntimeLogs({ project, app, dep, name }: { project: string; app: 
 function Fix({ project, app, text }: { project: string; app: string; text: string }) {
   const m = useQuery(core.manifest(project));
   const services = (m.data?.manifest.services ?? {}) as Record<string, unknown>;
-  const needs: Record<string, string> = { DATABASE_URL: "postgres", REDIS_URL: "valkey", S3_ENDPOINT: "storage", SMTP_URL: "email", TIFFIN_AUTH_URL: "auth" };
+  // Sign-in is the one part that is added; the others are always there.
+  const needs: Record<string, string> = { TIFFIN_AUTH_URL: "auth" };
   const missingVar = Object.keys(needs).find((v) => new RegExp(`\\b${v}\\b.*(not set|missing|undefined|required)|(not set|missing|undefined|required).*\\b${v}\\b`, "i").test(text));
   const service = missingVar ? needs[missingVar] : undefined;
   const secret = !missingVar ? /\b([A-Z][A-Z0-9_]{3,})\b (is )?(not set|missing|undefined|required)/.exec(text)?.[1] : undefined;

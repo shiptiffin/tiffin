@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowUpRight, BarChart3, Check, Database, FolderOpen, KeyRound, Mail, Plus, Zap } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ArrowUpRight, Check, Plus } from "lucide-react";
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, request, type Manifest, type Op } from "@/api/client";
 import type { components } from "@/api/schema";
@@ -31,8 +31,7 @@ import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { useDebounced } from "@/lib/debounced";
-import { PARTS, partA, partName, partSub } from "@/lib/names";
-import { PART_PAGE } from "@/lib/sections";
+import { partName, partSub } from "@/lib/names";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
 import { buildFor, isTested, presetName, presetOf, PRESETS } from "@/lib/frameworks";
 import {
@@ -54,12 +53,7 @@ import {
   startersQuery,
   suggestName,
   freeName,
-  soloParts,
-  defaultParts,
-  neededParts,
   thumbOf,
-  NEW_PARTS,
-  type NewPart,
   type Source,
   type Starter,
   type StarterKind,
@@ -75,24 +69,23 @@ type Launched = { project: string; app?: string; started: number; source: Source
 type Phase = "compose" | "launching" | "live" | "failed";
 
 /**
- * Start a project: the first minute of Tiffin. Three questions: what it's
- * called, where its code comes from (a starter, a GitHub repository, a public
- * git URL, or none yet), and which parts it needs. The plan on the right is
- * the real plan from the API, exactly what gets created. Create applies it (a
- * signed, undoable change), deploys the code, and the build streams in on
- * this page until the app answers at its own address. A project with no app
- * and one part opens straight on that part.
+ * Start a project: the first minute of Tiffin. Two questions: what it's
+ * called and where its code comes from (a starter, a GitHub repository, a
+ * public git URL, or none yet). Every project has its Database, KV, Files,
+ * Email, Analytics and Jobs, so there is nothing else to pick. The plan on the
+ * right is the real plan from the API, exactly what gets created. Create
+ * applies it (a signed, undoable change), deploys the code, and the build
+ * streams in on this page until the app answers at its own address.
  */
 /**
  * ?starter= preselects the code: a kind ("web", "static", "api"), a starter id or an older alias ("astro", "next-postgres"),
- * "github", "git", "none", "import", "empty" or "part:<part>".
+ * "github", "git", "none", "import", "empty" or "part:<part>" (the last two, from older links, are "none").
  */
 export type NewSearch = { starter?: string };
 
 export function NewProjectPage({ search }: { search: NewSearch }) {
   useTitle("New project");
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
   const manifests = useQueries({ queries: names.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
@@ -111,10 +104,9 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
   const dom = useBoxDomain(probe);
 
   // The code: a kind of starter ("web", "static", "api"), "github", "git", "none" or "import". A ?starter= link
-  // preselects one ("part:postgres" is no code and just that part; "empty" is no code and nothing ticked); a starter's
-  // own id opens its kind with that framework picked.
+  // preselects one ("part:postgres" and "empty" are no code); a starter's own id opens its kind with that framework picked.
   const asked = search.starter;
-  const askedPart = asked?.startsWith("part:") ? (asked.slice(5) as NewPart) : undefined;
+  const askedPart = asked?.startsWith("part:");
   const plainCode = !!asked && (isKind(asked) || CODE_WORDS.includes(asked));
   const [code, setCodeOnly] = useState<string>(askedPart || asked === "empty" ? "none" : plainCode ? asked : "web");
   // The framework picked in each kind (a starter id); a kind not in here uses its default.
@@ -128,17 +120,8 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
       setChosen((c) => ({ ...c, [s.kind]: s.id }));
     }
   }
-  // The ticked parts; null until changed by hand, so picking other code resets them to its defaults.
-  const [ticked, setTicked] = useState<NewPart[] | null>(askedPart ? [askedPart] : asked === "empty" ? [] : null);
-  const setCode = (c: string) => {
-    setCodeOnly(c);
-    setTicked(null);
-  };
-  // Another framework brings its own needs (Next.js wants a database, Astro none): the parts follow it.
-  const setFramework = (kind: StarterKind, id: string) => {
-    setChosen((c) => ({ ...c, [kind]: id }));
-    setTicked(null);
-  };
+  const setCode = setCodeOnly;
+  const setFramework = (kind: StarterKind, id: string) => setChosen((c) => ({ ...c, [kind]: id }));
   const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next", preset: "nextjs" });
   const [gh, setGh] = useState<GitHubPick>(emptyPick);
   const { admin } = useMe();
@@ -157,19 +140,14 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
           : starter
             ? { kind: "starter", starter }
             : null;
-  const needed = source ? neededParts(source) : [];
-  const parts = NEW_PARTS.filter((p) => needed.includes(p) || (ticked ?? (source ? defaultParts(source) : [])).includes(p));
-  const toggle = (p: NewPart, on: boolean) => setTicked(on ? [...parts, p] : parts.filter((x) => x !== p));
   const app = source ? appFor(source) : null;
-  // No app and one part: a standalone project, named for that part.
-  const solo = !app && parts.length === 1 ? soloParts.find((s) => s.part === parts[0]) : undefined;
   const suggested =
     code === "git"
       ? nameFromGit(git.url) || "web"
       : code === "github"
         ? nameFromRepo(gh.repo) || "web"
         : code === "none"
-          ? freeName(solo?.name ?? "project", taken)
+          ? freeName("project", taken)
           : suggestName(starter, taken) || "project";
   const name = typed ?? suggested;
   const check = checkName(name, taken);
@@ -208,7 +186,7 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
   const [stage, setPhase] = useState<Phase>("compose");
   const [L, setL] = useState<Launched | null>(null);
 
-  const wanted = source && check.ok && gitCheck.ok ? newProjectManifest(name, source, parts) : null;
+  const wanted = source && check.ok && gitCheck.ok ? newProjectManifest(name, source) : null;
   const desired = useDebounced(wanted, 220);
   const key = JSON.stringify(desired);
   // Only what is on screen can be created: never a plan for an earlier name or starter.
@@ -231,18 +209,10 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
             ? `Start ${name} from ${shortRepo(git.url)}`
             : source.kind === "github"
               ? `Start ${name} from ${source.repo} on GitHub`
-              : parts.length
-                ? `Start ${name} with ${listWords(parts.map(partA))}`
-                : `Start ${name}`;
+              : `Start ${name}`;
       await api.apply(desired, plan.data.hash, intent);
       void qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["changes"] });
-      if (solo) {
-        // A standalone project opens straight on its part, like a console.
-        await qc.invalidateQueries({ queryKey: ["project", name] });
-        await navigate({ to: PART_PAGE[solo.part].to, params: { project: name } });
-        return null;
-      }
       setPhase("launching");
       if (!app) return null;
       if (source.kind === "github") for (const e of source.env) await setSecret(name, e.k, e.v);
@@ -420,10 +390,6 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
                     )}
                   </Step>
 
-                  <Step n={3} label="What it needs">
-                    <PartChecklist parts={parts} needed={needed} neededBy={starter?.presetName ?? ""} onToggle={toggle} />
-                    <p className="mt-3 text-sm text-ink-3">Add or remove any of these later from the project. Jobs and schedules are always there.</p>
-                  </Step>
 
                   <p className="border-t border-rule pt-4 text-sm text-ink-3">
                     Moving a project from another box?{" "}
@@ -459,7 +425,6 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
                 createError={create.error}
                 creating={create.isPending}
                 source={source}
-                parts={parts}
                 blockedWhy={gitUnsupported ? unsupportedWhy(gitUnsupported) : code === "github" && gh.unsupported ? unsupportedWhy(gh.unsupported) : undefined}
               />
             )}
@@ -594,56 +559,6 @@ function KindTile({
   );
 }
 
-const partIcon: Record<NewPart, ReactNode> = {
-  postgres: <Database />,
-  valkey: <Zap />,
-  storage: <FolderOpen />,
-  auth: <KeyRound />,
-  email: <Mail />,
-  analytics: <BarChart3 />,
-};
-
-/** The parts a new project starts with, as a checklist; a starter's own are ticked and fixed. */
-function PartChecklist({ parts, needed, neededBy, onToggle }: { parts: NewPart[]; needed: NewPart[]; neededBy: string; onToggle: (p: NewPart, on: boolean) => void }) {
-  return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
-      {NEW_PARTS.map((p) => {
-        const on = parts.includes(p);
-        const fixed = needed.includes(p);
-        return (
-          <label
-            key={p}
-            className={cn(
-              "grid grid-cols-[28px_minmax(0,1fr)_16px] items-start gap-x-3 rounded-[10px] border bg-paper-raised px-3 py-3 transition-[border-color,box-shadow] duration-[var(--dur-state)]",
-              on ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
-              fixed ? "cursor-default" : "cursor-pointer",
-            )}
-          >
-            <span className="grid size-7 place-items-center rounded-[7px] bg-paper-sunk text-ink-2 [&_svg]:size-4" aria-hidden>
-              {partIcon[p]}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[0.875rem] font-[550] text-ink">{PARTS[p].name}</span>
-              <span className="block text-[0.78125rem] leading-[1.125rem] text-ink-3">{fixed ? `The ${neededBy} starter uses it` : PARTS[p].sub}</span>
-            </span>
-            <input type="checkbox" className="peer sr-only" checked={on} disabled={fixed} onChange={(e) => onToggle(p, e.target.checked)} />
-            <span
-              aria-hidden
-              className={cn(
-                "mt-0.5 grid size-4 place-items-center rounded-[4px] border transition-colors peer-focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]",
-                on ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent",
-                fixed && "opacity-60",
-              )}
-            >
-              <Check className="size-2.5" strokeWidth={3} />
-            </span>
-          </label>
-        );
-      })}
-    </div>
-  );
-}
-
 /** Words in ?starter= that aren't a kind or a starter. */
 const CODE_WORDS = ["github", "git", "none", "import"];
 
@@ -654,9 +569,6 @@ function SwitchLink({ onClick, children }: { onClick: () => void; children: Reac
     </button>
   );
 }
-
-/** "a database, files and email". */
-const listWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 function OptionRow({ value, picked, icon, title, line }: { value: string; picked: boolean; icon: ReactNode; title: string; line: string }) {
   return (
@@ -755,7 +667,6 @@ function PlanPanel({
   createError,
   creating,
   source,
-  parts,
   blockedWhy,
 }: {
   name: string;
@@ -769,7 +680,6 @@ function PlanPanel({
   createError: unknown;
   creating: boolean;
   source: Source | null;
-  parts: NewPart[];
   /** Why it can't be created, when the code says so (a framework the box can't run yet). */
   blockedWhy?: string;
 }) {
@@ -811,7 +721,7 @@ function PlanPanel({
           <ProblemNote error={planError} className="my-4" title="This can’t be planned." />
         ) : (
           <ol className={cn("divide-y divide-rule transition-opacity duration-[var(--dur-state)]", (pending || blocked) && "opacity-50")}>
-            {sortOps(plan ? ops : skeletonOps(source, parts)).map((o, i) => (
+            {sortOps(plan ? ops : skeletonOps(source)).map((o, i) => (
               <OpRow key={o.address + i} op={o} project={name} framework={frameworkOfSource(source)} />
             ))}
           </ol>
@@ -866,11 +776,11 @@ const sortOps = (ops: Op[]) => {
 };
 
 /** Rows to hold the plan's place while it loads. */
-function skeletonOps(source: Source | null, parts: NewPart[]): Op[] {
+function skeletonOps(source: Source | null): Op[] {
   const ops: Op[] = [{ action: "create", address: "project", risk: "reversible", reason: "" }];
   const app = source ? appFor(source) : null;
   if (app) ops.push({ action: "create", address: `app/${app.name}`, risk: "reversible", reason: "", after: { framework: app.framework } });
-  for (const p of parts) ops.push({ action: "create", address: `service/${p}`, risk: "reversible", reason: "" });
+  for (const p of ["postgres", "valkey", "storage", "email", "analytics"]) ops.push({ action: "create", address: `service/${p}`, risk: "reversible", reason: "" });
   return ops;
 }
 

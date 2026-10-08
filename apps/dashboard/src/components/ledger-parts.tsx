@@ -181,6 +181,11 @@ export function opTitle(op: Op, project: string, past = false): string {
     if (op.action === "delete") return `${v("Let", "Let")} ${project} write again`;
     return `${v("Make", "Made")} ${project} read-only`;
   }
+  if (kind === "emptied") {
+    const part = ({ postgres: "Database", valkey: "KV", storage: "Files" } as Record<string, string>)[name] ?? name;
+    if (op.action === "delete") return `${v("Restore", "Restored")} the data deleted from ${part}`;
+    return `${v("Delete", "Deleted")} all data in ${part}`;
+  }
   if (kind === "storagelimit") {
     const max = Number(after.maxBytes ?? 0);
     if (op.action === "delete") return `${v("Return", "Returned")} ${project} to the box’s default storage limit`;

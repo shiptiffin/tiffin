@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { api, ApiError, type Manifest, type Plan } from "@/api/client";
+import { api, ApiError, type DataPart, type Manifest, type Plan } from "@/api/client";
 import { q, queryClient } from "@/api/queries";
 import { toast } from "@/components/toast";
 import { asTier, tierRank } from "./changes";
@@ -39,8 +39,14 @@ export type StagedEdit =
 
 export type BucketAccess = "public" | "private" | "absent";
 
-/** A plan that needs a person's yes before it applies. */
-export type ConfirmRequest = { project: string; edits: StagedEdit[]; desired: Manifest; plan: Plan };
+/**
+ * A plan that needs a person's yes before it applies. A manifest edit has `desired`; an action that plans
+ * on the server (Delete all data, its restore) has `data` instead, and Confirm repeats it with the hash.
+ */
+export type ConfirmRequest = { project: string; edits: StagedEdit[]; desired?: Manifest; plan: Plan; data?: DataAction };
+
+/** Delete all data in a part, or put back what that took. */
+export type DataAction = { part: DataPart; action: "empty" | "restore" };
 
 type Store = {
   queued: Record<string, StagedEdit[]>;
@@ -168,13 +174,42 @@ async function flush(project: string) {
 }
 
 /** Applies a plan the person has seen (or one that didn't need asking), then says so with Undo. */
-export async function applyPlan(project: string, edits: StagedEdit[], desired: Manifest, plan: Plan) {
+export async function applyPlan(req: ConfirmRequest) {
+  const { project, edits, desired, plan, data } = req;
   try {
-    await commit(project, edits, desired, plan);
+    if (data) await commitData(project, data, plan.hash);
+    else if (desired) await commit(project, edits, desired, plan);
   } finally {
     if (state.confirm?.plan.hash === plan.hash) set({ ...state, confirm: null });
-    clearInflight(project);
+    if (!data) clearInflight(project);
   }
+}
+
+const dataWords: Record<DataPart, string> = { postgres: "the database", valkey: "KV", storage: "Files" };
+
+/**
+ * Delete all data in one of a project's always-there parts, or restore what that took. The server plans it;
+ * the plan can't be undone the usual way, so the confirm dialog always asks first.
+ */
+export async function dataChange(project: string, data: DataAction) {
+  try {
+    await api.data(project, data.part, data.action);
+  } catch (e) {
+    const plan = e instanceof ApiError && e.status === 428 ? (e.problem.plan as Plan | undefined) : undefined;
+    if (plan) {
+      set({ ...state, confirm: { project, edits: [], plan, data } });
+      return;
+    }
+    toast({ title: data.action === "empty" ? `Couldn’t delete the data in ${dataWords[data.part]}.` : "Couldn’t restore the data.", detail: e instanceof ApiError ? (e.problem.detail ?? e.message) : String(e), tone: "danger" });
+  }
+}
+
+async function commitData(project: string, data: DataAction, hash: string) {
+  await api.data(project, data.part, data.action, hash);
+  await invalidate(project);
+  toast({
+    title: data.action === "empty" ? `Deleted all data in ${dataWords[data.part]}. You can restore it for 7 days.` : `Restored the data in ${dataWords[data.part]}.`,
+  });
 }
 
 async function commit(project: string, edits: StagedEdit[], desired: Manifest, plan: Plan) {
@@ -191,7 +226,7 @@ async function commit(project: string, edits: StagedEdit[], desired: Manifest, p
 export function cancelConfirm() {
   const c = state.confirm;
   set({ ...state, confirm: null });
-  if (c) clearInflight(c.project);
+  if (c && !c.data) clearInflight(c.project);
 }
 
 let go: ((to: string) => void) | undefined;

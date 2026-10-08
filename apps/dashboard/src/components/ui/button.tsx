@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
  *   secondary  paper with a rule: everything else that acts
  *   ghost      words only: cancel, dismiss, secondary navigation
  *   danger     red: only after an irreversible action is armed
+ *   danger-outline  a red-outlined button: opens a destructive action's confirm (Settings › Danger zone)
  *
  * Disabled: primary turns to pressed paper; the others fade to 45%.
  *
@@ -22,6 +23,8 @@ const variants = {
   ghost: "[:where(&)]:text-ink-2 [:where(&)]:hover:text-ink [:where(&)]:hover:bg-paper-hover [:where(&)]:disabled:opacity-45",
   danger: "[:where(&)]:bg-danger [:where(&)]:text-on-danger [:where(&)]:shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] [:where(&)]:hover:bg-[color-mix(in_oklch,var(--danger)_90%,var(--ink))] [:where(&)]:disabled:opacity-45",
   "danger-quiet": "[:where(&)]:text-danger [:where(&)]:hover:bg-danger-wash [:where(&)]:disabled:opacity-45",
+  "danger-outline":
+    "[:where(&)]:bg-paper-raised [:where(&)]:text-danger [:where(&)]:border [:where(&)]:border-danger-rule [:where(&)]:shadow-[var(--top-light)] [:where(&)]:hover:bg-danger-wash [:where(&)]:disabled:opacity-45",
 } as const;
 
 const sizes = {

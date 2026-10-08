@@ -217,8 +217,8 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
     return (
       <Page wide>
         <DataHeader project={project} title={PARTS.postgres.name} tabs={false} />
-        <Empty className="mt-10" title="This project has no database yet">
-          Add it from the project's overview, or add <code className="font-mono text-ink">services: {"{ postgres: {} }"}</code> to tiffin.config.ts and apply.
+        <Empty className="mt-10" title={`${project}’s database is being set up.`}>
+          Every project has one; it’s ready in a few seconds.
         </Empty>
       </Page>
     );

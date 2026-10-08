@@ -10,7 +10,7 @@ import { ProblemNote } from "@/components/problem";
 import { SERVICES, ServiceRow, Working, type SetEdit } from "@/components/project-rows";
 import { Button } from "@/components/ui/button";
 import { useMe } from "@/lib/me";
-import { DeleteProject } from "@/components/delete-project";
+import { DangerZone } from "@/components/danger-zone";
 import { rememberProject } from "@/lib/recent";
 import { change, pendingFor, usePending } from "@/lib/staged";
 import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
@@ -22,8 +22,8 @@ import { SettingsNav, useSettingsSection, type SettingsSection } from "@/compone
 /**
  * A project's settings, one section at a time (the sub-navigation keeps the
  * section in the URL's #hash): General (icon, sleep), Apps (how each runs and
- * builds), Services (built-in parts on or off; jobs live on Jobs), API keys, Copy & move,
- * and the Danger zone. Environment variables and domains have their own pages.
+ * builds), Services (sign-in on or off; the other parts are always there), API keys, Copy & move,
+ * and the Danger zone (Delete all data in a part, its restore, Delete project). Environment variables and domains have their own pages.
  */
 export function ProjectSettingsPage({ project }: { project: string }) {
   useTitle(`${project} · Settings`);
@@ -39,7 +39,6 @@ export function ProjectSettingsPage({ project }: { project: string }) {
   const status = p.data?.status ?? {};
   const setEdits = pending.filter((e): e is SetEdit => e.kind === "set");
   const pendingSet = (path: string[]) => setEdits.find((e) => e.path.join("/") === path.join("/"));
-  const { admin } = useMe();
   const sections: SettingsSection[] = [
     { id: "general", label: "General" },
     ...(apps.length > 0 ? [{ id: "apps", label: apps.length === 1 ? "App" : "Apps" }] : []),
@@ -81,7 +80,11 @@ export function ProjectSettingsPage({ project }: { project: string }) {
 
           {active === "services" && (
             <>
-              <Section title="Built-in parts" note="Turn one on and it’s ready in seconds. Turning off something that holds data asks first and says what would be lost." first>
+              <Section
+                title="Built-in parts"
+                note="Database, KV, Files, Email, Analytics and Jobs are always there; to start one over, use Delete all data in the Danger zone. Sign-in is the one you add."
+                first
+              >
                 <div className="divide-y divide-rule border-y border-rule">
                   {SERVICES.map((s) => (
                     <ServiceRow
@@ -118,11 +121,7 @@ export function ProjectSettingsPage({ project }: { project: string }) {
 
           {active === "danger" && (
             <Section title="Danger zone" first>
-              <div className="rounded-[12px] border border-danger-rule px-4 py-4 sm:px-5">
-                <h3 className="text-[0.875rem] font-[550] text-ink">Delete this project</h3>
-                <p className="mt-0.5 mb-3 max-w-[40rem] text-[0.8125rem] text-ink-3">Everything in it goes: apps, database, files, users. History keeps the record. You’ll see exactly what is lost and type the name first.</p>
-                {admin ? (<div className="-ml-3"><DeleteProject project={project} /></div>) : <p className="text-[0.8125rem] text-ink-2">Only an admin of this box can delete a project.</p>}
-              </div>
+              <DangerZone project={project} />
             </Section>
           )}
         </div>

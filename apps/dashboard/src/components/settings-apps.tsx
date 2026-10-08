@@ -27,18 +27,17 @@ export function AppsSettings({ project, manifest }: { project: string; manifest?
   const res = useQuery(q.resources);
   const free = res.data && res.data.memory.totalBytes > 0 ? res.data.memory.availableBytes / MB - RESERVE_MB : undefined;
   const apps = Object.entries((manifest?.apps ?? {}) as Record<string, ManifestApp>).sort(([a], [b]) => a.localeCompare(b));
-  const hasKV = !!manifest?.services?.valkey;
   if (apps.length === 0) return <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">No apps in {project} yet.</p>;
   return (
     <div className="grid gap-4">
       {apps.map(([name, spec]) => (
-        <AppCard key={name} project={project} name={name} spec={spec} writer={writer} free={free} hasKV={hasKV} edits={edits} />
+        <AppCard key={name} project={project} name={name} spec={spec} writer={writer} free={free} edits={edits} />
       ))}
     </div>
   );
 }
 
-function AppCard({ project, name, spec, writer, free, hasKV, edits }: { project: string; name: string; spec: ManifestApp; writer: boolean; free?: number; hasKV: boolean; edits: StagedEdit[] }) {
+function AppCard({ project, name, spec, writer, free, edits }: { project: string; name: string; spec: ManifestApp; writer: boolean; free?: number; edits: StagedEdit[] }) {
   const isStatic = spec.framework === "static";
   return (
     <article id={`app-${name}`} aria-label={name} className="scroll-mt-6 rounded-[12px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)]">
@@ -66,7 +65,6 @@ function AppCard({ project, name, spec, writer, free, hasKV, edits }: { project:
                 app={name}
                 spec={spec}
                 free={free}
-                hasKV={hasKV}
                 instances={pendingFor(edits, `instances:${name}`)}
                 memory={edits.find((e) => e.kind === "set" && e.path.join("/") === `apps/${name}/memoryMB`)}
                 writer={writer}

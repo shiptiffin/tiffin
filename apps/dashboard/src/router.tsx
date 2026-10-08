@@ -341,9 +341,7 @@ const storage = createRoute({
     const { project: p } = storage.useParams();
     const { new: isNew } = storage.useSearch();
     return (
-      <PartGate project={p} part="storage">
-        <FilesPage key={p} project={p} isNew={isNew === "bucket"} />
-      </PartGate>
+      <FilesPage key={p} project={p} isNew={isNew === "bucket"} />
     );
   },
 });
@@ -356,9 +354,7 @@ const bucket = createRoute({
     const { project: p, bucket: b } = bucket.useParams();
     const { prefix, file } = bucket.useSearch();
     return (
-      <PartGate project={p} part="storage">
-        <BucketPage key={p + b} project={p} bucket={b} prefix={prefix} file={file} />
-      </PartGate>
+      <BucketPage key={p + b} project={p} bucket={b} prefix={prefix} file={file} />
     );
   },
 });
@@ -371,9 +367,7 @@ const inbox = createRoute({
     const { project: p } = inbox.useParams();
     const { q, m, status } = inbox.useSearch();
     return (
-      <PartGate project={p} part="email">
-        <InboxPage key={p} project={p} q={q} m={m} status={status} />
-      </PartGate>
+      <InboxPage key={p} project={p} q={q} m={m} status={status} />
     );
   },
 });
@@ -384,9 +378,7 @@ const emailSettings = createRoute({
   component: function EmailSettings() {
     const { project: p } = emailSettings.useParams();
     return (
-      <PartGate project={p} part="email">
-        <EmailSettingsPage key={p} project={p} />
-      </PartGate>
+      <EmailSettingsPage key={p} project={p} />
     );
   },
 });
@@ -398,9 +390,7 @@ const data = createRoute({
   component: function Data() {
     const { project: p } = data.useParams();
     return (
-      <PartGate project={p} part="postgres">
-        <DataPage key={p} project={p} />
-      </PartGate>
+      <DataPage key={p} project={p} />
     );
   },
 });
@@ -412,9 +402,7 @@ const table = createRoute({
   component: function Table() {
     const { project: p, table: t } = table.useParams();
     return (
-      <PartGate project={p} part="postgres">
-        <TablePage key={p} project={p} table={t} />
-      </PartGate>
+      <TablePage key={p} project={p} table={t} />
     );
   },
 });
@@ -426,9 +414,7 @@ const sqlRoute = createRoute({
   component: function Sql() {
     const { project: p } = sqlRoute.useParams();
     return (
-      <PartGate project={p} part="postgres">
-        <SqlPage key={p} project={p} />
-      </PartGate>
+      <SqlPage key={p} project={p} />
     );
   },
 });
@@ -440,9 +426,7 @@ const branches = createRoute({
   component: function Branches() {
     const { project: p } = branches.useParams();
     return (
-      <PartGate project={p} part="postgres">
-        <BranchesPage key={p} project={p} />
-      </PartGate>
+      <BranchesPage key={p} project={p} />
     );
   },
 });
@@ -454,9 +438,7 @@ const schemaRoute = createRoute({
   component: function Schema() {
     const { project: p } = schemaRoute.useParams();
     return (
-      <PartGate project={p} part="postgres">
-        <SchemaPage key={p} project={p} />
-      </PartGate>
+      <SchemaPage key={p} project={p} />
     );
   },
 });
@@ -468,9 +450,7 @@ const restoreRoute = createRoute({
   component: function Restore() {
     const { project: p } = restoreRoute.useParams();
     return (
-      <PartGate project={p} part="postgres">
-        <RestorePage key={p} project={p} />
-      </PartGate>
+      <RestorePage key={p} project={p} />
     );
   },
 });
@@ -487,9 +467,7 @@ const kv = createRoute({
     const { project: p } = kv.useParams();
     const { match, key, new: isNew } = kv.useSearch();
     return (
-      <PartGate project={p} part="valkey">
-        <KvPage key={p} project={p} match={match} k={key} isNew={isNew} />
-      </PartGate>
+      <KvPage key={p} project={p} match={match} k={key} isNew={isNew} />
     );
   },
 });
@@ -500,9 +478,7 @@ const kvConsole = createRoute({
   component: function KvConsole() {
     const { project: p } = kvConsole.useParams();
     return (
-      <PartGate project={p} part="valkey">
-        <KvPage key={p} project={p} tab="console" />
-      </PartGate>
+      <KvPage key={p} project={p} tab="console" />
     );
   },
 });
@@ -655,9 +631,7 @@ const analytics = createRoute({
   component: function Analytics() {
     const { project: p } = analytics.useParams();
     return (
-      <PartGate project={p} part="analytics">
-        <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />
-      </PartGate>
+      <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />
     );
   },
 });

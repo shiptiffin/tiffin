@@ -18,6 +18,8 @@ export type KeyCreateBody = S["KeyCreateBody"];
 export type ApplyResult = S["ApplyResult"];
 export type Passkey = S["Passkey"];
 export type ProjectState = S["ProjectState"];
+/** The parts Delete all data empties: Database, KV and Files. */
+export type DataPart = "postgres" | "valkey" | "storage";
 export type ResourceStatus = S["ResourceStatus"];
 export type SecretInfo = S["SecretInfo"];
 export type Person = S["Person"];
@@ -118,6 +120,12 @@ export const api = {
   change: (id: string) => request<Change>("GET", `/v1/changes/${encodeURIComponent(id)}`),
   /** Without confirm the API answers 428 with the undo plan (thrown as ApiError). */
   undo: (id: string, confirm?: string) => request<ApplyResult>("POST", `/v1/changes/${encodeURIComponent(id)}/undo`, confirm ? { confirm } : {}),
+  /**
+   * Delete all data in one of a project's always-there parts (empty), or put back what that took within 7 days
+   * (restore). Without confirm the API answers 428 with the plan (thrown as ApiError).
+   */
+  data: (project: string, part: DataPart, action: "empty" | "restore", confirm?: string) =>
+    request<ApplyResult>("POST", `/v1/projects/${encodeURIComponent(project)}/data/${part}/${action}`, confirm ? { confirm } : {}),
   status: () => request<StatusReport>("GET", "/v1/status"),
   tokens: (revoked = false) => request<Token[] | null>("GET", `/v1/tokens${revoked ? "?revoked=true" : ""}`).then((x) => x ?? []),
   createToken: (body: KeyCreateBody) => request<CreatedToken>("POST", "/v1/tokens", body),

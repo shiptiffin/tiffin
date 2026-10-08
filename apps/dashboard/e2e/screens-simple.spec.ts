@@ -95,14 +95,15 @@ const pages: Array<{
   { name: "observability", url: "/projects/shop/observability", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   { name: "observability-limit", url: "/projects/shop/observability", stub: withUsage, wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   { name: "history", url: "/projects/shop/history", wait: (p) => p.getByRole("heading", { name: "Activity" }).waitFor() },
-  { name: "project-settings", url: "/projects/shop/settings", wait: (p) => p.getByRole("heading", { name: "Built-in parts" }).waitFor() },
+  { name: "project-settings", url: "/projects/shop/settings#services", wait: (p) => p.getByRole("heading", { name: "Built-in parts" }).waitFor() },
+  { name: "danger-zone", url: "/projects/shop/settings#danger", wait: (p) => p.getByRole("heading", { name: "Delete this project" }).waitFor() },
   {
     name: "confirm",
-    url: "/projects/shop/settings",
-    wait: (p) => p.getByRole("heading", { name: "Built-in parts" }).waitFor(),
+    url: "/projects/shop/settings#danger",
+    wait: (p) => p.getByRole("heading", { name: "Delete all data in Database" }).waitFor(),
     act: async (p) => {
-      await p.getByRole("switch", { name: /^Analytics: on/ }).click();
-      await p.getByRole("dialog").getByText("This can’t be undone.").waitFor();
+      await p.getByRole("button", { name: "Delete data" }).first().click();
+      await p.getByRole("alertdialog").getByText("You can restore it for 7 days.").waitFor();
     },
     full: false,
   },

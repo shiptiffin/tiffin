@@ -33,32 +33,24 @@ export function partOfPath(tail: string): Part | undefined {
   return ({ data: "postgres", storage: "storage", email: "email", users: "auth", orgs: "auth", analytics: "analytics", queues: "jobs", workflows: "jobs", jobs: "jobs", schedules: "jobs", apps: "apps" } as Record<string, Part>)[a];
 }
 
-/** The parts a project has. A project with no apps can always use Jobs (schedules and queues that call any address). */
-export function partsOf(state?: ProjectState, implied = true): Set<Part> {
+/**
+ * Every project always has these: Database, KV, Files, Email, Analytics and Jobs (manifest.AlwaysOn on the box;
+ * Jobs needs nothing set up). Auth is the one that is added.
+ */
+export const ALWAYS: readonly Part[] = ["postgres", "valkey", "storage", "email", "analytics", "jobs"];
+
+/** The parts a project has: the always-there ones, its apps and Auth when it has them. */
+export function partsOf(state?: ProjectState): Set<Part> {
   const res = state?.resources ?? [];
-  const out = new Set<Part>();
-  const apps = res.filter((r) => r.address.startsWith("app/"));
-  if (apps.length) out.add("apps");
-  for (const k of ["postgres", "valkey", "storage", "email", "auth", "analytics"] as const) if (res.some((r) => r.address === `service/${k}`)) out.add(k);
-  if (res.some((r) => /^(cron|queue|topic)\//.test(r.address)) || apps.some((a) => (a.spec as { role?: string } | null)?.role === "worker")) out.add("jobs");
-  if (implied && state && !apps.length) out.add("jobs");
+  const out = new Set<Part>(state ? ALWAYS : []);
+  if (res.some((r) => r.address.startsWith("app/"))) out.add("apps");
+  if (res.some((r) => r.address === "service/auth")) out.add("auth");
   return out;
 }
 
-/**
- * The one part of a standalone project ("just a database", "just KV",
- * "just files", "just a schedule"): no apps and exactly one part. Its sidebar
- * shows only that part, and it opens there rather than on Overview.
- */
-export function standalonePart(state?: ProjectState): Part | null {
-  const parts = [...partsOf(state, false)];
-  return parts.length === 1 && ["postgres", "valkey", "storage", "jobs"].includes(parts[0]) ? parts[0] : null;
-}
-
-/** Where a project opens: its one part when it is standalone, else its Overview. */
-export function projectHome(project: string, state?: ProjectState): { to: ProjectPage; params: { project: string } } {
-  const one = standalonePart(state);
-  return { to: one ? PART_PAGE[one].to : "/projects/$project", params: { project } };
+/** Where a project opens: its Overview. */
+export function projectHome(project: string): { to: ProjectPage; params: { project: string } } {
+  return { to: "/projects/$project", params: { project } };
 }
 
 /**
@@ -69,7 +61,7 @@ export function projectHome(project: string, state?: ProjectState): { to: Projec
  */
 export function landing(path: string, target: string, state: ProjectState | undefined, pages: string[]): { to: ProjectPage; params: { project: string }; missing?: Part } {
   const tail = path.match(/^\/projects\/[^/]+\/?(.*)$/)?.[1];
-  if (tail === undefined || tail === "") return projectHome(target, state);
+  if (tail === undefined || tail === "") return projectHome(target);
   const part = partOfPath(tail);
   if (part && !partsOf(state).has(part)) return { to: "/projects/$project", params: { project: target }, missing: part };
   const segs = tail.split("/").filter(Boolean);

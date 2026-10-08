@@ -27,11 +27,21 @@ const destroy = (project: string, confirm?: string) =>
  * without confirm answers 428 with that plan), the dialog says exactly what
  * goes, the person types the name, and Delete applies that plan's hash.
  */
-export function DeleteProject({ project, label, onDeleted }: { project: string; label?: string; onDeleted?: () => void }) {
+export function DeleteProject({
+  project,
+  label,
+  variant = "danger-quiet",
+  onDeleted,
+}: {
+  project: string;
+  label?: string;
+  variant?: "danger-quiet" | "danger-outline";
+  onDeleted?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="danger-quiet" size="md" onClick={() => setOpen(true)}>
+      <Button variant={variant} size="md" onClick={() => setOpen(true)}>
         {label ?? `Delete ${project}…`}
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>

@@ -35,13 +35,9 @@ export const RESERVE_MB = 512; // kept free for spikes, as the Box and the tray 
 export const MEMORY_STOPS = [256, 512, 1024, 2048, 4096];
 export const mbWords = (n: number) => (n >= 1024 ? withUnit(dec(n / 1024, 1), "GB") : withUnit(int(n), "MB"));
 
+/** The built-in parts with an on/off switch: only sign-in. Database, KV, Files, Email, Analytics and Jobs are always there. */
 export const SERVICES: Array<{ key: string; label: string; sub: string; to: ProjectPage }> = [
-  { key: "postgres", label: PARTS.postgres.name, sub: PARTS.postgres.sub, to: "/projects/$project/data" },
-  { key: "storage", label: PARTS.storage.name, sub: PARTS.storage.sub, to: "/projects/$project/storage" },
   { key: "auth", label: PARTS.auth.name, sub: PARTS.auth.sub, to: "/projects/$project/users" },
-  { key: "email", label: PARTS.email.name, sub: PARTS.email.sub, to: "/projects/$project/email" },
-  { key: "analytics", label: PARTS.analytics.name, sub: PARTS.analytics.sub, to: "/projects/$project/analytics" },
-  { key: "valkey", label: PARTS.valkey.name, sub: PARTS.valkey.sub, to: "/projects/$project/data/kv" },
 ];
 
 export type SetEdit = Extract<StagedEdit, { kind: "set" }>;

@@ -16,27 +16,21 @@ async function open(page: Page, baseURL: string, query = "") {
 }
 
 const kind = (page: Page, k: string) => page.locator(`[data-kind=${k}]`);
-const database = (page: Page) => page.getByRole("checkbox", { name: /Database/ });
 
 test("a kind's framework is a quiet choice that drives what it needs", async ({ page, baseURL }) => {
   await open(page, baseURL!);
-  // Web app is picked, with Next.js, which needs a database.
+  // Web app is picked, with Next.js.
   await expect(kind(page, "web").getByRole("radio")).toBeChecked();
   await expect(kind(page, "web").getByRole("combobox")).toHaveText("Next.js");
   await expect(kind(page, "static")).toContainText("Astro");
   await expect(kind(page, "api")).toContainText("Hono");
-  await expect(database(page)).toBeChecked();
-  await expect(database(page)).toBeDisabled();
-  await expect(page.getByText("The Next.js starter uses it")).toBeVisible();
 
   await pick(page, kind(page, "web").getByRole("combobox"), "TanStack Start");
-  await expect(page.getByText("The TanStack Start starter uses it")).toBeVisible();
   await expect(page.getByLabel("The plan")).toContainText("TanStack Start");
 
-  // A static site needs nothing; its default is Astro, and Vite + React is the other choice.
+  // A static site's default is Astro, and Vite + React is the other choice.
   await kind(page, "static").getByRole("radio").click();
   await expect(kind(page, "static").getByRole("combobox")).toHaveText("Astro");
-  await expect(database(page)).not.toBeChecked();
   await expect(page.getByLabel("The plan")).toContainText("Astro, built to static files");
   await pick(page, kind(page, "static").getByRole("combobox"), "Vite + React");
   await expect(page.getByLabel("The plan")).toContainText("Vite + React");

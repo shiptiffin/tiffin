@@ -239,16 +239,15 @@ test("usage → copies apply at once → undo → removing a database asks first
   await page.getByRole("button", { name: /that (was|were) undone/ }).click();
   await expect(page.getByRole("link", { name: "Run search on 2 copies instead of 1." })).toBeVisible();
 
-  // Turning the database off would delete data: the dialog says what, and Cancel leaves it on.
-  await page.goto("/projects/notes/settings#services");
-  await page.getByRole("switch", { name: /^Database: on/ }).click();
+  // The database is always there; Delete all data says what goes and that it comes back for 7 days, and Cancel keeps it.
+  await page.goto("/projects/notes/settings#danger");
+  await page.getByRole("button", { name: "Delete data" }).first().click();
   const dialog = page.getByRole("alertdialog");
-  await expect(dialog.getByRole("heading", { name: "Remove the database from notes?" })).toBeVisible();
-  await expect(dialog.getByText("This can’t be undone.")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Delete for good" })).toBeDisabled();
+  await expect(dialog.getByRole("heading", { name: "Delete all data in Database?" })).toBeVisible();
+  await expect(dialog.getByText("You can restore it for 7 days. After that it’s gone for good.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Delete data" })).toBeDisabled(); // the project's name comes first
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("switch", { name: /^Database: on/ })).toHaveAttribute("aria-checked", "true");
 
   expect(problems, problems.join("\n")).toEqual([]);
 });

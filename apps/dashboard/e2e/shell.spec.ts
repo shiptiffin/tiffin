@@ -84,13 +84,12 @@ test("switching projects keeps your section, or says why not", async ({ page }) 
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/projects\/notes\/data\/sql$/);
 
-  // notes has no KV: its Overview, with a quiet note.
+  // Every project has KV: switching from one's KV lands on the other's.
   await page.goto("/projects/hello/data/kv");
   await page.getByRole("heading", { level: 1, name: "KV" }).waitFor();
   await page.getByRole("button", { name: /Switch project/ }).first().click();
   await page.getByRole("option", { name: "notes" }).click();
-  await expect(page).toHaveURL(/\/projects\/notes$/);
-  await expect(page.getByRole("status").filter({ hasText: "notes doesn’t have a KV store" })).toBeVisible();
+  await expect(page).toHaveURL(/\/projects\/notes\/data\/kv$/);
 
   // Recent first: the project just left leads the switcher's list.
   await page.getByRole("button", { name: /Switch project/ }).first().click();
@@ -224,9 +223,9 @@ test("shell screens", async ({ page }) => {
       await page.getByRole("dialog", { name: "Connect to the database" }).waitFor();
       await shot("connect");
       await page.keyboard.press("Escape");
-      await page.goto("/new?starter=part:postgres");
-      await page.getByRole("heading", { name: "What it needs" }).scrollIntoViewIfNeeded();
-      await shot("new-solo");
+      await page.goto("/projects/hello/settings#danger");
+      await page.getByRole("heading", { name: "Delete this project" }).waitFor();
+      await shot("danger-zone");
       await page.goto("/usage");
       await page.getByRole("region", { name: "Every project’s usage" }).waitFor();
       await shot("usage", true);

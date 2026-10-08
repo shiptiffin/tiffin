@@ -14,7 +14,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 | Drawings that aren't layout (toggle, spinner, pilot light, diff, the carrier on Settings › Machine) | `src/styles/fusion.css` |
 | Tailwind theme + type roles (`sentence`, `title`, `label`, `ident`, …) | `src/styles.css` |
 | What the parts are called (Database, KV, Files, Email, Auth, Jobs, Analytics, Health, Shield) | `src/lib/names.ts` |
-| Which parts a project has, its standalone part, where switching projects lands | `src/lib/sections.ts`, `src/lib/switch.ts` |
+| Which parts a project has (Database, KV, Files, Email, Analytics and Jobs always; Auth when added), where switching projects lands | `src/lib/sections.ts`, `src/lib/switch.ts` |
 | Keyboard shortcuts and ⌘K commands a page adds (`useShortcut`, `useCommand`) | `src/lib/shortcuts.ts` |
 | Connect (env, code, tunnel) for a part's page header | `src/components/connect.tsx` (`<ConnectButton part project>`) |
 | Numbers and units | `src/lib/format.ts`; shares of the box in words: `src/lib/usage.ts` (`fullWords`, `shareWords`, `memWords`, `cpuWords`) |
@@ -32,8 +32,9 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   Your box: General, Machine, Git, DNS, Shield, People; You: Sign-ins, Touch ID / Face ID), so the sidebar
   never goes three levels deep. Inside a project: "← All projects", then only that project's sections:
   Overview, Deployments, Logs, Analytics, Observability, Domains, Environment Variables, its services,
-  then Activity (the same changes as the box's Activity, for this project) and Settings. A standalone project (just a database, KV,
-  files or schedules; no app) shows only that part and opens on it. Switching projects keeps your section
+  then Activity (the same changes as the box's Activity, for this project) and Settings. Every project has a Database, KV,
+  Files, Email, Analytics and Jobs, so there is no Add for them and no empty "add it" page; Auth is the one part that is
+  added. A project with no apps shows only Overview, Database, KV, Files, Jobs, Activity and Settings. Switching projects keeps your section
   when the other project has it, else lands on its Overview, which says why.
 - **Frame.** On a desktop the sidebar is a tinted ground (`--side`) and the page a white panel inset 8 px
   on it (Linear, Supabase); a phone gets the plain page.
@@ -48,8 +49,9 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   a quiet Add. Each tile opens its own page. **Usage**: memory, CPU and disk, its database, cache and builds
   against their limits, one Limit choice (no limit, or a share of the box that holds all of it) with storage,
   cache and query time under its Advanced, copies and exact numbers under Details. **History**: plain
-  sentences, who and when, Undo, and when its limit held it back. **Settings**: name, addresses, settings and secrets, built-in parts (toggles), keys
-  that reach it, delete.
+  sentences, who and when, Undo, and when its limit held it back. **Settings**: name, addresses, settings and secrets, sign-in on or off, keys
+  that reach it, and the Danger zone: one bordered card of rows (title and what happens, the button on the right): Delete all data
+  in Database, KV or Files (restorable for 7 days, with a Restore row while it is), then Delete project.
 - **Settings** (the box): Your box (name, domain, look, moving it, updates), Machine (the carrier with the
   platform's parts), People, Sign-ins (where you're signed in, sign out, the last 30 days), Shield.
 
