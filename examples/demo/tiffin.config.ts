@@ -8,10 +8,5 @@ export default defineConfig({
     site: { framework: "static", path: "site", routes: ["demo"] },
     api: { framework: "hono", path: "api", routes: ["demo/api"], healthcheck: "/api/healthz" },
   },
-  services: {
-    postgres: {},
-    valkey: {},
-    analytics: {},
-  },
   env: { GREETING: "Welcome to the box" },
 });

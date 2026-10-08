@@ -29,7 +29,7 @@ func TestPull(t *testing.T) {
 	if code != ExitOK || res["written"] != true || res["project"] != "hello" || res["version"].(float64) != 1 {
 		t.Fatalf("pull: %d %s", code, out)
 	}
-	if s := res["summary"].(string); s != "3 apps: api (hono), web (next), worker (bun); services: postgres, valkey, storage; 1 env var" {
+	if s := res["summary"].(string); s != "3 apps: api (hono), web (next), worker (bun); services: postgres, valkey, storage, email, analytics; 1 env var" {
 		t.Errorf("summary: %q", s)
 	}
 	cfg := filepath.Join(dir, "tiffin.config.ts")

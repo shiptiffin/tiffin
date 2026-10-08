@@ -21,6 +21,17 @@
     }
   },
   "services": {
+    "postgres": {},
+    "valkey": {
+      "maxMemoryMB": 64
+    },
+    "storage": {
+      "buckets": {
+        "files": {
+          "public": false
+        }
+      }
+    },
     "auth": {
       "methods": [
         "email",

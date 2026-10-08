@@ -6,7 +6,4 @@ export default defineConfig({
   apps: {
     web: { framework: "bun", healthcheck: "/healthz" },
   },
-  services: {
-    postgres: {},
-  },
 });

@@ -3,8 +3,10 @@ package change
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/btahir/tiffin/internal/manifest"
 )
@@ -42,14 +44,38 @@ const (
 	// one this way, its data intact. Undoing the change starts the apps
 	// again. Manifests never list it, and every manifest plan keeps it.
 	KindStopped = "stopped"
+	// KindEmptied ("emptied/postgres", "emptied/valkey", "emptied/storage")
+	// is "Delete all data" of one always-on part: making or updating it
+	// empties the part (its data is kept DataKeep, then gone for good);
+	// deleting it, or undoing the change that made it, puts that data back.
+	// Spec: EmptiedSpec. Manifests never list it, and every manifest plan
+	// keeps it.
+	KindEmptied = "emptied"
 )
+
+// EmptyParts are the parts "Delete all data" empties, by service name.
+var EmptyParts = []string{"postgres", "valkey", "storage"}
+
+// DataKeep is how long the data a "Delete all data" took is kept, so it can
+// be restored.
+const DataKeep = 7 * 24 * time.Hour
+
+// EmptiedSpec is an emptied/<part> resource's spec. Version is the
+// project's version when the data was deleted: it tells one delete from
+// the next, so a confirm binds to exactly one.
+type EmptiedSpec struct {
+	Version int64 `json:"version"`
+}
+
+// EmptyAddress is the resource that empties a part: "emptied/postgres".
+func EmptyAddress(part string) string { return KindEmptied + "/" + part }
 
 // Unmanaged reports whether resources of this address are outside the
 // manifest (secrets, read-only holds, storage limits): a manifest plan keeps
 // them as they are.
 func Unmanaged(address string) bool {
 	k := Kind(address)
-	return k == KindSecret || k == KindReadOnly || k == KindStorageLimit || k == KindStopped
+	return k == KindSecret || k == KindReadOnly || k == KindStorageLimit || k == KindStopped || k == KindEmptied
 }
 
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
@@ -193,10 +219,12 @@ func Diff(current, desired map[string]Resource) []Op {
 	return ops
 }
 
-// order of kinds when creating; deletes run in reverse. Queues come after
+// order of kinds when creating; deletes run in reverse. Emptying a part
+// comes after its service and buckets (it re-creates the buckets empty) and
+// restoring it before they go. Queues come after
 // apps (they push jobs into them), topics after the queues they fan out to,
 // and crons last.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindStorageLimit: 9, KindReadOnly: 9, KindStopped: 9}
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindStorageLimit: 9, KindReadOnly: 9, KindStopped: 9, KindEmptied: 3}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).
@@ -255,4 +283,65 @@ func changedFields(before, after json.RawMessage) []string {
 	}
 	sort.Strings(fields)
 	return fields
+}
+
+// AlwaysOnMissing says which always-on parts (manifest.AlwaysOn, and the
+// bucket manifest.DefaultBucket) a project's desired resources would lack,
+// as addresses. A desired state without a project resource is the project
+// being deleted, which takes everything: nothing is missing then.
+func AlwaysOnMissing(desired map[string]Resource) []string {
+	if _, ok := desired[KindProject]; !ok {
+		return nil
+	}
+	var out []string
+	for _, s := range manifest.AlwaysOn {
+		if _, ok := desired[KindService+"/"+s]; !ok {
+			out = append(out, KindService+"/"+s)
+		}
+	}
+	if _, ok := desired[KindBucket+"/"+manifest.DefaultBucket]; !ok {
+		out = append(out, KindBucket+"/"+manifest.DefaultBucket)
+	}
+	return out
+}
+
+// AlwaysOnResources are the always-on parts with their default settings,
+// for a project that has none of them yet.
+func AlwaysOnResources(project string) map[string]Resource {
+	res, _ := Resources(manifest.Normalize(&manifest.Manifest{Project: project}))
+	out := map[string]Resource{}
+	for addr, r := range res {
+		if addr != KindProject {
+			out[addr] = r
+		}
+	}
+	return out
+}
+
+// ErrAlwaysOn refuses a desired state without an always-on part.
+func ErrAlwaysOn(missing []string) error {
+	return &PreconditionError{Address: strings.Join(missing, ", "), Detail: "Database, KV, Files (with its bucket " + manifest.DefaultBucket +
+		"), Email and Analytics are always there and can't be removed. To empty one, use Delete all data " +
+		"(POST /v1/projects/{project}/data/{part}/empty); to remove everything, delete the project"}
+}
+
+// RestoreExpired refuses ops that would restore data a "Delete all data"
+// took after DataKeep, when it is gone: deleting an emptied/<part> resource
+// whose spec says when. at is when each version's delete happened (by
+// version, from the change log); unknown versions pass.
+func RestoreExpired(ops []Op, deletedAt func(part string, version int64) (time.Time, bool), now time.Time) error {
+	for _, o := range ops {
+		if o.Action != Delete || Kind(o.Address) != KindEmptied {
+			continue
+		}
+		var s EmptiedSpec
+		if json.Unmarshal(o.Before, &s) != nil {
+			continue
+		}
+		if at, ok := deletedAt(Name(o.Address), s.Version); ok && now.Sub(at) > DataKeep {
+			return &PreconditionError{Address: o.Address, Detail: fmt.Sprintf("the data deleted on %s was kept for 7 days and is gone now; there is nothing to restore",
+				at.UTC().Format("2 January 2006"))}
+		}
+	}
+	return nil
 }

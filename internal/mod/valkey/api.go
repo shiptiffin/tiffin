@@ -98,8 +98,8 @@ func ready(ctx context.Context, p *platform.Platform, project string) error {
 		return err
 	}
 	if !ok {
-		pr := api.NewProblem(409, "precondition", "project "+project+" has no valkey service")
-		pr.Hint = "add services.valkey to tiffin.config.ts and apply"
+		pr := api.NewProblem(409, "precondition", "project "+project+"'s KV is not set up yet")
+		pr.Hint = "every project has KV; it is set up with the project's next apply (or within a minute): check `tiffin projects get " + project + "`"
 		return pr
 	}
 	return nil

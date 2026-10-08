@@ -128,7 +128,7 @@ func TestFixtureTrafficExactCounts(t *testing.T) {
 	m.handleEdge(ctx, access("shop.box.test", "/missing", human(1), 404, doc))
 	m.handleEdge(ctx, access("shop.box.test", "/form", human(1), 200, with(doc, "X-Method", "POST")))
 	m.handleEdge(ctx, access("site.plain.box.test", "/", human(1), 200, doc))
-	m.handleEdge(ctx, access("site.box.test", "/", human(1), 200, doc)) // project without analytics
+	m.handleEdge(ctx, access("site.box.test", "/", human(1), 200, doc)) // no project
 
 	beacon := func(ua string, body string) int {
 		req, _ := http.NewRequest("POST", coll.URL+"/e", strings.NewReader(body))
@@ -160,8 +160,8 @@ func TestFixtureTrafficExactCounts(t *testing.T) {
 	if err != nil || env["TIFFIN_ANALYTICS_KEY"] == "" || env["TIFFIN_ANALYTICS_SCRIPT"] != "https://t.box.test:8443/script.js" {
 		t.Fatalf("env %v %v", env, err)
 	}
-	if e2, _ := m.Env(ctx, p, "plain", "site"); e2 != nil {
-		t.Fatalf("no analytics env without the service: %v", e2)
+	if e2, _ := m.Env(ctx, p, "nowhere", "site"); e2 != nil {
+		t.Fatalf("no analytics env for a project the box doesn't have: %v", e2)
 	}
 	req, _ := http.NewRequest("POST", coll.URL+"/track", strings.NewReader(`{"name":"Purchase","props":{"amount":49,"currency":"usd"},"ip":"8.8.8.8","ua":"`+human(4)+`"}`))
 	req.Header.Set("Authorization", "Bearer "+env["TIFFIN_ANALYTICS_KEY"])

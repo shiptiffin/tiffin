@@ -15,10 +15,13 @@ import (
 // says "about" and uses Postgres's live-row estimate.
 const exactRowsUnder = 250_000
 
-// EstimateLoss says what deleting a project's Postgres destroys: its tables
-// and rows, and the size of its databases (branches included).
+// EstimateLoss says what deleting a project's Postgres (or all its data)
+// destroys: its tables and rows, and the size of its databases (branches
+// included).
 func (*Module) EstimateLoss(ctx context.Context, p *platform.Platform, project string, op change.Op) (*change.Loss, error) {
-	if op.Address != change.KindService+"/postgres" || op.Action != change.Delete {
+	// Deleting the service, or Delete all data (and its restore, which
+	// replaces what is there then): what the project's databases hold now.
+	if (op.Address != change.KindService+"/postgres" || op.Action != change.Delete) && op.Address != change.EmptyAddress("postgres") {
 		return nil, nil
 	}
 	admin, err := Admin(ctx, "postgres")

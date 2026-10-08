@@ -116,7 +116,7 @@ type EngineConfig struct {
 }
 
 // ErrNeedsPostgres is returned for projects with auth but no postgres.
-var ErrNeedsPostgres = errors.New("services.auth keeps users in the project's own Postgres database: add `postgres: {}` to services in tiffin.config.ts")
+var ErrNeedsPostgres = errors.New("services.auth keeps users in the project's own Postgres database, which is not set up yet: it is with the project's next apply")
 
 // hostIP is the address app containers reach box services on (published by
 // the runtime module as KV runtime/host-ip; 127.0.0.1 until then).

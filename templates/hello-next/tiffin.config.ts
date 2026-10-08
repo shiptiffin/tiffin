@@ -7,7 +7,4 @@ export default defineConfig({
     // refreshes both.
     web: { framework: "next", instances: 2, memoryMB: 512, healthcheck: "/api/health" },
   },
-  services: {
-    valkey: {},
-  },
 });

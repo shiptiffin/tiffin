@@ -42,6 +42,12 @@
       }
     },
     {
+      "address": "bucket/files",
+      "spec": {
+        "public": false
+      }
+    },
+    {
       "address": "bucket/uploads",
       "spec": {
         "public": true
@@ -53,6 +59,16 @@
     },
     {
       "address": "project",
+      "spec": {}
+    },
+    {
+      "address": "service/analytics",
+      "spec": {
+        "retentionDays": 365
+      }
+    },
+    {
+      "address": "service/email",
       "spec": {}
     },
     {

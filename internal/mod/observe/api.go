@@ -647,7 +647,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 						return nil, err
 					}
 					if _, ok := res["service/email"]; !ok {
-						return nil, api.NewProblem(422, "validation", "project "+ep+" has no email service; add services.email to its tiffin.config.ts")
+						return nil, api.NewProblem(422, "validation", "project "+ep+"'s email is not set up yet; it is with the project's next apply")
 					}
 				}
 				if err := m.store.SetSetting(ctx, SettingEmailProject, ep); err != nil {

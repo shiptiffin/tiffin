@@ -15,14 +15,14 @@ import (
 // means "not measured", never "nothing". It is not part of the plan hash.
 type Loss struct {
 	Bytes   int64       `json:"bytes" doc:"Bytes that would be deleted (on disk, or the stored size of what goes)"`
-	Counts  []LossCount `json:"counts" doc:"What goes, counted: rows, tables, files, events, jobs"`
+	Counts  []LossCount `json:"counts" doc:"What goes, counted: rows, tables, files, keys, events, jobs"`
 	Summary string      `json:"summary" doc:"The same in plain words, e.g. \"18,204 rows in 12 tables · 41 MB\""`
 }
 
 // LossCount is one counted thing an op would destroy.
 type LossCount struct {
 	N      int64  `json:"n"`
-	Unit   string `json:"unit" enum:"row,table,file,event,job,user,database" doc:"Singular noun of what is counted"`
+	Unit   string `json:"unit" enum:"row,table,file,event,job,user,database,key" doc:"Singular noun of what is counted"`
 	Approx bool   `json:"approx,omitempty" doc:"True when N is an estimate (a large table's row count)"`
 }
 

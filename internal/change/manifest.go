@@ -150,8 +150,8 @@ func ManifestFromResources(project string, res map[string]Resource) (*manifest.M
 			if err != nil {
 				return nil, err
 			}
-		case KindSecret, KindReadOnly, KindStorageLimit, KindStopped:
-			// Secrets, read-only holds, storage limits and stops are not part of the manifest.
+		case KindSecret, KindReadOnly, KindStorageLimit, KindStopped, KindEmptied:
+			// Secrets, read-only holds, storage limits, stops and emptied data are not part of the manifest.
 		default:
 			return nil, fmt.Errorf("resource %s: unknown kind %q", addr, strings.TrimSpace(kind))
 		}

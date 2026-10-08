@@ -10,8 +10,6 @@ export default defineConfig({
     web: { framework: "next", instances: 2, memoryMB: 512, healthcheck: "/api/health", release: "bun lib/seed-run.ts" },
   },
   services: {
-    postgres: {},
-    valkey: {},
     storage: { buckets: { media: { public: true } } },
   },
 });

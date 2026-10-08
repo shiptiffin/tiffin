@@ -97,13 +97,16 @@ func TestManifestFromResourcesRejectsUnknownKinds(t *testing.T) {
 			t.Errorf("%s: want an error naming the resource, got %v", addr, err)
 		}
 	}
-	// An empty project is just the project.
+	// An empty project is the project with its always-on parts.
 	m, err := ManifestFromResources("empty", map[string]Resource{KindProject: {Address: KindProject, Spec: json.RawMessage(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	canon, _ := manifest.Canonical(m)
-	if string(canon) != "{\n  \"version\": 1,\n  \"project\": \"empty\"\n}\n" {
-		t.Fatalf("empty project: %s", canon)
+	res, _ := Resources(m)
+	if missing := AlwaysOnMissing(res); len(missing) != 0 || len(res) != 1+len(AlwaysOnResources("empty")) {
+		t.Fatalf("empty project: missing %v, resources %v", missing, res)
+	}
+	if src := string(manifest.RenderConfig(m, "")); strings.Contains(src, "services") {
+		t.Fatalf("empty project renders without services:\n%s", src)
 	}
 }

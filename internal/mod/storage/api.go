@@ -586,8 +586,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 }
 
 func noStorage(project string) error {
-	p := api.NewProblem(404, "not_found", "project "+project+" has no storage")
-	p.Hint = "add services.storage (with buckets) to tiffin.config.ts, then plan and apply"
+	p := api.NewProblem(404, "not_found", "project "+project+"'s Files are not set up yet")
+	p.Hint = "every project has Files (with the bucket files); they are set up with the project's next apply (or within a minute): check `tiffin projects get " + project + "`"
 	return p
 }
 

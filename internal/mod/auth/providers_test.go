@@ -451,6 +451,18 @@ func TestDashboardHandler(t *testing.T) {
 	}
 }
 
+// destroy deletes every resource of project.
+func destroy(t *testing.T, e *change.Engine, project string) {
+	t.Helper()
+	plan, err := e.PlanDelete(t.Context(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Apply(t.Context(), change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Authorize: func(*change.Plan) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mustB64(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := base64.RawURLEncoding.DecodeString(s)
@@ -466,7 +478,7 @@ func TestRemoveAuthWithItsDatabase(t *testing.T) {
 	p := newPlatform(t)
 	ctx := t.Context()
 	apply(t, p, `{"project":"gone","apps":{"web":{}},"services":{"postgres":{},"auth":{}}}`)
-	apply(t, p, `{"project":"gone","apps":{"web":{}}}`)
+	destroy(t, p.Engine, "gone")
 	if err := (&Module{}).Reconcile(ctx, p, "gone", change.KindService+"/auth", nil); err != nil {
 		t.Fatalf("auth removed with postgres: %v", err)
 	}

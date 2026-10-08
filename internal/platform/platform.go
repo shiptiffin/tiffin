@@ -212,8 +212,13 @@ type PlanChecker interface {
 	CheckPlan(ctx context.Context, p *Platform, project string, desired map[string]change.Resource) error
 }
 
-// CheckPlan asks every PlanChecker about a desired state; the first refusal wins.
+// CheckPlan asks every PlanChecker about a desired state; the first refusal
+// wins. A state without an always-on part (Database, KV, Files, Email,
+// Analytics) is refused first: they are emptied, never removed.
 func (p *Platform) CheckPlan(ctx context.Context, project string, desired map[string]change.Resource) error {
+	if missing := change.AlwaysOnMissing(desired); len(missing) > 0 {
+		return change.ErrAlwaysOn(missing)
+	}
 	for _, m := range Modules() {
 		if pc, ok := m.(PlanChecker); ok {
 			if err := pc.CheckPlan(ctx, p, project, desired); err != nil {

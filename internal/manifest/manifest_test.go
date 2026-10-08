@@ -596,8 +596,7 @@ func TestWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := Warnings(m)
-	if len(w) != 3 || !strings.Contains(w[0], "add `email: {}`") || !strings.Contains(w[1], "env sets DATABASE_URL") ||
-		!strings.Contains(w[2], "apps.web.env sets S3_PUBLIC_ENDPOINT") {
+	if len(w) != 2 || !strings.Contains(w[0], "env sets DATABASE_URL") || !strings.Contains(w[1], "apps.web.env sets S3_PUBLIC_ENDPOINT") {
 		t.Fatalf("warnings = %q", w)
 	}
 	m, _ = Parse([]byte(`{"project":"p","services":{"postgres":{},"email":{},"auth":{"methods":["passkey"]}}}`))

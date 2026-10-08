@@ -7,9 +7,4 @@ export default defineConfig({
   apps: {
     guestbook: { framework: "hono", healthcheck: "/api/healthz", env: { GREETING: "Welcome to the box" } },
   },
-  services: {
-    postgres: {},
-    valkey: {},
-    analytics: {},
-  },
 });

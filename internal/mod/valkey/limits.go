@@ -96,8 +96,8 @@ func decideCache(used, limit int64, held bool) (free int64, hold, release bool) 
 	return 0, false, false
 }
 
-// Start runs the cache limits, the REST endpoint (the box serves) and the
-// script guard.
+// Start runs the cache limits, the REST endpoint (the box serves), the
+// script guard and the pruning of keys saved by Delete all data.
 func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 	go serveREST(ctx, p)
 	go guardScripts(ctx, p, Admin)
@@ -113,6 +113,7 @@ func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 			if err := limits.round(ctx, p); err != nil && ctx.Err() == nil {
 				p.Log.Debug("valkey: cache limits", "err", err)
 			}
+			pruneSaved(ctx, p)
 		}
 	}()
 	return nil

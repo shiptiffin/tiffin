@@ -281,10 +281,13 @@ WantedBy=multi-user.target
 }
 
 // Kinds implements platform.Reconciler.
-func (*Module) Kinds() []string { return []string{"service/valkey"} }
+func (*Module) Kinds() []string { return []string{"service/valkey", change.EmptyAddress("valkey")} }
 
 // Reconcile creates, updates or removes a project's ACL user.
 func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
+	if address == change.EmptyAddress("valkey") {
+		return reconcileEmptied(ctx, p, project, spec)
+	}
 	c, err := Admin(ctx)
 	if err != nil {
 		return fmt.Errorf("connect to valkey: %w", err)

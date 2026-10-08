@@ -449,15 +449,6 @@ func SetByBox(name string) bool {
 // them so a person or agent can fix them before applying. They never block.
 func Warnings(m *Manifest) []string {
 	var out []string
-	if a := m.Services.Auth; a != nil && m.Services.Email == nil {
-		for _, meth := range a.Methods {
-			if meth == AuthEmail || meth == AuthMagicLink || meth == AuthOTP {
-				out = append(out, "services.auth sends verification, sign-in and reset emails through the project's email service, and there is none: "+
-					"add `email: {}` to services (mail lands in the dev inbox until a relay is set), or new users can't confirm their address or sign in")
-				break
-			}
-		}
-	}
 	if m.Services.Auth != nil {
 		for _, name := range sortedKeys(m.Apps) {
 			for _, r := range m.Apps[name].Routes {
@@ -470,14 +461,6 @@ func Warnings(m *Manifest) []string {
 	if a := m.Services.Auth; a != nil && a.EmailVerification != nil && !*a.EmailVerification {
 		out = append(out, "services.auth.emailVerification is false: anyone can sign up with an address they don't own. "+
 			"Fine for testing; before real users sign up, remove it (verification turns on by itself once the box has an SMTP relay) or set it to true")
-	}
-	if m.Services.Valkey == nil {
-		for _, name := range sortedKeys(m.Apps) {
-			if a := m.Apps[name]; a.Framework == FrameworkNext && a.Role != RoleWorker && a.Instances > 1 {
-				out = append(out, fmt.Sprintf("apps.%s runs %d copies of a Next.js app with no KV: each copy keeps its own cache, so ISR pages, revalidateTag and \"use cache\" "+
-					"can differ between requests. Add `valkey: {}` to services and the copies share one cache", name, a.Instances))
-			}
-		}
 	}
 	over := func(where string, env map[string]string) {
 		for _, k := range sortedKeys(env) {

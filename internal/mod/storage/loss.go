@@ -16,6 +16,9 @@ import (
 // counted now by walking the bucket. A bucket too big to walk within the
 // plan's budget falls back to the last background scan.
 func (m *Module) EstimateLoss(ctx context.Context, p *platform.Platform, project string, op change.Op) (*change.Loss, error) {
+	if op.Address == change.EmptyAddress("storage") {
+		return m.allBucketsLoss(ctx, p, project)
+	}
 	if change.Kind(op.Address) != change.KindBucket || op.Action != change.Delete {
 		return nil, nil
 	}
@@ -36,6 +39,25 @@ func (m *Module) EstimateLoss(ctx context.Context, p *platform.Platform, project
 		u = t.bucket(s3name) // the last scan, plus uploads since
 	}
 	return &change.Loss{Bytes: u.Bytes, Counts: []change.LossCount{{N: u.Objects, Unit: "file"}}}, nil
+}
+
+// allBucketsLoss is what Delete all data of the project's Files deletes
+// (and what its restore replaces): every file in every bucket.
+func (m *Module) allBucketsLoss(ctx context.Context, p *platform.Platform, project string) (*change.Loss, error) {
+	names, err := projectBuckets(ctx, p, project)
+	if err != nil {
+		return nil, err
+	}
+	var total Usage
+	for _, name := range names {
+		u, err := walkBucket(ctx, filepath.Join(dataDir(p.DataRoot), S3Name(project, name)))
+		if err != nil {
+			return nil, err
+		}
+		total.Bytes += u.Bytes
+		total.Objects += u.Objects
+	}
+	return &change.Loss{Bytes: total.Bytes, Counts: []change.LossCount{{N: total.Objects, Unit: "file"}}}, nil
 }
 
 // walkBucket is scanBucket that gives up when ctx ends.

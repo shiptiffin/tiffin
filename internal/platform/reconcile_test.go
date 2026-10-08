@@ -215,3 +215,35 @@ func TestConvergeLiftsHoldFirstAndRetriesFailures(t *testing.T) {
 		t.Fatal("a converged project keeps retrying")
 	}
 }
+
+// A project made before Database, KV, Files, Email and Analytics were always
+// there gets them on its next converge, as a change by the system; a plan
+// that would take one away is refused.
+func TestConvergeAddsAlwaysOnParts(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p := &Platform{DB: db, Engine: change.NewEngine(db), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	c := &change.Change{ID: "chg_1", Project: "shop", Version: 1, At: time.Now(),
+		Plan: change.Plan{Project: "shop", Ops: []change.Op{{Action: change.Create, Address: change.KindProject, After: json.RawMessage(`{}`)}}}}
+	if err := db.Commit(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	newReconciler(p).converge(ctx, "shop")
+	_, res, _ := db.Load(ctx, "shop")
+	if missing := change.AlwaysOnMissing(res); len(missing) != 0 || len(res) != 7 {
+		t.Fatalf("after converge: missing %v, %d resources", missing, len(res))
+	}
+	cs, _ := db.ListChanges(ctx, change.ListFilter{Project: "shop"})
+	if len(cs) != 2 || cs[0].Actor.Kind != "system" || !strings.Contains(cs[0].Intent, "Every project has") {
+		t.Fatalf("changes: %+v", cs[0])
+	}
+	delete(res, "service/postgres")
+	var pe *change.PreconditionError
+	if err := p.CheckPlan(ctx, "shop", res); !errors.As(err, &pe) {
+		t.Fatalf("a plan without the database: %v", err)
+	}
+}

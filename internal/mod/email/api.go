@@ -84,7 +84,7 @@ func toProblem(err error) error {
 		return pr
 	case errors.Is(err, errNoProject):
 		pr := api.NewProblem(404, "not_found", err.Error())
-		pr.Hint = "add services.email to tiffin.config.ts, then plan and apply"
+		pr.Hint = "every project has email; it is set up with the project's next apply (or within a minute)"
 		return pr
 	case errors.Is(err, errNotFound):
 		return api.NewProblem(404, "not_found", err.Error())

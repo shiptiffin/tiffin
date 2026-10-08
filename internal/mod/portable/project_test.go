@@ -372,7 +372,7 @@ func TestProjectExport(t *testing.T) {
 	if err := json.Unmarshal([]byte(files["project.json"]), &info); err != nil {
 		t.Fatal(err)
 	}
-	if info.Project != "shop" || !info.Git || len(info.Buckets) != 2 || len(info.Apps) != 3 || !slices.Equal(info.Secrets.Names, []string{"API_KEY"}) ||
+	if info.Project != "shop" || !info.Git || len(info.Buckets) != 3 || len(info.Apps) != 3 || !slices.Equal(info.Secrets.Names, []string{"API_KEY"}) ||
 		info.Postgres == nil || info.Valkey.Prefix != "p_shop:" || string(compactJSON(info.StorageLimit)) != `{"maxBytes":1000000}` {
 		t.Fatalf("project.json: %+v", info)
 	}

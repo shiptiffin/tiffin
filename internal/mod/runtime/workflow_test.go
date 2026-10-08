@@ -70,7 +70,7 @@ func TestPrepareWorkflow(t *testing.T) {
 	r := req(app(t, uses))
 	r.Postgres = false
 	var be *BuildError
-	if _, _, err := prepareWorkflow(r); !errors.As(err, &be) || !strings.Contains(be.Hint, "postgres: {}") {
+	if _, _, err := prepareWorkflow(r); !errors.As(err, &be) || !strings.Contains(be.Hint, "service/postgres is ready") {
 		t.Errorf("no postgres: %v", err)
 	}
 	if _, _, err := prepareWorkflow(req(app(t, `{"dependencies":{"workflow":"latest"}}`))); !errors.As(err, &be) {

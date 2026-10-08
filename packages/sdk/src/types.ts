@@ -428,11 +428,11 @@ export interface DomainConfig {
  * provisioned.
  */
 export interface ServicesConfig {
-  /** Database in the dashboard. */
+  /** Database in the dashboard. Always there; list it to set options. */
   postgres?: PostgresConfig;
-  /** Cache in the dashboard. */
+  /** KV in the dashboard. Always there; list it to set options. */
   valkey?: ValkeyConfig;
-  /** Files in the dashboard. */
+  /** Files in the dashboard. Always there with a private bucket "files"; list it to add buckets. */
   storage?: StorageConfig;
   auth?: AuthConfig;
   email?: EmailConfig;
@@ -491,7 +491,11 @@ export interface TiffinConfig {
   sleepAfter?: `${number}h` | `${number}d`;
   /** Apps keyed by name (same slug rules as `project`). */
   apps?: Record<Slug, AppConfig>;
-  /** Services the project uses. Absent means "not provisioned". */
+  /**
+   * Services' options. Every project always has postgres, valkey, storage
+   * (with a private bucket "files"), email and analytics: list one only to
+   * set its options; leaving it out never deletes it. Auth is the one you add.
+   */
   services?: ServicesConfig;
   /**
    * Scheduled calls into apps, keyed by name (same slug rules as `project`).

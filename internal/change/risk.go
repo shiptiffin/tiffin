@@ -15,6 +15,9 @@ func Classify(op Op) (Tier, string) {
 	kind, name := Kind(op.Address), Name(op.Address)
 	switch op.Action {
 	case Create:
+		if kind == KindEmptied {
+			return TierIrreversible, "deletes all data in " + partNoun(name) + "; it can be restored for 7 days, then it is gone for good"
+		}
 		if kind == KindReadOnly {
 			return TierReversible, "stops the project's database writes and file uploads; undo lifts it"
 		}
@@ -36,6 +39,9 @@ func Classify(op Op) (Tier, string) {
 			if name == "postgres" {
 				return TierIrreversible, "deletes the database and all its data (a snapshot is kept for 7 days, then gone for good)"
 			}
+			if name == "storage" {
+				return TierIrreversible, "removes the project's storage key; its buckets go with their own deletes (kept in the trash for 7 days)"
+			}
 			return TierIrreversible, fmt.Sprintf("deletes the %s service and all its data", name)
 		case KindCron:
 			return TierReversible, fmt.Sprintf("removes cron %q; undo restores it", name)
@@ -53,11 +59,15 @@ func Classify(op Op) (Tier, string) {
 			return TierReversible, "lets the project write again; undo makes it read-only again"
 		case KindStopped:
 			return TierReversible, "starts the project's apps again; undo stops them"
+		case KindEmptied:
+			return TierIrreversible, "puts back the data deleted from " + partNoun(name) + ", replacing what it holds now"
 		default:
 			return TierReversible, "removes " + kindNoun(kind, name) + "; undo restores it"
 		}
 	case Update:
 		switch kind {
+		case KindEmptied:
+			return TierIrreversible, "deletes all data in " + partNoun(name) + " again; it can be restored for 7 days, and the data deleted before can't be any more"
 		case KindService:
 			if name == "postgres" {
 				if dropped := droppedExtensions(op.Before, op.After); len(dropped) > 0 {
@@ -81,6 +91,19 @@ func Classify(op Op) (Tier, string) {
 	return Tier("unknown"), "unknown action"
 }
 
+// partNoun is an always-on part as the dashboard names it.
+func partNoun(name string) string {
+	switch name {
+	case "postgres":
+		return "the database"
+	case "valkey":
+		return "KV"
+	case "storage":
+		return "Files"
+	}
+	return name
+}
+
 func kindNoun(kind, name string) string {
 	switch kind {
 	case KindProject:
@@ -95,6 +118,8 @@ func kindNoun(kind, name string) string {
 		return "storage limit"
 	case KindStopped:
 		return "stop"
+	case KindEmptied:
+		return "deleted data of " + partNoun(name)
 	case KindService:
 		return name + " service"
 	}

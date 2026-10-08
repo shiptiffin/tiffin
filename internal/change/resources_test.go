@@ -3,8 +3,10 @@ package change
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btahir/tiffin/internal/manifest"
 )
@@ -139,5 +141,70 @@ func TestClassifyPlatform(t *testing.T) {
 		if tier != c.tier || !strings.Contains(reason, c.reason) {
 			t.Errorf("%s %s: got %s %q, want %s containing %q", c.op.Action, c.op.Address, tier, reason, c.tier, c.reason)
 		}
+	}
+}
+
+// Database, KV, Files, Email and Analytics are always there: a desired
+// state without one is refused, except the project's own deletion.
+func TestAlwaysOn(t *testing.T) {
+	all := AlwaysOnResources("shop")
+	if len(all) != 6 {
+		t.Fatalf("always-on resources: %v", all)
+	}
+	desired := map[string]Resource{KindProject: {Address: KindProject, Spec: json.RawMessage(`{}`)}}
+	for k, v := range all {
+		desired[k] = v
+	}
+	if m := AlwaysOnMissing(desired); len(m) != 0 {
+		t.Fatalf("missing %v", m)
+	}
+	delete(desired, "service/valkey")
+	delete(desired, "bucket/files")
+	m := AlwaysOnMissing(desired)
+	if len(m) != 2 || m[0] != "service/valkey" || m[1] != "bucket/files" {
+		t.Fatalf("missing %v", m)
+	}
+	var pe *PreconditionError
+	if err := ErrAlwaysOn(m); !errors.As(err, &pe) || !strings.Contains(err.Error(), "Delete all data") {
+		t.Fatalf("refusal: %v", err)
+	}
+	if m := AlwaysOnMissing(map[string]Resource{"secret/X": {}}); m != nil {
+		t.Fatalf("deleting the project: %v", m)
+	}
+}
+
+// Delete all data is irreversible, so it is confirmed; it sorts after the
+// services and buckets it empties, and its restore before they go.
+func TestEmptiedOps(t *testing.T) {
+	addr := EmptyAddress("postgres")
+	spec := json.RawMessage(`{"version":3}`)
+	for _, o := range []Op{{Action: Create, Address: addr, After: spec}, {Action: Update, Address: addr, Before: spec, After: spec}, {Action: Delete, Address: addr, Before: spec}} {
+		if tier, why := Classify(o); tier != TierIrreversible || !strings.Contains(why, "the database") {
+			t.Errorf("%s: %s %q", o.Action, tier, why)
+		}
+	}
+	if !Unmanaged(addr) {
+		t.Fatal("manifest plans keep it")
+	}
+	ops := []Op{{Action: Create, Address: addr}, {Action: Create, Address: "bucket/files"}, {Action: Create, Address: "service/postgres"}}
+	SortOps(ops)
+	if ops[2].Address != addr {
+		t.Fatalf("create order %v", ops)
+	}
+	ops = []Op{{Action: Delete, Address: "service/postgres"}, {Action: Delete, Address: addr}}
+	SortOps(ops)
+	if ops[0].Address != addr {
+		t.Fatalf("delete order %v", ops)
+	}
+	now := time.Now()
+	at := func(d time.Duration) func(string, int64) (time.Time, bool) {
+		return func(part string, v int64) (time.Time, bool) { return now.Add(-d), part == "postgres" && v == 3 }
+	}
+	restore := []Op{{Action: Delete, Address: addr, Before: spec}}
+	if err := RestoreExpired(restore, at(6*24*time.Hour), now); err != nil {
+		t.Fatalf("within 7 days: %v", err)
+	}
+	if err := RestoreExpired(restore, at(8*24*time.Hour), now); err == nil {
+		t.Fatal("past 7 days the restore is refused")
 	}
 }

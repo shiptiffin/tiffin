@@ -23,6 +23,7 @@ type env struct {
 	srv   *httptest.Server
 	owner string
 	tm    *tokens.Manager
+	db    *state.DB
 }
 
 func newEnv(t *testing.T) *env {
@@ -40,7 +41,7 @@ func newEnv(t *testing.T) *env {
 	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: "test"})
 	srv := httptest.NewServer(a.Handler())
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, owner: owner, tm: tm}
+	return &env{t: t, srv: srv, owner: owner, tm: tm, db: db}
 }
 
 // call does a request and decodes the JSON response into a generic map/slice.
@@ -153,7 +154,8 @@ func TestAuthRequired(t *testing.T) {
 func TestPlanApplyConfirmFlow(t *testing.T) {
 	e := newEnv(t)
 	code, plan, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": shop})
-	if code != 200 || plan["risk"] != "reversible" || len(plan["ops"].([]any)) != 3 {
+	// The project, its app and its always-on parts (5 services and the files bucket).
+	if code != 200 || plan["risk"] != "reversible" || len(plan["ops"].([]any)) != 8 {
 		t.Fatalf("plan: %d %v", code, plan)
 	}
 	hash := plan["hash"].(string)
@@ -182,7 +184,7 @@ func TestPlanApplyConfirmFlow(t *testing.T) {
 		t.Fatalf("idempotent re-apply: %d %v", code, res)
 	}
 	code, st, _ := e.call(e.owner, "GET", "/v1/projects/shop", nil)
-	if code != 200 || st["version"].(float64) != 1 || len(st["resources"].([]any)) != 3 {
+	if code != 200 || st["version"].(float64) != 1 || len(st["resources"].([]any)) != 8 {
 		t.Fatalf("project: %d %v", code, st)
 	}
 	// Undo: 428 with the undo plan, then confirm.
@@ -398,10 +400,8 @@ func TestPeopleRolesAndInvites(t *testing.T) {
 	if code, out, _ := e.call(session, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"], "intent": "by Sam"}); code != 200 || out["change"].(map[string]any)["actor"].(map[string]any)["name"] != "Sam" {
 		t.Fatalf("member apply: %d %v", code, out)
 	}
-	drop := map[string]any{"project": "shop"}
-	_, plan, _ = e.call(session, "POST", "/v1/plan", map[string]any{"manifest": drop})
-	if code, _, _ := e.call(session, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": plan["hash"]}); code != 403 {
-		t.Fatalf("member irreversible: %d", code)
+	if code, out := e.dropDB(session, "shop"); code != 403 {
+		t.Fatalf("member irreversible: %d %v", code, out)
 	}
 	if code, _, _ := e.call(session, "POST", "/v1/people", map[string]any{"name": "X", "role": "admin"}); code != 403 {
 		t.Fatalf("member invited someone: %d", code)
@@ -431,7 +431,7 @@ func TestProjectDestroy(t *testing.T) {
 	e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": shop, "confirm": plan["hash"]})
 	code, prob, _ := e.call(e.owner, "POST", "/v1/projects/shop/destroy", map[string]any{})
 	p, _ := prob["plan"].(map[string]any)
-	if code != 428 || p["risk"] != "irreversible" || len(p["ops"].([]any)) != 3 {
+	if code != 428 || p["risk"] != "irreversible" || len(p["ops"].([]any)) != 8 {
 		t.Fatalf("destroy plan: %d %v", code, prob)
 	}
 	if code, out, _ := e.call(e.owner, "POST", "/v1/projects/shop/destroy", map[string]any{"confirm": p["hash"]}); code != 200 || out["applied"] != true {

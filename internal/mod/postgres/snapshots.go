@@ -190,7 +190,12 @@ func restoreList(toc string) (string, []string) {
 func restoreSnapshot(ctx context.Context, p *platform.Platform, s *PGSnapshot) (*PGSnapshot, error) {
 	mu.Lock()
 	defer mu.Unlock()
-	admin, err := Admin(ctx, "postgres")
+	return restoreSnapshotLocked(ctx, p, s)
+}
+
+// restoreSnapshotLocked is restoreSnapshot for a caller that holds mu.
+func restoreSnapshotLocked(ctx context.Context, p *platform.Platform, s *PGSnapshot) (*PGSnapshot, error) {
+	admin, err := dbAdmin(ctx, "postgres")
 	if err != nil {
 		return nil, err
 	}

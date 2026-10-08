@@ -1,6 +1,23 @@
 {
   "version": 1,
   "project": "hooks",
+  "services": {
+    "postgres": {},
+    "valkey": {
+      "maxMemoryMB": 64
+    },
+    "storage": {
+      "buckets": {
+        "files": {
+          "public": false
+        }
+      }
+    },
+    "email": {},
+    "analytics": {
+      "retentionDays": 365
+    }
+  },
   "crons": {
     "digest": {
       "schedule": "0 9 * * 1-5",

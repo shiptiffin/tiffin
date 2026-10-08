@@ -14,7 +14,4 @@ export default defineConfig({
     },
   },
   domains: { "shiptiffin.com": { www: "redirect" } },
-  services: {
-    analytics: {},
-  },
 });

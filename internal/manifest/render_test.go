@@ -84,11 +84,8 @@ export default defineConfig({
     site: { framework: "static", path: "site", routes: ["demo"] },
   },
   services: {
-    postgres: {},
-    valkey: {},
     storage: { buckets: { private: {}, "user-files": { public: true } } },
     auth: { methods: ["passkey"], organizations: false },
-    analytics: {},
   },
   env: { GREETING: "Welcome to the box", QUOTE: "x\"y" },
   queues: {

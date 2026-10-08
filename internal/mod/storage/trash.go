@@ -26,6 +26,10 @@ type TrashEntry struct {
 	Objects   int64     `json:"objects"`
 	DeletedAt time.Time `json:"deletedAt"`
 	ExpiresAt time.Time `json:"expiresAt" doc:"After this the files are deleted for good"`
+	// Emptied is set when Delete all data put the bucket here: the
+	// emptied/storage version it belongs to. Such a bucket comes back only
+	// with that restore, not when the bucket is made again.
+	Emptied int64 `json:"emptied,omitempty" doc:"Set when Delete all data moved the bucket here"`
 }
 
 func trashKey(id string) string { return "trash/" + id }
@@ -33,6 +37,11 @@ func trashKey(id string) string { return "trash/" + id }
 // trashBucket moves a bucket's directory into the trash. A missing bucket
 // is not an error (already deleted).
 func (m *Module) trashBucket(ctx context.Context, p *platform.Platform, project, name string) error {
+	return m.trashBucketFor(ctx, p, project, name, 0)
+}
+
+// trashBucketFor is trashBucket for Delete all data (emptied set: its version).
+func (m *Module) trashBucketFor(ctx context.Context, p *platform.Platform, project, name string, emptied int64) error {
 	s3name := S3Name(project, name)
 	src := filepath.Join(dataDir(p.DataRoot), s3name)
 	if meta, err := getMeta(ctx, p, s3name); err != nil {
@@ -50,7 +59,7 @@ func (m *Module) trashBucket(ctx context.Context, p *platform.Platform, project,
 	u := scanBucket(src)
 	now := time.Now().UTC()
 	e := TrashEntry{ID: ids.New("trs"), Project: project, Bucket: name, S3Name: s3name, Bytes: u.Bytes, Objects: u.Objects,
-		DeletedAt: now, ExpiresAt: now.Add(TrashRetention)}
+		DeletedAt: now, ExpiresAt: now.Add(TrashRetention), Emptied: emptied}
 	e.Path = filepath.Join(trashDir(p.DataRoot), e.ID)
 	raw, _ := json.Marshal(e)
 	// Record first: a crash after the record but before the move leaves a
@@ -93,7 +102,7 @@ func (m *Module) restoreBucket(ctx context.Context, p *platform.Platform, projec
 	}
 	dst := filepath.Join(dataDir(p.DataRoot), S3Name(project, name))
 	for _, e := range entries {
-		if e.Project != project || e.Bucket != name || time.Now().After(e.ExpiresAt) {
+		if e.Project != project || e.Bucket != name || e.Emptied != 0 || time.Now().After(e.ExpiresAt) {
 			continue
 		}
 		if _, err := os.Stat(e.Path); err != nil {

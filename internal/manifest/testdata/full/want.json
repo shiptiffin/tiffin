@@ -56,6 +56,9 @@
     },
     "storage": {
       "buckets": {
+        "files": {
+          "public": false
+        },
         "public": {
           "public": true
         },
@@ -71,6 +74,10 @@
           ]
         }
       }
+    },
+    "email": {},
+    "analytics": {
+      "retentionDays": 365
     }
   },
   "env": {

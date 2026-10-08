@@ -392,6 +392,9 @@ type ProjectState struct {
 	// Status is each resource's live state on the machine (pending, ready, failed),
 	// and for apps whether production has a release.
 	Status map[string]state.ResourceStatus `json:"status,omitempty"`
+	// Restorable is data a "Delete all data" took that can still be put
+	// back (POST /v1/projects/{project}/data/{part}/restore).
+	Restorable []RestorableData `json:"restorable,omitempty" doc:"Data deleted with data empty in the last 7 days, which data restore puts back"`
 }
 
 // ProjectManifest is a project's current manifest, rebuilt from its stored
@@ -450,6 +453,7 @@ type keyCreateBody struct {
 
 func (a *API) register() {
 	api := a.api
+	a.registerData()
 
 	h := op("health", http.MethodGet, "/v1/health", "health", RiskRead, "Check the box is up",
 		"Unauthenticated liveness check. On a box, status is starting until every module has started.", "system")
@@ -548,13 +552,14 @@ func (a *API) register() {
 			if st, err := a.statuses(ctx, in.Project); err == nil && len(st) > 0 {
 				out.Status = st
 			}
+			out.Restorable = a.restorable(ctx, in.Project, res)
 			return &struct{ Body ProjectState }{out}, nil
 		}))
 
 	pm := op("project-manifest", http.MethodGet, "/v1/projects/{project}/manifest", "projects manifest", RiskRead, "Get a project's manifest",
 		"The project's current desired state as a manifest, rebuilt from its resources (works for every project, however it was created), "+
 			"plus the same thing as a readable tiffin.config.ts. To change the project without a config file: edit `manifest` "+
-			"(add an app, add services.postgres, change env...), send it to plan, review the ops and risk, then apply it with the plan's hash. "+
+			"(add an app, add services.auth, change env...), send it to plan, review the ops and risk, then apply it with the plan's hash. "+
 			"The plan is exactly what the same edit to tiffin.config.ts would give.", "projects")
 	pm.Errors = append(pm.Errors, 404)
 	huma.Register(api, pm, wrap(func(ctx context.Context, in *struct {
@@ -749,6 +754,9 @@ func (a *API) register() {
 			}
 			plan, err := a.deps.Engine.PlanUndo(ctx, in.ID)
 			if err != nil {
+				return nil, err
+			}
+			if err := a.checkRestore(ctx, c.Project, plan.Ops); err != nil {
 				return nil, err
 			}
 			if a.deps.Platform != nil {
@@ -988,6 +996,7 @@ func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan,
 	if err != nil {
 		return nil, err
 	}
+	a.noteEmptied(ctx, c)
 	if c != nil && a.deps.Platform != nil {
 		a.deps.Platform.AfterApply(c)
 	}
@@ -1072,6 +1081,9 @@ func (a *API) statuses(ctx context.Context, project string) (map[string]state.Re
 // checkPlan lets box modules refuse a desired state the machine cannot run.
 func (a *API) checkPlan(ctx context.Context, project string, desired map[string]change.Resource) error {
 	if a.deps.Platform == nil {
+		if missing := change.AlwaysOnMissing(desired); len(missing) > 0 {
+			return change.ErrAlwaysOn(missing)
+		}
 		return nil
 	}
 	return a.deps.Platform.CheckPlan(ctx, project, desired)

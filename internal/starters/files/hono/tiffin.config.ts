@@ -6,7 +6,4 @@ export default defineConfig({
   apps: {
     api: { framework: "hono", healthcheck: "/healthz" },
   },
-  services: {
-    postgres: {},
-  },
 });

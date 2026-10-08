@@ -278,8 +278,8 @@ func targetDatabase(ctx context.Context, p *platform.Platform, project, branch s
 }
 
 func errNoService(project string) error {
-	p := api.NewProblem(409, "precondition", "project "+project+" has no postgres service (or it is still being set up)")
-	p.Hint = "add services.postgres to tiffin.config.ts and apply, then check `tiffin projects get " + project + "` until service/postgres is ready"
+	p := api.NewProblem(409, "precondition", "project "+project+"'s database is still being set up")
+	p.Hint = "every project has a database; check `tiffin projects get " + project + "` until service/postgres is ready"
 	return p
 }
 

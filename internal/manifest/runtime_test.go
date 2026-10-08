@@ -28,26 +28,41 @@ func TestRuntime(t *testing.T) {
 	}
 }
 
-func TestNextCopiesWithoutKV(t *testing.T) {
-	warn := func(js string) bool {
-		m, err := Parse([]byte(js))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, w := range Warnings(m) {
-			if strings.Contains(w, "no KV") {
-				return true
-			}
-		}
-		return false
+// Every project has Database, KV, Files (with the private bucket "files"),
+// Email and Analytics, whatever its config says; their settings still come
+// from the config.
+func TestAlwaysOn(t *testing.T) {
+	m, err := Parse([]byte(`{"project":"shop"}`))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !warn(`{"project":"shop","apps":{"web":{"framework":"next","instances":2}}}`) {
-		t.Error("two Next.js copies without KV should warn")
+	s := m.Services
+	if s.Postgres == nil || s.Valkey == nil || s.Storage == nil || s.Email == nil || s.Analytics == nil {
+		t.Fatalf("services = %+v", s)
 	}
-	if warn(`{"project":"shop","apps":{"web":{"framework":"next","instances":2}},"services":{"valkey":{}}}`) {
-		t.Error("with KV the copies share a cache: no warning")
+	if b, ok := s.Storage.Buckets[DefaultBucket]; !ok || b.Public {
+		t.Fatalf("buckets = %+v", s.Storage.Buckets)
 	}
-	if warn(`{"project":"shop","apps":{"web":{"framework":"next"}}}`) {
-		t.Error("one copy: no warning")
+	if s.Auth != nil {
+		t.Fatal("auth stays optional")
+	}
+	if s.Valkey.MaxMemoryMB != DefaultValkeyMemMB || s.Analytics.RetentionDays != DefaultAnalyticsRetentionDays {
+		t.Fatalf("defaults: %+v %+v", s.Valkey, s.Analytics)
+	}
+	m, err = Parse([]byte(`{"project":"shop","services":{"postgres":{"extensions":["vector"]},"valkey":{"maxMemoryMB":128},
+		"storage":{"buckets":{"media":{"public":true},"files":{"public":true}}},"analytics":{"retentionDays":30}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s = m.Services
+	if len(s.Postgres.Extensions) != 1 || s.Valkey.MaxMemoryMB != 128 || s.Analytics.RetentionDays != 30 || s.Email == nil {
+		t.Fatalf("options from the config: %+v", s)
+	}
+	if !s.Storage.Buckets["files"].Public || !s.Storage.Buckets["media"].Public || len(s.Storage.Buckets) != 2 {
+		t.Fatalf("declared buckets win: %+v", s.Storage.Buckets)
+	}
+	// Leaving them out renders a config without them, and it means the same.
+	if src := string(RenderConfig(Normalize(&Manifest{Project: "shop"}), "")); strings.Contains(src, "services") {
+		t.Fatalf("the always-on parts with no settings are left out:\n%s", src)
 	}
 }

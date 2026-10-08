@@ -19,17 +19,17 @@ func TestList(t *testing.T) {
 		framework, app string
 		services       []string
 	}{
-		"nextjs":         {"next", "web", []string{"postgres"}},
-		"tanstack-start": {"bun", "web", []string{"postgres"}},
-		"sveltekit":      {"bun", "web", []string{"postgres"}},
-		"react-router":   {"bun", "web", []string{"postgres"}},
-		"nuxt":           {"bun", "web", []string{"postgres"}},
+		"nextjs":         {"next", "web", []string{}},
+		"tanstack-start": {"bun", "web", []string{}},
+		"sveltekit":      {"bun", "web", []string{}},
+		"react-router":   {"bun", "web", []string{}},
+		"nuxt":           {"bun", "web", []string{}},
 		"astro":          {"static", "site", []string{}},
 		"vite-react":     {"static", "site", []string{}},
-		"hono":           {"hono", "api", []string{"postgres"}},
-		"fastapi":        {"fastapi", "api", []string{"postgres"}},
+		"hono":           {"hono", "api", []string{}},
+		"fastapi":        {"fastapi", "api", []string{}},
 		"static-site":    {"static", "site", []string{}},
-		"guestbook":      {"hono", "guestbook", []string{"analytics", "postgres", "valkey"}},
+		"guestbook":      {"hono", "guestbook", []string{}},
 	}
 	if len(all) != len(want) {
 		t.Fatalf("%d starters", len(all))
@@ -65,7 +65,7 @@ func TestList(t *testing.T) {
 	}
 	g, ok := Get("guestbook")
 	frag, _ := json.Marshal(g.Fragment)
-	if !ok || string(frag) != `{"apps":{"guestbook":{"env":{"GREETING":"Welcome to the box"},"framework":"hono","healthcheck":"/api/healthz"}},"services":{"analytics":{},"postgres":{},"valkey":{}}}` {
+	if !ok || string(frag) != `{"apps":{"guestbook":{"env":{"GREETING":"Welcome to the box"},"framework":"hono","healthcheck":"/api/healthz"}}}` {
 		t.Fatalf("guestbook fragment: %s", frag)
 	}
 	if _, ok := Get("nope"); ok {

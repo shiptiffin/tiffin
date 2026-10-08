@@ -153,8 +153,8 @@ func (m *Module) ready(ctx context.Context, project string) error {
 
 func (m *Module) enabledHint(ctx context.Context, project string) error {
 	if _, ok := m.spec(ctx, project); !ok {
-		p := api.NewProblem(409, "precondition", "analytics is not enabled for project "+project)
-		p.Hint = "add `services: { analytics: {} }` to tiffin.config.ts, then plan and apply"
+		p := api.NewProblem(409, "precondition", "analytics is not set up yet for project "+project)
+		p.Hint = "every project has analytics; it is set up with the project's next apply (or within a minute)"
 		return p
 	}
 	return nil

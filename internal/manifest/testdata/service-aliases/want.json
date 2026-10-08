@@ -24,10 +24,17 @@
     },
     "storage": {
       "buckets": {
+        "files": {
+          "public": false
+        },
         "photos": {
           "public": false
         }
       }
+    },
+    "email": {},
+    "analytics": {
+      "retentionDays": 365
     }
   }
 }

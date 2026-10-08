@@ -14,6 +14,7 @@ import (
 //     users included). The snapshot itself is kept for SnapshotKeep like
 //     any other and pruned as usual.
 //   - the row-edit log and the old rows it keeps for undo.
+//   - the record of the last "Delete all data" (its snapshots are pruned as usual).
 func (*Module) ProjectDeleted(ctx context.Context, p *platform.Platform, project string) error {
 	editsMu.Lock()
 	defer editsMu.Unlock()
@@ -25,5 +26,6 @@ func (*Module) ProjectDeleted(ctx context.Context, p *platform.Platform, project
 	if err := p.DB.KVDelete(ctx, nsEdits, project); err != nil {
 		return err
 	}
+	_ = p.DB.KVDelete(ctx, nsEmptied, project)
 	return p.DB.KVDelete(ctx, nsDeleted, project)
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/datakit"
@@ -19,13 +20,18 @@ import (
 )
 
 // Kinds implements platform.Reconciler.
-func (*Module) Kinds() []string { return []string{"service/postgres"} }
+func (*Module) Kinds() []string {
+	return []string{"service/postgres", change.EmptyAddress("postgres")}
+}
 
 // Reconcile makes the cluster match a project's postgres service.
 func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
 	mu.Lock()
 	defer mu.Unlock()
 	defer poolsChanged()
+	if address == change.EmptyAddress("postgres") {
+		return reconcileEmptied(ctx, p, project, spec)
+	}
 	if spec == nil {
 		return remove(ctx, p, project)
 	}
@@ -62,7 +68,7 @@ func ensure(ctx context.Context, p *platform.Platform, project string, s manifes
 		return err
 	}
 	role, db := Role(project), Database(project)
-	admin, err := Admin(ctx, "postgres")
+	admin, err := dbAdmin(ctx, "postgres")
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
@@ -156,7 +162,7 @@ func reconcileExtensions(ctx context.Context, p *platform.Platform, project stri
 		return fmt.Errorf("unknown Postgres extension(s) %s; available: %s", strings.Join(unknown, ", "), strings.Join(available, ", "))
 	}
 
-	c, err := Admin(ctx, db)
+	c, err := dbAdmin(ctx, db)
 	if err != nil {
 		return err
 	}

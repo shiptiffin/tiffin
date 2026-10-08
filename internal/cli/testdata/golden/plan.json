@@ -1,12 +1,28 @@
 {
   "baseVersion": 0,
-  "hash": "b37d99735926fa1a17077296060774e924f84bf78fc0425e0cbec1d4f652aaf5",
+  "hash": "517c5b824e30af576ecc226f5916c158f95fdc9fe836cfc6501fab878edbfeb6",
   "ops": [
     {
       "action": "create",
       "address": "project",
       "after": {},
       "reason": "new project; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "service/analytics",
+      "after": {
+        "retentionDays": 365
+      },
+      "reason": "new analytics service; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "service/email",
+      "after": {},
+      "reason": "new email service; undo deletes it",
       "risk": "reversible"
     },
     {
@@ -34,6 +50,15 @@
         "maxMemoryMB": 128
       },
       "reason": "new valkey service; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "bucket/files",
+      "after": {
+        "public": false
+      },
+      "reason": "new bucket files; undo deletes it",
       "risk": "reversible"
     },
     {
@@ -104,5 +129,5 @@
   ],
   "project": "hello",
   "risk": "reversible",
-  "summary": "9 to create, 0 to update, 0 to delete (reversible)"
+  "summary": "12 to create, 0 to update, 0 to delete (reversible)"
 }

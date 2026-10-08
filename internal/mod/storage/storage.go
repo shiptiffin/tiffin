@@ -22,6 +22,8 @@
 //   - The edge routes s3.<domain> and files.<domain> to the front server.
 //   - Deleting a bucket moves its directory into /var/lib/tiffin/trash/storage
 //     for 7 days; re-creating it (which is what undo does) brings it back.
+//     Delete all data (emptied.go) moves every bucket of the project there
+//     the same way and makes the declared ones again, empty.
 package storage
 
 import (
@@ -473,7 +475,7 @@ func projectStorage(ctx context.Context, p *platform.Platform, project string) (
 // ---- reconcile ----
 
 func (*Module) Kinds() []string {
-	return []string{change.KindService + "/storage", change.KindBucket, change.KindStorageLimit}
+	return []string{change.KindService + "/storage", change.KindBucket, change.KindStorageLimit, change.EmptyAddress("storage")}
 }
 
 func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
@@ -488,6 +490,9 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 		return fmt.Errorf("the storage gateway is not answering (systemctl status %s): %w", unitName, err)
 	}
 	defer m.tracker().invalidate()
+	if address == change.EmptyAddress("storage") {
+		return m.reconcileEmptied(ctx, p, gw, project, spec)
+	}
 	if address == change.KindService+"/storage" {
 		if spec == nil {
 			c, ok, err := credsFor(ctx, p, project, false)

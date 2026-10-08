@@ -14,8 +14,20 @@
     }
   },
   "services": {
+    "postgres": {},
     "valkey": {
       "maxMemoryMB": 128
+    },
+    "storage": {
+      "buckets": {
+        "files": {
+          "public": false
+        }
+      }
+    },
+    "email": {},
+    "analytics": {
+      "retentionDays": 365
     }
   }
 }

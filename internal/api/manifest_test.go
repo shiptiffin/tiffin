@@ -18,7 +18,7 @@ export default defineConfig({
     site: { framework: "static", path: "site", routes: ["demo"] },
     api: { framework: "hono", path: "api", routes: ["demo/api"], healthcheck: "/api/healthz" },
   },
-  services: { valkey: {}, analytics: {} },
+  services: { valkey: {}, analytics: { retentionDays: 30 } },
   env: { GREETING: "Welcome to the box" },
 });
 `
@@ -58,7 +58,7 @@ func TestProjectManifestRoundTripAndEditParity(t *testing.T) {
 		t.Fatalf("manifest: %d %v", code, got)
 	}
 	cfg, _ := got["config"].(string)
-	for _, want := range []string{`project: "demo"`, `site: { framework: "static", path: "site", routes: ["demo"] }`, `analytics: {}`, "tiffin apply --confirm"} {
+	for _, want := range []string{`project: "demo"`, `site: { framework: "static", path: "site", routes: ["demo"] }`, `analytics: { retentionDays: 30 }`, "tiffin apply --confirm"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config lacks %q:\n%s", want, cfg)
 		}
@@ -74,15 +74,15 @@ func TestProjectManifestRoundTripAndEditParity(t *testing.T) {
 		t.Fatalf("pulled config plans ops: %v", plan)
 	}
 
-	// Dashboard edit: switch Postgres on, add a worker app, change env.
+	// Dashboard edit: give Postgres an extension, add a worker app, change env.
 	m := got["manifest"].(map[string]any)
-	m["services"].(map[string]any)["postgres"] = map[string]any{}
+	m["services"].(map[string]any)["postgres"] = map[string]any{"extensions": []string{"vector"}}
 	m["apps"].(map[string]any)["jobs"] = map[string]any{"role": "worker"}
 	m["env"].(map[string]any)["GREETING"] = "hi"
 	_, dash, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": m})
 
 	// The same edit in the pulled tiffin.config.ts.
-	edited := strings.Replace(cfg, "services: {\n", "services: {\n    postgres: {},\n", 1)
+	edited := strings.Replace(cfg, "services: {", "services: { postgres: { extensions: [\"vector\"] },", 1)
 	edited = strings.Replace(edited, "apps: {\n", "apps: {\n    jobs: { role: \"worker\" },\n", 1)
 	edited = strings.Replace(edited, `"Welcome to the box"`, `"hi"`, 1)
 	_, cli, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": loadTS(t, edited)})
@@ -96,7 +96,7 @@ func TestProjectManifestRoundTripAndEditParity(t *testing.T) {
 		t.Fatalf("plans differ:\n%s\n%s", dj, cj)
 	}
 	if ops := dash["ops"].([]any); len(ops) != 3 {
-		t.Fatalf("want create service/postgres, create app/jobs, update env/GREETING: %s", dj)
+		t.Fatalf("want update service/postgres, create app/jobs, update env/GREETING: %s", dj)
 	}
 
 	// Applying the dashboard edit moves the version; the manifest follows.

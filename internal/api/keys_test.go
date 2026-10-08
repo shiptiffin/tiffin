@@ -10,8 +10,8 @@ import (
 	"github.com/btahir/tiffin/internal/tokens"
 )
 
-// keysEnv has two projects, shop and blog, each with a Postgres database,
-// so dropping it is an irreversible plan.
+// keysEnv has two projects, shop and blog, each with its Database, so
+// deleting all its data is an irreversible plan.
 func keysEnv(t *testing.T) *env {
 	e := newEnv(t)
 	for _, p := range []string{"shop", "blog"} {
@@ -20,18 +20,18 @@ func keysEnv(t *testing.T) *env {
 	return e
 }
 
-// dropDB plans dropping project's database with tok and applies it.
+// dropDB plans deleting all data in project's database with tok and applies it.
 func (e *env) dropDB(tok, project string) (int, map[string]any) {
 	e.t.Helper()
-	m := map[string]any{"project": project}
-	code, plan, _ := e.call(tok, "POST", "/v1/plan", map[string]any{"manifest": m})
-	if code != 200 {
-		return code, plan
+	path := "/v1/projects/" + project + "/data/postgres/empty"
+	code, prob, _ := e.call(tok, "POST", path, map[string]any{})
+	if code != 428 {
+		return code, prob
 	}
-	if plan["risk"] != "irreversible" {
-		e.t.Fatalf("dropping the database should be irreversible: %v", plan)
+	if plan, _ := prob["plan"].(map[string]any); plan["risk"] != "irreversible" {
+		e.t.Fatalf("deleting the database's data should be irreversible: %v", prob)
 	}
-	code, out, _ := e.call(tok, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"], "intent": "drop the database"})
+	code, out, _ := e.call(tok, "POST", path, map[string]any{"confirm": prob["plan"].(map[string]any)["hash"], "intent": "drop the database"})
 	return code, out
 }
 

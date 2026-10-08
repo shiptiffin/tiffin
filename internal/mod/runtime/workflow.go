@@ -81,8 +81,8 @@ func prepareWorkflow(req BuildRequest) (map[string]string, string, error) {
 		fmt.Fprintf(req.Log, "==> Workflow DevKit: the box sets up its Postgres world for Next.js apps only; set %s and start the world yourself (workflow-sdk.dev/worlds/postgres)\n", workflowWorldEnv)
 		return nil, "", nil
 	case !req.Postgres:
-		return nil, "", &BuildError{Msg: "this app uses the Workflow DevKit, which runs on the project's Postgres, and the project has none",
-			Hint: "Add `postgres: {}` to services in tiffin.config.ts, plan and apply, then deploy again. (Or set " + workflowWorldEnv + " to a world of your own.)"}
+		return nil, "", &BuildError{Msg: "this app uses the Workflow DevKit, which runs on the project's Postgres, and its database is not set up yet",
+			Hint: "Check `tiffin projects get` until service/postgres is ready, then deploy again. (Or set " + workflowWorldEnv + " to a world of your own.)"}
 	}
 	dir := filepath.Join(req.SrcDir, workflowDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

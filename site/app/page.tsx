@@ -61,9 +61,7 @@ const CONFIG = [
   `<span class="t-k">export default</span> defineConfig({`,
   `  project: <span class="t-s">"shop"</span>,`,
   `  apps: { web: { framework: <span class="t-s">"next"</span> } },`,
-  `  services: {`,
-  `    postgres: {}, auth: {}, email: {},`,
-  `  },`,
+  `  services: { auth: {} },`,
   `  resources: { maxSharePercent: <span class="t-n">40</span> },`,
   `});`,
 ].join("\n");

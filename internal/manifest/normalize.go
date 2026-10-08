@@ -17,6 +17,8 @@ const (
 	DefaultHealthcheck = "/"
 	DefaultGitBranch   = "main"
 	DefaultValkeyMemMB = 64
+	// DefaultBucket is the private bucket every project has.
+	DefaultBucket = "files"
 
 	DefaultAnalyticsRetentionDays = 365
 	DefaultCronPathPrefix         = "/cron/"
@@ -43,6 +45,10 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //     "static"; dockerfile "Dockerfile" is stored as absent; output and
 //     watch patterns are trimmed (watch keeps its order, without repeats)
 //   - web, non-static apps get healthcheck "/"
+//   - every project has Database, KV, Files, Email and Analytics: services
+//     postgres, valkey, storage (with the private bucket "files"), email
+//     and analytics are added when the config leaves them out, so removing
+//     one from the config changes nothing (AlwaysOn)
 //   - valkey maxMemoryMB 64
 //   - postgres extensions are sorted and de-duplicated
 //   - auth methods default to ["email", "magic-link"], sorted and de-duplicated
@@ -152,6 +158,7 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 	if r := m.Resources; r != nil && *r == (Resources{}) {
 		m.Resources = nil
 	}
+	alwaysOn(&m.Services)
 	if v := m.Services.Valkey; v != nil && v.MaxMemoryMB == 0 {
 		v.MaxMemoryMB = DefaultValkeyMemMB
 	}
@@ -220,6 +227,40 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 		m.Domains = nil
 	}
 	return older
+}
+
+// AlwaysOn are the services every project has, whatever its config says:
+// Database (postgres), KV (valkey), Files (storage, with the bucket
+// DefaultBucket), Email and Analytics. An empty one costs next to nothing
+// (a database and role in the shared cluster, an ACL user, a gateway
+// account, an SMTP password, an analytics key) and runs no process of its
+// own. Their data is emptied with "Delete all data", never by leaving them
+// out of the config. Auth stays optional: it serves /api/auth on every app
+// host, which would take that path from apps with their own sign-in.
+var AlwaysOn = []string{"postgres", "valkey", "storage", "email", "analytics"}
+
+func alwaysOn(s *Services) {
+	if s.Postgres == nil {
+		s.Postgres = &Postgres{}
+	}
+	if s.Valkey == nil {
+		s.Valkey = &Valkey{}
+	}
+	if s.Storage == nil {
+		s.Storage = &Storage{}
+	}
+	if _, ok := s.Storage.Buckets[DefaultBucket]; !ok {
+		if s.Storage.Buckets == nil {
+			s.Storage.Buckets = map[string]Bucket{}
+		}
+		s.Storage.Buckets[DefaultBucket] = Bucket{}
+	}
+	if s.Email == nil {
+		s.Email = &Email{}
+	}
+	if s.Analytics == nil {
+		s.Analytics = &Analytics{}
+	}
 }
 
 // normalizeRoute lowercases the host part and strips trailing slashes from

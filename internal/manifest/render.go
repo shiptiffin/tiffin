@@ -312,20 +312,23 @@ func servicesNode(s Services) *node {
 		if pg.Previews == PreviewDBShared {
 			p.set("previews", str(string(pg.Previews)))
 		}
-		n.set("postgres", p)
+		setUnlessEmpty(n, "postgres", p)
 	}
 	if v := s.Valkey; v != nil {
 		p := obj()
 		if v.MaxMemoryMB != DefaultValkeyMemMB {
 			p.set("maxMemoryMB", num(v.MaxMemoryMB))
 		}
-		n.set("valkey", p)
+		setUnlessEmpty(n, "valkey", p)
 	}
 	if st := s.Storage; st != nil {
 		p := obj()
 		if len(st.Buckets) > 0 {
 			bs := obj()
 			for _, name := range sortedKeys(st.Buckets) {
+				if name == DefaultBucket && isDefaultBucket(st.Buckets[name]) {
+					continue // every project has it
+				}
 				b, spec := obj(), st.Buckets[name]
 				if spec.Public {
 					b.set("public", boolean(true))
@@ -341,9 +344,11 @@ func servicesNode(s Services) *node {
 				}
 				bs.set(name, b)
 			}
-			p.set("buckets", bs)
+			if len(bs.keys) > 0 {
+				p.set("buckets", bs)
+			}
 		}
-		n.set("storage", p)
+		setUnlessEmpty(n, "storage", p)
 	}
 	if a := s.Auth; a != nil {
 		p := obj()
@@ -366,16 +371,28 @@ func servicesNode(s Services) *node {
 		if e.From != "" {
 			p.set("from", str(e.From))
 		}
-		n.set("email", p)
+		setUnlessEmpty(n, "email", p)
 	}
 	if a := s.Analytics; a != nil {
 		p := obj()
 		if a.RetentionDays != DefaultAnalyticsRetentionDays {
 			p.set("retentionDays", num(a.RetentionDays))
 		}
-		n.set("analytics", p)
+		setUnlessEmpty(n, "analytics", p)
 	}
 	return n
+}
+
+// setUnlessEmpty sets an always-on service only when it has settings: every
+// project has it (see AlwaysOn), so `postgres: {}` says nothing.
+func setUnlessEmpty(n *node, key string, v *node) {
+	if len(v.keys) > 0 {
+		n.set(key, v)
+	}
+}
+
+func isDefaultBucket(b Bucket) bool {
+	return !b.Public && len(b.CORS) == 0 && b.MaxFileSize == 0 && len(b.AllowedTypes) == 0
 }
 
 func queueNode(name string, q Queue) *node {

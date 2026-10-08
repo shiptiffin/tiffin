@@ -3,6 +3,7 @@ package valkey
 import (
 	"context"
 
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -19,4 +20,22 @@ func (*Module) ProjectUsage(ctx context.Context, p *platform.Platform, project s
 	}
 	return &platform.ServiceUsage{Service: "valkey", Disk: "kv", Bytes: st.MemoryBytes,
 		Counts: map[string]int64{"keys": st.Keys, "maxMemoryMB": int64(st.MaxMemoryMB)}}, nil
+}
+
+// EstimateLoss says what Delete all data of the project's KV deletes (and
+// what its restore replaces): the keys under its prefix and their memory.
+func (*Module) EstimateLoss(ctx context.Context, p *platform.Platform, project string, op change.Op) (*change.Loss, error) {
+	if op.Address != change.EmptyAddress("valkey") {
+		return nil, nil
+	}
+	c, err := Admin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	keys, bytes, approx, err := prefixUsage(ctx, c, Prefix(project))
+	if err != nil {
+		return nil, err
+	}
+	return &change.Loss{Bytes: bytes, Counts: []change.LossCount{{N: keys, Unit: "key", Approx: approx}}}, nil
 }

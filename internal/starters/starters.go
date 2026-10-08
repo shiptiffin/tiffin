@@ -44,7 +44,7 @@ type Starter struct {
 	// App is the app name the fragment uses. Any name works: rename the key
 	// in apps when merging the fragment.
 	App      string   `json:"app" example:"site" doc:"The app name the fragment uses (rename it freely when merging)"`
-	Services []string `json:"services" doc:"Services the app needs on, e.g. postgres, valkey, analytics"`
+	Services []string `json:"services" doc:"Services the app needs added, e.g. auth (Database, KV, Files, Email and Analytics are always there, so they are never listed)"`
 	// Fragment is the manifest part to merge into the project's manifest.
 	Fragment ManifestFragment `json:"fragment" doc:"Merge into the project's manifest (apps, services, env), plan and apply, then deploy the template to the app"`
 	Files    int              `json:"files" doc:"Source files shipped"`

@@ -7,7 +7,4 @@ export default defineConfig({
   apps: {
     api: { framework: "fastapi", healthcheck: "/healthz", release: "alembic upgrade head" },
   },
-  services: {
-    postgres: {},
-  },
 });

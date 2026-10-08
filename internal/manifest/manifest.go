@@ -34,7 +34,9 @@ type Manifest struct {
 	SleepAfter string `json:"sleepAfter,omitempty"`
 	// Apps keyed by name (same slug rules as Project).
 	Apps map[string]App `json:"apps,omitempty"`
-	// Services the project uses. Absent means "not provisioned".
+	// Services are the box-provided backends. Normalize always adds the
+	// AlwaysOn ones (Database, KV, Files, Email, Analytics); the config
+	// lists one only to set its options. Auth is the one that is added.
 	Services Services `json:"services,omitzero"`
 	// Crons are scheduled HTTP calls into apps, keyed by name (same slug
 	// rules as Project). Each one pushes a request to its app on a schedule.
@@ -274,7 +276,8 @@ type Resources struct {
 	MaxSharePercent int `json:"maxSharePercent,omitempty"`
 }
 
-// Services are the box-provided backends. A nil pointer means "off".
+// Services are the box-provided backends. A nil pointer means "off", which
+// after Normalize only Auth can be (see AlwaysOn).
 type Services struct {
 	Postgres  *Postgres  `json:"postgres,omitempty"`
 	Valkey    *Valkey    `json:"valkey,omitempty"`

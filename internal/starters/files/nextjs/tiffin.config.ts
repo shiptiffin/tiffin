@@ -6,7 +6,4 @@ export default defineConfig({
   apps: {
     web: { framework: "next" },
   },
-  services: {
-    postgres: {},
-  },
 });

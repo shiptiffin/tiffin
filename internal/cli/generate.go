@@ -76,6 +76,7 @@ var groupShort = map[string]string{
 	"kv":        "Browse a project's KV keys, or reach them from this computer",
 	"branches":  "Clone and drop preview database branches",
 	"snapshots": "List and restore database snapshots",
+	"data":      "Delete all data in a project's Database, KV or Files, and restore it within 7 days",
 	"backups":   "List backups and set the backup schedule",
 	"storage":   "Buckets, files, presigned links and quotas",
 	"email":     "Send mail, read the dev inbox, set up a relay",

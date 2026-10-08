@@ -31,7 +31,7 @@
       "additionalProperties": { "$ref": "#/$defs/app" }
     },
     "services": {
-      "description": "Box-provided backends the project uses. A service that is absent is not provisioned. The dashboard calls them Database (postgres), Cache (valkey), Files (storage), Auth, Email and Analytics; `database`, `cache` and `files` are accepted here too and stored under the canonical name. Jobs are the top-level `queues` and `crons`, not a service.",
+      "description": "Box-provided backends. Every project always has postgres, valkey, storage (with the private bucket \"files\"), email and analytics, whether they are listed or not: list one only to set its options, and leaving it out never deletes it (empty one with Delete all data: POST /v1/projects/{project}/data/{part}/empty). Auth is the one you add. The dashboard calls them Database (postgres), KV (valkey), Files (storage), Auth, Email and Analytics; `database`, `cache` and `files` are accepted here too and stored under the canonical name. Jobs are the top-level `queues` and `crons`, not a service.",
       "$ref": "#/$defs/services"
     },
     "crons": {
@@ -460,7 +460,7 @@
       "additionalProperties": false,
       "properties": {
         "postgres": {
-          "description": "Database: gives the project its own Postgres database. Provides DATABASE_URL to every app.",
+          "description": "Database: the project's own Postgres database, always there. Provides DATABASE_URL to every app. List it only to set options.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -488,7 +488,7 @@
           }
         },
         "valkey": {
-          "description": "Cache: gives the project a Valkey (Redis-compatible) key-value/cache namespace. Provides REDIS_URL to every app.",
+          "description": "KV: the project's Valkey (Redis-compatible) key-value/cache namespace, always there. Provides REDIS_URL to every app. List it only to set options.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -501,7 +501,7 @@
           }
         },
         "storage": {
-          "description": "Files: gives the project S3-compatible object storage buckets. Provides S3_* (and AWS_*) env vars to every app.",
+          "description": "Files: the project's S3-compatible object storage, always there with a private bucket \"files\". Provides S3_* (and AWS_*) env vars to every app. List it to add buckets or set a bucket's options.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -539,7 +539,7 @@
           }
         },
         "auth": {
-          "description": "Auth: gives the project user accounts and sessions. Needs postgres (users live there); add email too, for verification and sign-in mail. The box serves the auth endpoint at \"/api/auth\" on each app's own routes and exposes its base URL to every app as TIFFIN_AUTH_URL.",
+          "description": "Auth: gives the project user accounts and sessions, kept in its Postgres database; verification and sign-in mail goes through its email. The box serves the auth endpoint at \"/api/auth\" on each app's own routes and exposes its base URL to every app as TIFFIN_AUTH_URL.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -567,7 +567,7 @@
           }
         },
         "email": {
-          "description": "Lets the project send transactional email. Until an SMTP relay is configured on the box, mail goes to the box's dev inbox instead of the recipient.",
+          "description": "Email: the project sends transactional email, always there. Until an SMTP relay is configured on the box, mail goes to the box's dev inbox instead of the recipient. List it only to set options.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -579,7 +579,7 @@
           }
         },
         "analytics": {
-          "description": "Gives the project cookieless, first-party web analytics.",
+          "description": "Analytics: cookieless, first-party web analytics, always there. List it only to set options.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

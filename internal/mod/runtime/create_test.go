@@ -93,7 +93,6 @@ func TestDeployTemplate(t *testing.T) {
 	// Preconditions come back as 409s with a hint, before anything is queued.
 	for _, c := range []struct{ app, tmpl, want string }{
 		{"api", "nextjs", "framework hono"},
-		{"api", "guestbook", "needs analytics, postgres, valkey"},
 		{"nope", "guestbook", ""},
 	} {
 		code, prob := call("POST", "/v1/projects/shop/apps/"+c.app+"/deploys/template", `{"template":"`+c.tmpl+`"}`)

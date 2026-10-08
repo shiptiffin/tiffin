@@ -45,6 +45,9 @@
     },
     "storage": {
       "buckets": {
+        "files": {
+          "public": false
+        },
         "uploads": {
           "public": true
         }

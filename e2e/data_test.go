@@ -17,8 +17,8 @@ import (
 // fresh box: apply postgres(vector)+valkey → ready → SQL create/insert →
 // a ~1 GB table branched by reflink clone (timed) → Valkey through
 // REDIS_URL inside the box (and its ACL) → backup → destroy data → restore
-// (preview, confirm) → data back → delete the postgres service (irreversible,
-// owner token) leaves a snapshot.
+// (preview, confirm) → data back → Delete all data in the database
+// (irreversible, a snapshot) → restore it.
 func TestData(t *testing.T) {
 	RequireLima(t)
 	start := time.Now()
@@ -273,31 +273,60 @@ export default defineConfig({ project: "data", services: {` + services + `} });
 	}
 	phase("restore", p)
 
-	// ---- deleting the postgres service is irreversible and leaves a snapshot ----
+	// ---- Delete all data in the database: irreversible, kept 7 days, restored ----
 	p = time.Now()
-	plan := apply(writeConfig("nopg.config.ts", `valkey: { maxMemoryMB: 32 }`))
-	if plan["risk"] != "irreversible" {
-		t.Fatalf("deleting postgres must plan as irreversible: %v", plan)
+	confirmed := func(args ...string) {
+		t.Helper()
+		_, out := run(args...)
+		var pr struct {
+			Plan struct {
+				Hash string `json:"hash"`
+				Risk string `json:"risk"`
+			} `json:"plan"`
+		}
+		if _ = json.Unmarshal([]byte(out), &pr); len(pr.Plan.Hash) < 12 || pr.Plan.Risk != "irreversible" {
+			t.Fatalf("tiffin %s must ask to confirm an irreversible plan: %s", strings.Join(args, " "), out)
+		}
+		ok(append(args, "--confirm", pr.Plan.Hash[:12])...)
 	}
-	deadline := time.Now().Add(2 * time.Minute)
-	for {
-		_, out := run("projects", "get", "data")
-		if !strings.Contains(out, "service/postgres") {
-			break
+	// A config without postgres keeps it: Database, KV and Files are always there.
+	plan := ok("plan", writeConfig("nopg.config.ts", `valkey: { maxMemoryMB: 32 }`))
+	for _, o := range plan["ops"].([]any) {
+		if o := o.(map[string]any); o["address"] == "service/postgres" && o["action"] == "delete" {
+			t.Fatalf("leaving postgres out of the config must not delete it: %v", plan)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("service/postgres still present:\n%s", out)
+	}
+	notes := func() (string, bool) {
+		code, out := run("sql", "data", "--body", `{"sql":"select body from notes"}`)
+		if code != 0 {
+			return "", false
 		}
-		time.Sleep(time.Second)
+		var m map[string]any
+		_ = json.Unmarshal([]byte(out), &m)
+		return rows(m), true
+	}
+	waitFor := func(what string, done func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Minute)
+		for !done() {
+			if time.Now().After(deadline) {
+				t.Fatalf("still waiting: %s", what)
+			}
+			time.Sleep(time.Second)
+		}
+	}
+	confirmed("data", "empty", "data", "postgres")
+	waitFor("the notes table to go", func() bool { _, there := notes(); return !there })
+	if st := ok("projects", "get", "data"); st["restorable"] == nil {
+		t.Fatalf("nothing restorable after Delete all data: %v", st)
 	}
 	_, snaps := run("snapshots", "list", "data")
-	if !strings.Contains(snaps, `"service deleted"`) {
-		t.Fatalf("no delete snapshot: %s", snaps)
+	if !strings.Contains(snaps, `"Delete all data"`) {
+		t.Fatalf("no snapshot of the deleted data: %s", snaps)
 	}
-	if got := inBox("sudo", "-u", "postgres", "psql", "-h", "/var/run/postgresql", "-Atc", "select count(*) from pg_database where datname like 'p_data%'"); got != "0" {
-		t.Fatalf("database still there: %s", got)
-	}
-	phase("delete", p)
+	confirmed("data", "restore", "data", "postgres")
+	waitFor("the notes to come back", func() bool { got, _ := notes(); return got == `[["keep me"]]` })
+	phase("empty+restore", p)
 
 	if st := ok("status"); st["ok"] != true {
 		t.Fatalf("status after the drill: %v", st)

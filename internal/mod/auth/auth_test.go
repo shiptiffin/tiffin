@@ -119,16 +119,12 @@ func TestEngineConfig(t *testing.T) {
 	p := newPlatform(t)
 	ctx := t.Context()
 	apply(t, p, shop)
-	apply(t, p, `{"project":"blog","apps":{"web":{}},"services":{"auth":{}}}`) // no postgres
 	if _, err := p.SetSecrets(ctx, "shop", map[string]string{"GOOGLE_CLIENT_ID": "gid", "GOOGLE_CLIENT_SECRET": "gsecret"}, "google sign-in"); err != nil {
 		t.Fatal(err)
 	}
 	c, errs, err := buildEngineConfig(ctx, p)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if errs["blog"] == nil || errs["blog"].Error() != ErrNeedsPostgres.Error() {
-		t.Fatalf("blog should need postgres, got %v", errs["blog"])
 	}
 	s := c.Projects["shop"]
 	if s == nil {

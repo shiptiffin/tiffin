@@ -1,4 +1,21 @@
 {
   "version": 1,
-  "project": "hello"
+  "project": "hello",
+  "services": {
+    "postgres": {},
+    "valkey": {
+      "maxMemoryMB": 64
+    },
+    "storage": {
+      "buckets": {
+        "files": {
+          "public": false
+        }
+      }
+    },
+    "email": {},
+    "analytics": {
+      "retentionDays": 365
+    }
+  }
 }

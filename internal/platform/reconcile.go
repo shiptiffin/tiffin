@@ -176,6 +176,9 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		r.settled(project, true)
 		return
 	}
+	if p.addAlwaysOn(ctx, project, res) {
+		return // the change queued the project again, with them
+	}
 	known, _ := p.DB.ResourceStatuses(ctx, project)
 	// Desired resources, services first, apps last (same order as plans).
 	var ops []change.Op
@@ -263,6 +266,35 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		p.Log.Error("refresh routes", "err", err)
 	}
 	r.settled(project, failed)
+}
+
+// addAlwaysOn gives a project made before Database, KV, Files, Email and
+// Analytics were always there the ones it lacks, as a change by the system
+// (History shows it). It reports whether it made one.
+func (p *Platform) addAlwaysOn(ctx context.Context, project string, res map[string]change.Resource) bool {
+	if p.Engine == nil || len(change.AlwaysOnMissing(res)) == 0 {
+		return false
+	}
+	plan, err := p.Engine.PlanEdit(ctx, project, func(cur map[string]change.Resource) (map[string]change.Resource, error) {
+		for addr, r := range change.AlwaysOnResources(project) {
+			if _, ok := cur[addr]; !ok {
+				cur[addr] = r
+			}
+		}
+		return cur, nil
+	})
+	if err != nil || plan.Empty() {
+		return false
+	}
+	c, err := p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash,
+		Intent: "Every project has a Database, KV, Files, Email and Analytics now: add the ones " + project + " didn't have",
+		Actor:  change.Actor{Kind: "system", ID: "system", Name: "Tiffin"}})
+	if err != nil {
+		p.Log.Error("add the always-on parts", "project", project, "err", err)
+		return false
+	}
+	p.AfterApply(c)
+	return c != nil
 }
 
 func liftsHold(o change.Op) bool {
