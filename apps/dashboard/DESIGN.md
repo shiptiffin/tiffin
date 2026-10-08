@@ -37,13 +37,12 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   when the other project has it, else lands on its Overview, which says why.
 - **Frame.** On a desktop the sidebar is a tinted ground (`--side`) and the page a white panel inset 8 px
   on it (Linear, Supabase); a phone gets the plain page.
-- **Account menu** (your name, bottom left): Theme (system, light, dark as three icons), the MCP command,
+- **Account menu** (your name, bottom left): Theme (system, light, dark as three icons),
   API keys, Sign-ins, "Sign in with Touch ID / Face ID", sign out. The word
   "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
   sign-in link" as the fallback.
-- **Projects (home)**: one line about the box ("Your box is about two-fifths full") over one bar split by
-  project, then a card per project: icon, name, live address, one status line, its parts as small glyphs,
-  its share of the box. Sort, list view and (past six projects) search. Nothing about the platform here.
+- **Projects (home)**: the box's memory, CPU and disk in one quiet line under the title (linking to
+  Usage), then a card per project: icon, name, live address, one status line, its parts as small glyphs. Sort, list view and (past six projects) search. Nothing about the platform here.
 - **Project overview**: name, status line, live address (its own domain once that's live, the automatic
   address listed under it as "also at"); "What's in it" as tiles (only the parts it has) and
   a quiet Add. Each tile opens its own page. **Usage**: memory, CPU and disk, its database, cache and builds
@@ -75,7 +74,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 6. **Familiar controls.** On/off: `<Breaker>` renders a horizontal toggle, brass when on, label beside it; a
    crashed service stays on and its row says "Stopped unexpectedly". Counts and sizes: `<Throttle>` renders a
    − 2 + stepper that stops at what fits on the box. Usage: `<SegMeter>` renders a plain rounded bar; put the
-   value as text beside it. The box's memory: `<BoxBar>`, read like a phone's storage bar: each project in its own colour (its icon's), the five biggest by name, then the rest together, then System (Linux and the shared services) in grey, with a legend of names and sizes; on a project's page only that project is in colour.
+   value as text beside it. The box's memory: `<BoxBar>`, read like a phone's storage bar: each project in its own colour (its icon's), the five biggest by name, then the rest together, then System (Linux and the shared services) in grey, with a legend of names and sizes. It lives on Usage only.
    The only blink is the pilot light while something builds.
 7. **Lists are rows on the page** (`divide-y divide-rule`, `border-y border-rule`). Cards only for objects: a
    project, a part of a project, a dialog.
@@ -89,6 +88,16 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
    Skeletons are shaped like the content and appear only after 300 ms.
 10. **Names.** People and agents through `lib/actors.ts`; key ids through `lib/who.ts`, so the owner reads as
     their name, not "Owner". History says "You" for you.
+
+11. **Disclose progressively.** The first view holds what most people need for the task; the rest is one
+    step away (a closed disclosure whose label says what's inside, a link, or the empty state), never two.
+    Say each fact once per screen. A number earns its place only if it changes what someone does next
+    (the box's numbers sit quietly under Projects and take a colour only when one runs short; usage
+    lives on Usage, never on each card). A lede only when it adds something the title doesn't. Terminal
+    and agent instructions sit behind "From a terminal" or "Other ways to …", except where they are an
+    empty state's one action. An empty state: the status, one line that teaches, one action. Tooltips only
+    for optional detail, never for something a task needs. Sources: NN/g on progressive disclosure, empty
+    states and tooltips; GOV.UK Details; Linear's 2026 refresh.
 
 Check every page at 1440 and 390 px, light and dark (`e2e/screens-simple.spec.ts`), and ask: would a beginner
 know what's going on within five seconds? Is there anything on screen they don't need?
