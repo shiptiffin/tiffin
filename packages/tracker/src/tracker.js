@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Tiffin analytics tracker: cookieless, no storage, ~1 KB minified.
 //
 // The box counts the first page load of every visit from its own edge logs,

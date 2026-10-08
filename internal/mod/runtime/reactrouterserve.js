@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The box's server for a React Router (framework mode) build on Bun:
 // Bun.serve with React Router's own request handler, in place of
 // react-router-serve (Express and compression), which is slow on Bun. Run

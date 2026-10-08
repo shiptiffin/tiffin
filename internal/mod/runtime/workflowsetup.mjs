@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Written into each build by the Tiffin box for apps that use the Workflow
 // DevKit: points its Postgres world at the project's database and brings the
 // world's tables up to date (what `bootstrap` of @workflow/world-postgres

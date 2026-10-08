@@ -6,6 +6,6 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "build": "bun build src/tracker.js --minify --target=browser --outfile=../../internal/mod/analytics/script.js && wc -c ../../internal/mod/analytics/script.js && gzip -9c ../../internal/mod/analytics/script.js | wc -c"
+    "build": "bun build src/tracker.js --minify --target=browser --banner=\"/* SPDX-License-Identifier: Apache-2.0 */\" --outfile=../../internal/mod/analytics/script.js && wc -c ../../internal/mod/analytics/script.js && gzip -9c ../../internal/mod/analytics/script.js | wc -c"
   }
 }

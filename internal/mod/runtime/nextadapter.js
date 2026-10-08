@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The Tiffin box's Next.js adapter (Next.js 16.2+ loads it from
 // NEXT_ADAPTER_PATH at build and at `next start`). Written into each build by
 // the box; it only fills in what next.config leaves unset.

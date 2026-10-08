@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Written into the build by the Tiffin box: runs the Workflow DevKit's
 // Postgres world in this server (https://workflow-sdk.dev/worlds/postgres).
 /*APP*/ const app = {};
