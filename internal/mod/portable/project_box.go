@@ -158,22 +158,33 @@ func (b boxBackend) restoreDatabase(ctx context.Context, project string, r io.Re
 	return nil
 }
 
-// restrictLine is one of the restrict lines pg_dump (17.6 and later) puts
-// around a plain dump: dropped, as the load runs restricted already.
-var restrictLine = regexp.MustCompile(`^\\(un)?restrict [A-Za-z0-9]+\s*$`)
+// restrictHeader is the \restrict line pg_dump (17.6 and later) puts at
+// the top of a plain dump, after its banner comments, with a random
+// alphanumeric key; the matching \unrestrict line closes the script.
+var restrictHeader = regexp.MustCompile(`^\\restrict ([A-Za-z0-9]+)\s*$`)
 
 // restricted is the script r, entered in psql's restricted mode with key.
+// The dump's own restrict lines are dropped, as the load runs restricted
+// already: only the \restrict line among the leading comments, and later
+// only lines that are exactly \restrict or \unrestrict with that same
+// key. Every other line passes on untouched; COPY data can hold a line
+// like "\restrict abc" (a value with a carriage return before "estrict"),
+// and psql reads it as data. Anything else that looks like a backslash
+// command outside COPY data is left for psql to refuse.
 func restricted(r io.Reader, key string) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {
 		bw := bufio.NewWriterSize(pw, 64<<10)
 		_, err := bw.WriteString(`\restrict ` + key + "\n")
 		br := bufio.NewReaderSize(r, 64<<10)
+		preamble := true // only banner comments and blank lines so far
+		var restrictLine, unrestrictLine string
 		for err == nil {
 			var line []byte
 			line, err = br.ReadSlice('\n')
 			if errors.Is(err, bufio.ErrBufferFull) {
 				// A long line (COPY data): not a restrict line; pass it on.
+				preamble = false
 				if _, werr := bw.Write(line); werr != nil {
 					err = werr
 					break
@@ -186,10 +197,22 @@ func restricted(r io.Reader, key string) io.Reader {
 				}
 				continue
 			}
-			if len(line) > 0 && !restrictLine.Match(line) {
-				if _, werr := bw.Write(line); werr != nil {
-					err = werr
+			if len(line) == 0 {
+				continue
+			}
+			text := strings.TrimRight(string(line), " \t\r\n")
+			if preamble {
+				if m := restrictHeader.FindStringSubmatch(text); m != nil {
+					restrictLine, unrestrictLine = `\restrict `+m[1], `\unrestrict `+m[1]
+					preamble = false
+					continue
 				}
+				preamble = text == "" || strings.HasPrefix(text, "--")
+			} else if restrictLine != "" && (text == restrictLine || text == unrestrictLine) {
+				continue
+			}
+			if _, werr := bw.Write(line); werr != nil {
+				err = werr
 			}
 		}
 		if errors.Is(err, io.EOF) {
