@@ -212,7 +212,7 @@ export function pgOutbox(): OutboxStore {
       return s<OutboxRow[]>`with due as (select id from cloud_outbox where status = 'queued' and next_attempt_at <= now() order by id limit ${limit} for update skip locked),
         claimed as (update cloud_outbox o set next_attempt_at = now() + interval '10 minutes' from due where o.id = due.id returning o.*)
         select c.id::int as id, c.box_id, c.kind, c.key, c.params, c.attempts, coalesce(b.email, '') as email, b.name, b.last_heartbeat_at, b.extras_paused_at,
-          b.kill_reason, b.stripe_subscription_id from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
+          b.kill_reason, b.stripe_subscription_id, c.created_at from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
     },
     async done(id) {
       await s`update cloud_outbox set status = 'done', done_at = now(), attempts = attempts + 1, last_error = null where id = ${id}`;
@@ -222,6 +222,12 @@ export function pgOutbox(): OutboxStore {
     },
     async fail(id, attempts, error) {
       await s`update cloud_outbox set status = 'failed', attempts = ${attempts}, last_error = ${error}, done_at = now() where id = ${id}`;
+    },
+    queue: (boxId, kind, key, params) => outbox(boxId, kind, key, params, s),
+    async requeueStripe() {
+      const rows = await s`update cloud_outbox set status = 'queued', next_attempt_at = now(), done_at = null
+        where status = 'failed' and left(kind, 7) = 'stripe_' returning 1`;
+      return rows.length;
     },
   };
 }

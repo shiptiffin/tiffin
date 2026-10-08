@@ -8,6 +8,11 @@
 // answers with the session it made, if it made one, whatever happened to
 // our side afterwards (a lost answer, a failed database write).
 //
+// The attempt's expires_at is set when the attempt is made (now + 35
+// minutes, CHECKOUT_TTL_SECONDS) and saved with it: Stripe wants at least 30
+// minutes from when it receives the request, so the margin absorbs the
+// commit and the network on the way (and a retry a few minutes later).
+//
 // A saved attempt is replaced by a new one only when it can no longer give a
 // usable session (its session would expire within two minutes), or when
 // Stripe refuses it as a request (it never ran there: no cached answer, so
@@ -37,7 +42,10 @@ export interface CheckoutStripe {
   createCheckout(params: Record<string, unknown>, idempotencyKey: string): Promise<Session>;
 }
 
-/** Whether a stored Checkout session can be handed out again (it lives 30 minutes at Stripe). */
+/** How long a new Checkout session lives, from when its attempt is made: Stripe's minimum (30 minutes) plus a margin. */
+export const CHECKOUT_TTL_SECONDS = 35 * 60;
+
+/** Whether a stored Checkout session can be handed out again (it lives about 35 minutes at Stripe). */
 export function reusableCheckout(b: Pick<CheckoutBox, "checkout_url" | "checkout_expires_at">, now = new Date()): boolean {
   return Boolean(b.checkout_url && b.checkout_expires_at && b.checkout_expires_at.getTime() - now.getTime() > 2 * 60_000);
 }
@@ -64,10 +72,12 @@ export async function checkoutUrl<B extends CheckoutBox>(
   build: (b: B) => Promise<{ params: Record<string, unknown>; discounted: boolean }>,
   now: () => Date = () => new Date(),
 ): Promise<string> {
+  // The expiry is fixed here, when the attempt is made, and saved with it.
+  const expiring = (params: Record<string, unknown>) => ({ ...params, expires_at: Math.floor(now().getTime() / 1000) + CHECKOUT_TTL_SECONDS });
   const fresh = async (params: Record<string, unknown>) =>
     repo.locked(boxId, async (_b, save) => {
       const id = randomBytes(9).toString("base64url");
-      const a: CheckoutAttempt = { id, key: `checkout:${boxId}:${id}`, params, at: now().toISOString() };
+      const a: CheckoutAttempt = { id, key: `checkout:${boxId}:${id}`, params: expiring(params), at: now().toISOString() };
       await save(a);
       return a;
     });
@@ -77,7 +87,7 @@ export async function checkoutUrl<B extends CheckoutBox>(
     if (attemptUsable(b.checkout_attempt, now())) return { attempt: b.checkout_attempt, discounted: Array.isArray(b.checkout_attempt.params.discounts) };
     const { params, discounted } = await build(b);
     const id = randomBytes(9).toString("base64url");
-    const a: CheckoutAttempt = { id, key: `checkout:${b.id}:${id}`, params, at: now().toISOString() };
+    const a: CheckoutAttempt = { id, key: `checkout:${b.id}:${id}`, params: expiring(params), at: now().toISOString() };
     await save(a);
     return { attempt: a, discounted };
   });
@@ -94,7 +104,7 @@ export async function checkoutUrl<B extends CheckoutBox>(
     } else if (refusedRequest(e)) {
       // The saved request never ran at Stripe (it would have answered with
       // its cached result): the same parameters with a fresh expiry.
-      attempt = await fresh({ ...attempt.params, expires_at: Math.floor(now().getTime() / 1000) + 30 * 60 });
+      attempt = await fresh(attempt.params);
     } else throw e; // an outage or a lost answer: the next try sends the same request
     cs = await stripe.createCheckout(attempt.params, attempt.key);
   }

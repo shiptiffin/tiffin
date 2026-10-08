@@ -105,7 +105,7 @@ describe("Checkout retries", () => {
     await expect(url()).rejects.toThrow("fetch failed");
     const first = repo.box.checkout_attempt!;
     stripe.down = false;
-    later(5);
+    later(6); // past the 5-minute margin: Stripe refuses the saved expiry
     expect(await url()).toBe("https://checkout.stripe.test/c/1");
     expect(repo.box.checkout_attempt!.id).not.toBe(first.id);
     expect(stripe.sessions.length).toBe(1);
@@ -115,9 +115,30 @@ describe("Checkout retries", () => {
     const a = await url();
     expect(await url()).toBe(a);
     expect(stripe.calls).toBe(1);
-    later(29);
+    later(34);
     expect(await url()).not.toBe(a);
     expect(stripe.sessions.length).toBe(2);
+  });
+
+  test("a slow commit before Stripe still leaves the expiry at least 30 minutes away", async () => {
+    // Every commit (the saved attempt) takes 20 seconds to reach Stripe.
+    const locked = repo.locked.bind(repo);
+    repo.locked = async (id, fn) => {
+      const r = await locked(id, fn);
+      later(20 / 60);
+      return r;
+    };
+    expect(await url()).toBe("https://checkout.stripe.test/c/1");
+    expect(stripe.calls).toBe(1);
+    const exp = Number(repo.box.checkout_attempt!.params.expires_at);
+    // The expiry was fixed when the attempt was made and is the one saved.
+    expect(exp).toBe(Math.floor(new Date("2026-10-08T12:00:00Z").getTime() / 1000) + 35 * 60);
+    // A retry two minutes later replays the same saved request, still valid at Stripe.
+    repo.box.checkout_url = null;
+    stripe.cache.clear();
+    later(2);
+    expect(await url()).toBe("https://checkout.stripe.test/c/2");
+    expect(Number(repo.box.checkout_attempt!.params.expires_at)).toBe(exp);
   });
 
   test("the founding coupon ran out between the check and the session: full price", async () => {

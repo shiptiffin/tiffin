@@ -95,7 +95,6 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
       mode: "subscription",
       line_items: [{ price, quantity: 1 }],
       payment_method_types: process.env.STRIPE_CHECKOUT_LINK === "1" ? ["card", "link"] : ["card"],
-      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
       success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: renew ? `${base}/account` : `${base}/start?canceled=1`,
       client_reference_id: b.id,

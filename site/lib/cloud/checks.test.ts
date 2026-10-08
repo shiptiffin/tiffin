@@ -308,10 +308,21 @@ describe("outbox", () => {
     async fail(id: number, attempts: number, error: string) {
       Object.assign(this.rows.find((r) => r.id === id)!, { status: "failed", attempts, error });
     }
+    async queue(box_id: string, kind: string, key: string, params: Record<string, unknown>) {
+      if (this.rows.some((r) => r.box_id === box_id && r.kind === kind && r.key === key)) return false;
+      this.rows.push({ ...row(this.rows.length + 100, kind, params), box_id, key });
+      return true;
+    }
+    async requeueStripe() {
+      const failed = this.rows.filter((r) => r.status === "failed" && r.kind.startsWith("stripe_"));
+      for (const r of failed) r.status = "queued";
+      return failed.length;
+    }
   }
   const row = (id: number, kind: string, params: Record<string, unknown> = {}) => ({
     id, box_id: "box_1", kind, key: "", params, attempts: 0, email: "sam@example.com", name: "shop",
     last_heartbeat_at: null, extras_paused_at: null, kill_reason: null, stripe_subscription_id: "sub_1", status: "queued",
+    created_at: new Date("2026-10-08T12:00:00Z"),
   });
   test("sends, retries with backoff while the mail server is down, gives up after ten tries", async () => {
     const st = new MemOutbox();
@@ -342,6 +353,33 @@ describe("outbox", () => {
     expect(await drain(st, { stripe })).toMatchObject({ retried: 1 });
     expect(await drain(st, { stripe })).toMatchObject({ done: 1 });
     expect(backoff(30).getTime() - Date.now()).toBeLessThanOrEqual(6 * 3_600_000 + 1000);
+  });
+  test("a Stripe cancel and refund is never given up on, and the admin hears once when it's over an hour stuck", async () => {
+    const st = new MemOutbox();
+    st.rows.push(row(5, "stripe_cancel_refund", { subscription: "sub_dup", why: "duplicate" }));
+    const stripe = async () => {
+      throw new Error("Stripe answered 500");
+    };
+    const mail: { to: string; subject: string; text: string }[] = [];
+    const send = async (m: { to: string; subject: string; text: string }) => (mail.push(m), { ok: true as const });
+    const start = new Date("2026-10-08T12:00:00Z");
+    for (let i = 0; i < 3 * MAX_ATTEMPTS; i++) {
+      const now = new Date(start.getTime() + i * 10 * 60_000);
+      await drain(st, { stripe, send, now, admin: "ops@example.com" });
+      const r = st.rows.find((x) => x.id === 5)!;
+      expect(r.status).toBe("queued");
+      expect(r.next!.getTime() - now.getTime()).toBeLessThanOrEqual(60 * 60_000);
+    }
+    expect(st.rows.find((x) => x.id === 5)!.attempts).toBe(3 * MAX_ATTEMPTS);
+    expect(mail.length).toBe(1);
+    expect(mail[0]!.to).toBe("ops@example.com");
+    expect(mail[0]!.text).toContain("sub_dup");
+    // One given up on by an older release is picked up again.
+    Object.assign(st.rows.find((x) => x.id === 5)!, { status: "failed" });
+    let ran = 0;
+    await drain(st, { stripe: async () => void ran++, send, admin: "ops@example.com" });
+    expect(ran).toBe(1);
+    expect(st.rows.find((x) => x.id === 5)!.status).toBe("done");
   });
 });
 
