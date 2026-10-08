@@ -352,9 +352,26 @@ ip netns exec probe sh -c 'ip addr add 203.0.113.7/24 dev vprobe1; ip addr add 2
 	if r, body := fetch("GET", hostURL("victim")+"/deep/link?q=1", map[string]string{"User-Agent": "e2e-solver/1.0", "Cookie": cookie}, ""); r.StatusCode != 404 || !strings.Contains(body, "Nothing here") {
 		t.Errorf("cleared client must reach the host's own response: %d", r.StatusCode)
 	}
-	if r, _ := fetch("GET", hostURL("victim")+"/api/x", map[string]string{"Authorization": "Bearer xyz"}, ""); r.StatusCode != 404 {
-		t.Errorf("bearer clients are not challenged: %d", r.StatusCode)
+	// No header skips the challenge (a made-up bearer token would let any bot
+	// through); only the paths the owner lists for API clients do.
+	if r, _ := fetch("GET", hostURL("victim")+"/api/x", map[string]string{"Authorization": "Bearer xyz"}, ""); r.StatusCode != 403 {
+		t.Errorf("a bearer header must not skip the challenge: %d", r.StatusCode)
 	}
+	var ex map[string]any
+	runJSON(&ex, "protect", "set", "--body", `{"challenge":{"exemptPaths":["/api/"]}}`)
+	exempt := 0
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		if r, _ := fetch("GET", hostURL("victim")+"/api/x", nil, ""); r.StatusCode == 404 {
+			exempt = 404
+			break
+		} else {
+			exempt = r.StatusCode
+		}
+	}
+	if exempt != 404 {
+		t.Errorf("an exempt path must reach the host unchallenged: %d (%v)", exempt, ex["settings"])
+	}
+	runJSON(&ex, "protect", "set", "--body", `{"challenge":{"exemptPaths":[]}}`)
 	legit("under attack")
 	// It turns itself off.
 	deadline := time.Now().Add(90 * time.Second)
