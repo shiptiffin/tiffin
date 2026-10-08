@@ -14,7 +14,7 @@ func (a *app) sdkCmd() *cobra.Command {
 	add := &cobra.Command{
 		Use:   "add [dir]",
 		Short: "Vendor @shiptiffin/sdk into a project and add it to package.json",
-		Long: "Writes vendor/" + sdkpkg.SDK.File() + " (the copy that ships inside tiffin, the same files as on npm) and sets \"" +
+		Long: "Writes vendor/" + sdkpkg.SDK.File() + " (the copy built into this tiffin, made for this version of the box; the release on npm may be older or newer) and sets \"" +
 			sdkpkg.SDK.Name + "\": \"" + sdkpkg.SDK.Spec() + "\" in package.json, so `bun install` / `npm install` get the SDK " +
 			"from the project itself, on your machine and in the box's builds, with no registry. Commit vendor/ with the app. " +
 			"An app that already installs " + sdkpkg.SDK.Name + " from npm (bun add " + sdkpkg.SDK.Name + ") is left as it is. " +
