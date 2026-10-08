@@ -10,6 +10,9 @@
   "imports": {
     "#lib/*": "./src/lib/*"
   },
+  "dependencies": {
+    "postgres": "3.4.9"
+  },
   "devDependencies": {
     "@sveltejs/adapter-bun": "1.0.0",
     "@sveltejs/kit": "3.0.0",

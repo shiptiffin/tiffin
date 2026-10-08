@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import { db, migrate } from "../lib/db.js";
+import { migrate, sql } from "../lib/db.js";
 
 // Rendered on every request, straight from Postgres on the same box.
 export const dynamic = "force-dynamic";
@@ -9,13 +9,12 @@ async function addNote(form) {
   const text = String(form.get("text") ?? "").trim().slice(0, 280);
   if (!text) return;
   await migrate();
-  await db()`insert into notes (text) values (${text})`;
+  await sql`insert into notes (text) values (${text})`;
   revalidatePath("/");
 }
 
 export default async function Home() {
   await migrate();
-  const sql = db();
   const [notes, [{ count, version }]] = await Promise.all([
     sql`select id, text, created_at from notes order by id desc limit 20`,
     sql`select count(*)::int as count, split_part(version(), ' ', 2) as version from notes`,

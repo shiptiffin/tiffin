@@ -378,6 +378,18 @@ The box adds nothing for LLMs:
 Everything runs on **one machine**: if the box is down, your apps are down. Backups stay on
 the box unless you [copy them off it](data.md#copies-off-the-box).
 
+## Database clients
+
+- **postgres.js 3.4.9 needs `prepare: false` on `DATABASE_URL`.** When a prepared query
+  fails because the pooler dropped its statement or a migration changed a table, it
+  retries with its parameters encoded twice: jsonb stored as a string, `true` as `false`
+  ([porsager/postgres#1197](https://github.com/porsager/postgres/issues/1197)). On a pooler, a commit can also silently become a
+  rollback ([#1212](https://github.com/porsager/postgres/issues/1212)). `prepare: false` avoids both, and the starters set it. The
+  fix for #1197 is merged but not released: upgrade when 3.4.10 ships.
+- **Bun.sql isn't recommended yet** (Bun 1.4.2): wrong `text[]` binding, unparsed `uuid[]`,
+  a connection leak, `sql.listen()` not told when its connection drops, and no COPY or
+  cursors. See [Connecting from your app](data.md#connecting-from-your-app).
+
 ## Databases and KV from outside the box
 
 - **Postgres and KV are reachable only from inside the box.** Apps on the box use them

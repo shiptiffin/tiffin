@@ -501,10 +501,10 @@ export async function pageItem(url: string): Promise<Item> {
 ```
 
 ```ts
-// db.ts
-import { SQL } from "bun";
+// db.ts: postgres.js through the box's pooler (prepare: false; see the data guide)
+import postgres from "postgres";
 
-export const sql = new SQL(process.env.DATABASE_URL!);
+export const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 5, idle_timeout: 20 });
 
 export async function migrate() {
   // One row per job: what started it, how it ended and what it cost.
@@ -550,6 +550,7 @@ export async function tokensToday(): Promise<number> {
     "ai": "^7.0.0",
     "fast-xml-parser": "^5.0.0",
     "hono": "^4.13.0",
+    "postgres": "3.4.9",
     "zod": "^4.1.8"
   }
 }

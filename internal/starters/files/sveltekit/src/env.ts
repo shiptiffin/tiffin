@@ -11,4 +11,8 @@ export const variables = defineEnvVars({
       return value ?? "";
     },
   },
+  DIRECT_DATABASE_URL: {
+    description: "Postgres connection string that skips the pooler, for migrations (set by Tiffin)",
+    schema: (value) => value ?? "",
+  },
 });

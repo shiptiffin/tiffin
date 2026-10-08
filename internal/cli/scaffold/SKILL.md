@@ -76,10 +76,11 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 6. App code reads services from env vars (`DATABASE_URL`, `S3_*`, `TIFFIN_AUTH_INTERNAL_URL`...),
    its own address from `TIFFIN_URL` and the domain apps live under from `TIFFIN_DOMAIN` (it can
    differ from the dashboard's: `tiffin domain` shows both); never hardcode either.
-   `DATABASE_URL` goes through a transaction pooler (PgBouncer): prepared statements work, but
-   `LISTEN`, session advisory locks, plain `SET` and temp tables need `DIRECT_DATABASE_URL`
-   (also Prisma's `directUrl` and drizzle-kit; release commands get it as `DATABASE_URL`).
-   With node-postgres add `pool.on("error", ...)`. Postgres minor updates: `tiffin maintenance
+   `DATABASE_URL` goes through a transaction pooler (PgBouncer). From JS connect with postgres.js
+   (`postgres(url, { prepare: false, max: 5 })`, one pool per process) or `pg`, not Bun.sql;
+   migrations, `LISTEN`, session advisory locks, plain `SET` and temp tables need
+   `DIRECT_DATABASE_URL` (also Prisma's `directUrl` and drizzle-kit; release commands get it as
+   `DATABASE_URL`). With node-postgres add `pool.on("error", ...)`. Postgres minor updates: `tiffin maintenance
    show` / `tiffin maintenance postgres-update [--now]` (queries wait a fraction of a second, none fail).
    `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
    secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and

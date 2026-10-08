@@ -365,9 +365,9 @@ Starters ship in the binary, grouped by what you make (`kind`), with a framework
 |---|---|---|
 | Web app (`web`) | **Next.js** (`nextjs`) | App Router on Bun; a server component reads Postgres, a server action writes it |
 | | TanStack Start (`tanstack-start`) | A loader and server functions on Postgres, streamed stats, a prerendered `/about` |
-| | SvelteKit (`sveltekit`) | SvelteKit 3 with adapter-bun: a server `load` on Postgres (`Bun.SQL`), a form action, streamed stats, a prerendered `/about` |
-| | React Router (`react-router`) | React Router 8 framework mode: a loader and an action on Postgres (`Bun.SQL`), streamed stats, a prerendered `/about` |
-| | Nuxt (`nuxt`) | Nuxt 4 on Bun: a page and server routes on Postgres (postgres.js), a form that works without JavaScript, a prerendered `/about` |
+| | SvelteKit (`sveltekit`) | SvelteKit 3 with adapter-bun: a server `load` on Postgres, a form action, streamed stats, a prerendered `/about` |
+| | React Router (`react-router`) | React Router 8 framework mode: a loader and an action on Postgres, streamed stats, a prerendered `/about` |
+| | Nuxt (`nuxt`) | Nuxt 4 on Bun: a page and server routes on Postgres, a form that works without JavaScript, a prerendered `/about` |
 | Static site (`static`) | **Astro** (`astro`) | Plain HTML, the image service and a self-hosted font; no JavaScript unless a page asks |
 | | Vite + React (`vite-react`) | A single-page app built to hashed, code-split files |
 | API (`api`) | **Hono** (`hono`) | A JSON API with a Postgres table it creates on boot |

@@ -37,13 +37,45 @@ pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
   80 connections. A project with a limit gets its share of the connections and of the
   CPU for its queries (see [Sharing the box](concepts.md#sharing-the-box)).
 - **Connection pools:** see the pooler below. `DATABASE_POOL_MAX` (20 per production
-  instance, 5 per preview instance) is how many client connections one instance's pool
-  should open to the pooler. Clients do not read it on their own: pass it as the pool's
-  max, e.g. `new SQL({ max: Number(process.env.DATABASE_POOL_MAX) || 10 })` (Bun.SQL),
-  `postgres(url, { max: ... })` (postgres.js), `new Pool({ max: ... })` (node-postgres, and
-  `PrismaPg` with Prisma 7). A value you set (env or secret) is kept. A new value applies
+  instance, 5 per preview instance) is the most client connections one instance's pool
+  should open to the pooler. Clients do not read it on their own (the starters use 5): to
+  use it, pass it as the pool's max, e.g. `postgres(url, { prepare: false, max:
+  Number(process.env.DATABASE_POOL_MAX) || 5 })` (postgres.js), `new Pool({ max: ... })`
+  (node-postgres, and `PrismaPg` with Prisma 7). A value you set (env or secret) is kept. A new value applies
   as instances start (a deploy or restart), and a plan warns when the apps' pools could
   open more client connections than the pooler lets a project hold (1,000).
+
+### Connecting from your app
+
+The starters connect with [postgres.js](https://github.com/porsager/postgres), on Bun and
+Node.js alike:
+
+```ts
+// db.ts
+import postgres from "postgres";
+
+const g = globalThis as { __sql?: postgres.Sql };
+export const sql = (g.__sql ??= postgres(process.env.DATABASE_URL!, { prepare: false, max: 5, idle_timeout: 20 }));
+```
+
+- **`prepare: false` on `DATABASE_URL`:** through the transaction pooler, postgres.js 3.4.9
+  can retry a prepared query with its parameters encoded twice (see
+  [Limits](limits.md#database-clients)).
+- **`pg` (node-postgres) works too**, prepared statements included. Give its pool an error
+  listener (`pool.on("error", ...)`).
+- **One small pool per process:** make it once, at module level. Keeping it on
+  `globalThis` stops a dev server's hot reload from opening another pool each time.
+- **`DIRECT_DATABASE_URL`** for anything that needs a whole session: migrations, `LISTEN`,
+  session advisory locks and `SET` without `LOCAL`. Open a separate client for it
+  (`postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })`) and close it when done.
+- **ORMs and query builders** sit on top of these drivers: Drizzle
+  (`drizzle-orm/postgres-js` or `drizzle-orm/node-postgres`), Kysely (`PostgresDialect`
+  with a `pg` Pool) and Prisma 7 (`@prisma/adapter-pg`). Pin Prisma to `7.x`: npm's
+  `latest` tag is an 8.0 release candidate.
+- **Bun.sql isn't recommended yet.** In Bun 1.4.2 it binds `sql.array()` text arrays as
+  JSON-quoted values ([#41242](https://github.com/oven-sh/bun/issues/41242)), returns `uuid[]` unparsed
+  ([#41039](https://github.com/oven-sh/bun/issues/41039)), can leak connections ([#23215](https://github.com/oven-sh/bun/issues/23215)), doesn't tell
+  `sql.listen()` when its connection drops ([#41050](https://github.com/oven-sh/bun/issues/41050)), and has no COPY or cursors.
 
 ### What's in your database
 
@@ -74,11 +106,12 @@ so its limits and its share of the CPU hold as before.
 
 | Client | Through the pooler (`DATABASE_URL`) |
 |---|---|
-| Bun.SQL, postgres.js, node-postgres, Drizzle (either driver) | works as is, prepared statements included |
+| postgres.js | works with `prepare: false` (see [Connecting from your app](#connecting-from-your-app)) |
+| node-postgres, Drizzle or Kysely on it | works as is, prepared statements included |
 | Prisma 7 (`@prisma/adapter-pg`) | works as is |
 | Prisma 6 (Rust engine) | works as is; `?pgbouncer=true` is not needed (it also works) |
 
-Prepared statements work because the pooler re-prepares them on whichever server
+Prepared statements (node-postgres, Prisma, psycopg, pgx) work because the pooler re-prepares them on whichever server
 connection runs them. Settings sent when connecting carry over for `search_path`,
 `timezone`, `application_name`, `statement_timeout`, `lock_timeout` and
 `idle_in_transaction_session_timeout`; the pooler refuses a connection that sends others

@@ -9,9 +9,9 @@ export const meta: Route.MetaFunction = () => [{ title: "Notes · React Router o
 // once and streams the stats into it when the query finishes.
 export async function loader() {
   await migrate();
-  const notes: Note[] = await sql`select id, text, created_at::text from notes order by id desc limit 20`;
-  const stats = sql`select count(*)::int as count, split_part(version(), ' ', 2) as version from notes`.then(
-    ([row]: { count: number; version: string }[]) => ({ ...row, deploy: process.env.TIFFIN_DEPLOY ?? "local" }),
+  const notes = await sql<Note[]>`select id, text, created_at::text from notes order by id desc limit 20`;
+  const stats = sql<{ count: number; version: string }[]>`select count(*)::int as count, split_part(version(), ' ', 2) as version from notes`.then(
+    ([row]) => ({ ...row, deploy: process.env.TIFFIN_DEPLOY ?? "local" }),
   );
   return { notes: [...notes], stats };
 }

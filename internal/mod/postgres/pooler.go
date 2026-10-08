@@ -53,8 +53,12 @@ const (
 	// know yet (a branch made a moment ago): the next sync sizes it.
 	fallbackPoolSize = 2
 	// maxPrepared is how many prepared statements PgBouncer tracks per
-	// server connection, so clients that prepare (postgres.js, Bun.SQL,
-	// pgx, Prisma) work in transaction mode.
+	// server connection, so clients that prepare (node-postgres, Prisma,
+	// psycopg, pgx, postgres.js on its defaults) work in transaction mode.
+	// The starters use postgres.js with prepare: false (3.4.9 can mangle a
+	// query's parameters when it retries a statement the pooler dropped),
+	// which sends unnamed statements and doesn't need this; it stays on for
+	// every other client.
 	maxPrepared = 200
 	// PoolMaxProduction and PoolMaxPreview are the DATABASE_POOL_MAX the box
 	// suggests to each app instance: client connections to the pooler.

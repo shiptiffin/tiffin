@@ -15,7 +15,7 @@ export default function About() {
           <strong>Server.</strong> On Bun, Tiffin serves the build with <code>Bun.serve</code> and React Router's own request handler.
         </li>
         <li>
-          <strong>Data.</strong> Bun's built-in Postgres client (<code>Bun.SQL</code>) reads <code>DATABASE_URL</code>.
+          <strong>Data.</strong> <code>postgres</code> (postgres.js) reads <code>DATABASE_URL</code> in a server module.
         </li>
         <li>
           <strong>Forms.</strong> The route action takes a plain POST, so the form works without JavaScript.

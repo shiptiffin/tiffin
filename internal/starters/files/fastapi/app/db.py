@@ -23,6 +23,9 @@ engine = create_async_engine(
     pool_size=int(os.environ.get("DATABASE_POOL_MAX") or 5),
     max_overflow=0,
     pool_pre_ping=True,  # a connection the pooler closed is replaced, not handed out
+    # No server-side prepared statements through the transaction pooler: the
+    # same rule as the JavaScript starters, and nothing for PgBouncer to track.
+    connect_args={"prepare_threshold": None},
 )
 Session = async_sessionmaker(engine, expire_on_commit=False)
 

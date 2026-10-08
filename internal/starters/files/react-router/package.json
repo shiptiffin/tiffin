@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "isbot": "5.2.2",
+    "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router": "8.4.0"
