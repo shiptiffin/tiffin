@@ -26,15 +26,19 @@
 [data-theme="light"] {
   color-scheme: light;
   /* paper */
-  --paper: oklch(0.975 0.007 85);
-  --paper-sunk: oklch(0.952 0.009 82);
-  --paper-raised: oklch(0.993 0.004 85);
-  --paper-press: oklch(0.932 0.01 80);
+  --paper: oklch(0.995 0.002 85); /* the page: warm white, on a panel beside the sidebar */
+  --paper-sunk: oklch(0.97 0.006 84);
+  --paper-raised: oklch(1 0 0);
+  --paper-press: oklch(0.945 0.009 82);
+  /* the sidebar: a tinted ground the page sits on */
+  --side: oklch(0.958 0.011 84);
+  --side-hover: oklch(0.932 0.013 82);
+  --side-select: oklch(0.918 0.016 80);
   /* ink */
-  --ink: oklch(0.235 0.014 60);
-  --ink-2: oklch(0.43 0.014 62);
-  --ink-3: oklch(0.515 0.012 66);
-  --ink-4: oklch(0.6 0.011 70);
+  --ink: oklch(0.22 0.015 60);
+  --ink-2: oklch(0.42 0.016 62);
+  --ink-3: oklch(0.51 0.014 66);
+  --ink-4: oklch(0.6 0.012 70);
   --graphite: oklch(0.47 0.03 250);
   /* rules */
   --rule: oklch(0.235 0.014 60 / 0.085);
@@ -42,8 +46,8 @@
   --rule-3: oklch(0.235 0.014 60 / 0.4);
   --steel: oklch(0.64 0.01 75);
   /* interactive states: hover, selected, and a chip lifted out of a track */
-  --paper-hover: var(--paper-sunk);
-  --paper-select: var(--paper-sunk);
+  --paper-hover: oklch(0.965 0.007 84);
+  --paper-select: oklch(0.948 0.01 82);
   --paper-lift: var(--paper-raised);
   /* the mark (logo): ink lines on flat steel */
   --mark-line: var(--ink);
@@ -54,20 +58,27 @@
   --mark-body-3: var(--steel);
   --mark-body-4: var(--steel);
   /* brass: one accent, under 5 % of pixels */
-  --brass: oklch(0.8 0.15 78); /* marigold: bright enough to read as sunny, not olive */
+  --brass: oklch(0.8 0.16 76); /* marigold: bright enough to read as sunny, not olive */
   --brass-ink: oklch(0.485 0.098 70);
   --brass-wash: oklch(0.8 0.15 78 / 0.16);
   --on-brass: oklch(0.22 0.03 60);
   /* status: only when status isn't fine */
-  --danger: oklch(0.52 0.175 27);
-  --danger-wash: oklch(0.52 0.175 27 / 0.07);
-  --danger-rule: oklch(0.52 0.175 27 / 0.35);
+  --danger: oklch(0.55 0.2 27);
+  --danger-wash: oklch(0.55 0.2 27 / 0.08);
+  --danger-rule: oklch(0.55 0.2 27 / 0.35);
   --on-danger: oklch(0.985 0.005 85);
   --warn: oklch(0.6 0.14 52);
   --warn-ink: oklch(0.5 0.12 50);
   --warn-wash: oklch(0.6 0.14 52 / 0.1);
-  --ok: oklch(0.52 0.11 150);
-  --ok-wash: oklch(0.52 0.11 150 / 0.09);
+  --ok: oklch(0.55 0.15 152);
+  --ok-wash: oklch(0.55 0.15 152 / 0.1);
+  /* data: the series a chart is about, in the brand's warm orange; a cool second series beside it */
+  --data: oklch(0.67 0.18 50);
+  --data-wash: oklch(0.72 0.16 58 / 0.2);
+  --data-2: oklch(0.58 0.15 250);
+  --chart-3: oklch(0.62 0.12 185);
+  --chart-4: oklch(0.63 0.17 355);
+  --chart-5: oklch(0.64 0.15 140);
   --focus: oklch(0.6 0.12 74); /* brass, deep enough for 3:1 against paper */
   /* meters */
   --seg-off: oklch(0.235 0.014 60 / 0.1);
@@ -95,10 +106,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --paper: oklch(0.185 0.005 65);
-    --paper-sunk: oklch(0.162 0.005 65);
-    --paper-raised: oklch(0.222 0.006 65);
-    --paper-press: oklch(0.245 0.006 65);
+    --paper: oklch(0.2 0.006 65);
+    --paper-sunk: oklch(0.175 0.005 65);
+    --paper-raised: oklch(0.235 0.007 65);
+    --paper-press: oklch(0.258 0.007 65);
+    --side: oklch(0.158 0.005 65);
+    --side-hover: oklch(0.21 0.006 65);
+    --side-select: oklch(0.245 0.007 65);
     --ink: oklch(0.935 0.008 85);
     --ink-2: oklch(0.775 0.009 80);
     --ink-3: oklch(0.665 0.009 78);
@@ -109,8 +123,8 @@
     --rule-3: oklch(0.935 0.008 85 / 0.34);
     --steel: oklch(0.5 0.008 75);
     /* states go lighter on a dark ground; sunk would vanish */
-    --paper-hover: oklch(0.255 0.006 65);
-    --paper-select: oklch(0.29 0.007 65);
+    --paper-hover: oklch(0.255 0.007 65);
+    --paper-select: oklch(0.285 0.008 65);
     --paper-lift: oklch(0.32 0.007 65);
     /* the mark: polished steel with a soft outline, never glaring white */
     --mark-line: oklch(0.41 0.008 60);
@@ -124,15 +138,21 @@
     --brass-ink: oklch(0.8 0.1 80);
     --brass-wash: oklch(0.82 0.15 80 / 0.13);
     --on-brass: oklch(0.2 0.02 60);
-    --danger: oklch(0.69 0.165 27);
+    --danger: oklch(0.7 0.18 27);
     --danger-wash: oklch(0.69 0.165 27 / 0.09);
     --danger-rule: oklch(0.69 0.165 27 / 0.4);
     --on-danger: oklch(0.17 0.01 30);
     --warn: oklch(0.77 0.13 62);
     --warn-ink: oklch(0.8 0.12 65);
     --warn-wash: oklch(0.77 0.13 62 / 0.1);
-    --ok: oklch(0.74 0.12 150);
-    --ok-wash: oklch(0.74 0.12 150 / 0.09);
+    --ok: oklch(0.75 0.15 152);
+    --ok-wash: oklch(0.75 0.15 152 / 0.1);
+    --data: oklch(0.76 0.16 58);
+    --data-wash: oklch(0.76 0.16 58 / 0.15);
+    --data-2: oklch(0.72 0.12 250);
+    --chart-3: oklch(0.74 0.11 185);
+    --chart-4: oklch(0.72 0.15 355);
+    --chart-5: oklch(0.75 0.14 140);
     --focus: oklch(0.77 0.11 80);
     --seg-off: oklch(0.935 0.008 85 / 0.1);
     --seg-on: oklch(0.935 0.008 85 / 0.8);
@@ -155,10 +175,13 @@
 :root[data-theme="dark"],
 [data-theme="dark"] {
   color-scheme: dark;
-  --paper: oklch(0.185 0.005 65);
-  --paper-sunk: oklch(0.162 0.005 65);
-  --paper-raised: oklch(0.222 0.006 65);
-  --paper-press: oklch(0.245 0.006 65);
+  --paper: oklch(0.2 0.006 65);
+  --paper-sunk: oklch(0.175 0.005 65);
+  --paper-raised: oklch(0.235 0.007 65);
+  --paper-press: oklch(0.258 0.007 65);
+  --side: oklch(0.158 0.005 65);
+  --side-hover: oklch(0.21 0.006 65);
+  --side-select: oklch(0.245 0.007 65);
   --ink: oklch(0.935 0.008 85);
   --ink-2: oklch(0.775 0.009 80);
   --ink-3: oklch(0.665 0.009 78);
@@ -169,8 +192,8 @@
   --rule-3: oklch(0.935 0.008 85 / 0.34);
   --steel: oklch(0.5 0.008 75);
   /* states go lighter on a dark ground; sunk would vanish */
-  --paper-hover: oklch(0.255 0.006 65);
-  --paper-select: oklch(0.29 0.007 65);
+  --paper-hover: oklch(0.255 0.007 65);
+  --paper-select: oklch(0.285 0.008 65);
   --paper-lift: oklch(0.32 0.007 65);
   /* the mark: polished steel with a soft outline, never glaring white */
   --mark-line: oklch(0.41 0.008 60);
@@ -184,15 +207,21 @@
   --brass-ink: oklch(0.8 0.1 80);
   --brass-wash: oklch(0.82 0.15 80 / 0.13);
   --on-brass: oklch(0.2 0.02 60);
-  --danger: oklch(0.69 0.165 27);
+  --danger: oklch(0.7 0.18 27);
   --danger-wash: oklch(0.69 0.165 27 / 0.09);
   --danger-rule: oklch(0.69 0.165 27 / 0.4);
   --on-danger: oklch(0.17 0.01 30);
   --warn: oklch(0.77 0.13 62);
   --warn-ink: oklch(0.8 0.12 65);
   --warn-wash: oklch(0.77 0.13 62 / 0.1);
-  --ok: oklch(0.74 0.12 150);
-  --ok-wash: oklch(0.74 0.12 150 / 0.09);
+  --ok: oklch(0.75 0.15 152);
+  --ok-wash: oklch(0.75 0.15 152 / 0.1);
+  --data: oklch(0.76 0.16 58);
+  --data-wash: oklch(0.76 0.16 58 / 0.15);
+  --data-2: oklch(0.72 0.12 250);
+  --chart-3: oklch(0.74 0.11 185);
+  --chart-4: oklch(0.72 0.15 355);
+  --chart-5: oklch(0.75 0.14 140);
   --focus: oklch(0.77 0.11 80);
   --seg-off: oklch(0.935 0.008 85 / 0.1);
   --seg-on: oklch(0.935 0.008 85 / 0.8);

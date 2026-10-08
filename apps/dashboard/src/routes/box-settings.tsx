@@ -32,7 +32,7 @@ function readSounds(): boolean {
 
 /** Settings: the box itself (its nameplate and facts), how it looks and sounds, project colours, moving it, updating it. */
 export function SettingsPage() {
-  useTitle("Settings");
+  useTitle("Settings · General");
   const status = useQuery(q.status());
   const res = useQuery(q.resources);
   const projects = useQuery(q.projects);
@@ -51,7 +51,7 @@ export function SettingsPage() {
 
   return (
     <Page>
-      <PageHeader title="Settings" lede="Your box: what it is, how it looks, how to move it and keep it up to date." />
+      <PageHeader title="General" lede="Your box: what it is, how it looks, how to move it and keep it up to date." />
 
       <Section title="This box">
         <div className="border-y border-rule py-3">

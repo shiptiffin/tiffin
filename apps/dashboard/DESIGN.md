@@ -1,7 +1,7 @@
 # The dashboard's design system
 
 It's for people. They see their projects, what's in each one, how much of the box each uses, make more, and
-give or take resources. The machine's insides are one level down, in Settings. Paper, ink and brass;
+give or take resources. The machine's insides are one level down, in Settings. Warm white, ink and brass;
 Newsreader for the occasional sentence, Instrument Sans for the interface, Commit Mono for identifiers. Open
 **`/_kit`** in the running dashboard for every primitive in both themes.
 
@@ -28,19 +28,24 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 - **Sidebar** never grows with the number of projects. Top: the project switcher (the current project, or All
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
   Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
-  Health, Backups, API keys; Settings at the bottom (Your box, Machine, People, Sign-ins, Shield). Inside a project:
-  "← All projects", then only that project's sections: Overview, the parts it has (App(s), Database, KV,
-  Files, Email, Auth, Analytics, Jobs), then Usage, History, Settings; and a small "Your box" group at the
-  bottom (Usage, Activity, Health) so nothing is a dead end. A standalone project (just a database, KV,
+  Health, Backups, API keys; Settings at the bottom. Settings swaps the sidebar for its own (← Back, then
+  Your box: General, Machine, Git, DNS, Shield, People; You: Sign-ins, Touch ID / Face ID), so the sidebar
+  never goes three levels deep. Inside a project: "← All projects", then only that project's sections:
+  Overview, Deployments, Logs, Analytics, Observability, Domains, Environment Variables, its services,
+  then Activity (the same changes as the box's Activity, for this project) and Settings. A standalone project (just a database, KV,
   files or schedules; no app) shows only that part and opens on it. Switching projects keeps your section
   when the other project has it, else lands on its Overview, which says why.
-- **Account menu** (your name, bottom left): API keys, Sign-ins, "Sign in with Touch ID / Face ID", sign out. The word
+- **Frame.** On a desktop the sidebar is a tinted ground (`--side`) and the page a white panel inset 8 px
+  on it (Linear, Supabase); a phone gets the plain page.
+- **Account menu** (your name, bottom left): Theme (system, light, dark as three icons), the MCP command,
+  API keys, Sign-ins, "Sign in with Touch ID / Face ID", sign out. The word
   "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
   sign-in link" as the fallback.
 - **Projects (home)**: one line about the box ("Your box is about two-fifths full") over one bar split by
   project, then a card per project: icon, name, live address, one status line, its parts as small glyphs,
   its share of the box. Sort, list view and (past six projects) search. Nothing about the platform here.
-- **Project overview**: name, status line, live address; "What's in it" as tiles (only the parts it has) and
+- **Project overview**: name, status line, live address (its own domain once that's live, the automatic
+  address listed under it as "also at"); "What's in it" as tiles (only the parts it has) and
   a quiet Add. Each tile opens its own page. **Usage**: memory, CPU and disk, its database, cache and builds
   against their limits, one Limit choice (no limit, or a share of the box that holds all of it) with storage,
   cache and query time under its Advanced, copies and exact numbers under Details. **History**: plain
@@ -75,7 +80,9 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 7. **Lists are rows on the page** (`divide-y divide-rule`, `border-y border-rule`). Cards only for objects: a
    project, a part of a project, a dialog.
 8. **Colour.** Text `text-ink` / `-2` / `-3`; `text-ink-4` only for incidental text. Brass for the one
-   primary action, the selected choice, a change on its way. `text-danger`, `text-warn-ink`, `text-ok` only
+   primary action, the selected choice, a change on its way. Charts use the data colours: `--data` (warm
+   orange) for the series a chart is about, `--data-2` (blue) beside it, then `--chart-3…5`; bars in lists
+   are `bg-data-wash`; a comparison period is a dashed `--ink-4` line. `text-danger`, `text-warn-ink`, `text-ok` only
    when status isn't fine. Projects have icons, not colours.
 9. **Snappy.** Only Projects ships in the first load; every other page loads on demand, and hovering a link
    runs its route's loader (code and data). Queries share keys, so moving between pages doesn't refetch.

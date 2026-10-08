@@ -88,7 +88,7 @@ const pages: Array<{ label: string; to: string; search?: Record<string, string>;
   { label: "Jobs: workers", to: "/projects/$project/jobs/workers", part: "jobs", kw: ["workers", "apps", "alive", "instances"] },
   { label: "Observability", to: "/projects/$project/observability", kw: ["metrics", "charts", "requests", "latency", "errors", "traces", "usage"], keys: "g u" },
   { label: "Observability: resources", to: "/projects/$project/observability", search: { tab: "resources" }, kw: ["memory", "cpu", "limit", "resources", "usage", "disk"] },
-  { label: "History", to: "/projects/$project/history", kw: ["changes", "undo", "ledger"], keys: "g h" },
+  { label: "Activity", to: "/projects/$project/history", kw: ["history", "changes", "undo", "ledger"], keys: "g h" },
   { label: "Settings", to: "/projects/$project/settings", kw: ["colour", "addresses", "delete", "rename", "copy", "move"], keys: "g s" },
   { label: "Domains", to: "/projects/$project/domains", kw: ["domain", "dns", "https", "certificate", "www", "custom domain"] },
 ];

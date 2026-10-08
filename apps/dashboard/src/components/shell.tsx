@@ -11,6 +11,7 @@ import { setNavigator, useConfirmRequest } from "@/lib/staged";
 import { rememberProject } from "@/lib/recent";
 import { PART_PAGE, partsOf, standalonePart, type Part, type ProjectPage } from "@/lib/sections";
 import { listen, useShortcut } from "@/lib/shortcuts";
+import { passkeyWords } from "@/lib/webauthn";
 import { useFavicon } from "./favicon";
 import { Logo } from "./logo";
 import { rememberClick, WhoTrigger } from "./shell-triggers";
@@ -98,11 +99,11 @@ export function Shell() {
   const switcher = (where: "side" | "bar") => <Switcher open={switcherOpen && (where === "side") === isDesktop()} onOpenChange={setSwitcherOpen} compact={where === "bar"} />;
 
   return (
-    <div className="min-h-dvh bg-paper lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
+    <div className="min-h-dvh bg-paper lg:grid lg:grid-cols-[232px_minmax(0,1fr)] lg:bg-side">
       <a href="#main" className="sr-only z-50 rounded-md bg-ink px-3 py-2 text-paper focus:not-sr-only focus:fixed focus:top-2 focus:left-2">
         Skip to content
       </a>
-      <aside className="hidden border-r border-rule lg:block">
+      <aside className="hidden lg:block">
         <div className="sticky top-0 h-dvh">
           <Sidebar onSearch={() => setPaletteOpen(true)} switcher={switcher("side")} />
         </div>
@@ -121,7 +122,8 @@ export function Shell() {
         </Suspense>
       )}
 
-      <div className="flex min-w-0 flex-col">
+      {/* The page: a panel inset on the sidebar's ground (a phone gets the plain page). */}
+      <div className="flex min-w-0 flex-col lg:my-2 lg:mr-2 lg:min-h-[calc(100dvh-16px)] lg:rounded-[12px] lg:bg-paper lg:shadow-[0_0_0_1px_var(--rule-2),0_1px_3px_oklch(0_0_0/0.05)]">
         <AttackBanner />
         <MobileBar onMenu={() => setNavOpen(true)} onSearch={() => setPaletteOpen(true)} switcher={switcher("bar")} />
         <main id="main" className="min-w-0 flex-1">
@@ -167,7 +169,7 @@ function useGoKeys(project: string | undefined, openPalette: (search: string) =>
   useShortcut("g j", "Jobs", part("jobs", "jobs"), "Go to");
   useShortcut("g l", "Logs", go("/projects/$project/logs", () => void navigate({ to: "/logs", search: {} })), "Go to");
   useShortcut("g u", "Observability", go("/projects/$project/observability", () => void navigate({ to: "/usage" })), "Go to");
-  useShortcut("g h", "History", go("/projects/$project/history", () => void navigate({ to: "/ledger", search: {} })), "Go to");
+  useShortcut("g h", "Activity", go("/projects/$project/history", () => void navigate({ to: "/ledger", search: {} })), "Go to");
   useShortcut("g s", "Settings", go("/projects/$project/settings", () => void navigate({ to: "/settings" })), "Go to");
 }
 
@@ -184,7 +186,7 @@ function SwitcherButton({ project, compact, ref, ...props }: ComponentProps<"but
       type="button"
       aria-label={project ? `Project ${project}. Switch project` : "Switch project"}
       className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-[8px] text-left transition-colors hover:bg-paper-hover data-[state=open]:bg-paper-select",
+        "flex min-w-0 items-center gap-2.5 rounded-[8px] text-left transition-colors hover:bg-paper-hover data-[state=open]:bg-paper-select lg:hover:bg-side-hover lg:data-[state=open]:bg-side-select",
         compact ? "h-9 px-2" : "h-11 w-full px-2",
       )}
       {...props}
@@ -243,6 +245,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 
 // ───────────────────────── sidebar ─────────────────────────
 
+// Settings has its own sidebar (Back, then its pages), so the main one never grows a third level.
 const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/sign-ins", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/requests", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
@@ -252,6 +255,15 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
   const project = useProjectInPath();
   const under = (list: string[]) => list.some((p) => path === p || path.startsWith(`${p}/`));
   const inSettings = !project && settingsPaths.some((p) => path === p || (p !== "/settings" && path.startsWith(`${p}/`)));
+  const back = (to: string, label: string) => (
+    <Link
+      to={to as "/"}
+      className="mb-1.5 flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[0.8125rem] text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink lg:hover:bg-side-hover"
+    >
+      <ArrowLeft className="size-3.5" />
+      {label}
+    </Link>
+  );
   // A laptop dev server (no --box) has no backups or shield.
   const passkeys = useQuery({ ...q.passkeys, retry: false });
   const onBox = !notOnBox(passkeys.error);
@@ -275,14 +287,23 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
 
       {project ? (
         <div className="flex flex-col gap-px pl-1">
-          <Link
-            to="/"
-            className="mb-1.5 flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[0.8125rem] text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink"
-          >
-            <ArrowLeft className="size-3.5" />
-            All projects
-          </Link>
+          {back("/", "All projects")}
           <ProjectNav project={project} path={path} />
+        </div>
+      ) : inSettings ? (
+        <div className="flex flex-col gap-px pl-1">
+          {back("/", "Back")}
+          <p className="px-2.5 pb-1 text-[0.9375rem] font-[600] text-ink">Settings</p>
+          <NavHeading>Your box</NavHeading>
+          <NavItem to="/settings" exact label="General" />
+          <NavItem to="/settings/box" label="Machine" />
+          {onBox && <NavItem to="/settings/git" label="Git" />}
+          {onBox && <NavItem to="/settings/dns" label="DNS" />}
+          {onBox && <NavItem to="/protect" label="Shield" aside={<AttackBadge />} />}
+          <NavItem to="/settings/people" label="People" />
+          <NavHeading>You</NavHeading>
+          <NavItem to="/settings/sign-ins" label="Sign-ins" />
+          <NavItem to="/settings/passkeys" label={passkeyWords().title} />
         </div>
       ) : (
         <div className="flex flex-col gap-px pl-1">
@@ -296,27 +317,9 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
       )}
 
       <div className="mt-auto flex flex-col gap-3 pt-2 pl-1">
-        {project ? (
+        {!project && !inSettings && (
           <div className="flex flex-col gap-px">
-            <p className="label px-2.5 pb-1">Your box</p>
-            <NavItem to="/usage" label="Usage" lead={<Gauge className={icon} />} />
-            <NavItem to="/ledger" label="Activity" lead={<ActivityIcon className={icon} />} />
-            <NavItem to="/status" label="Health" lead={<HeartPulse className={icon} />} aside={<Trouble />} />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-px">
-            <NavItem to="/settings" exact label="Settings" active={inSettings} lead={<SettingsIcon className={icon} />} />
-            {inSettings && (
-              <div className="relative mt-px mb-1 flex flex-col gap-px before:absolute before:top-0 before:bottom-0 before:left-[12px] before:w-px before:bg-rule-2">
-                <NavItem to="/settings" exact sub label="Your box" />
-                <NavItem to="/settings/box" sub label="Machine" />
-                {onBox && <NavItem to="/settings/git" sub label="Git" />}
-                {onBox && <NavItem to="/settings/dns" sub label="DNS" />}
-                <NavItem to="/settings/people" sub label="People" />
-                <NavItem to="/settings/sign-ins" sub label="Sign-ins" />
-                {onBox && <NavItem to="/protect" sub label="Shield" aside={<AttackBadge />} />}
-              </div>
-            )}
+            <NavItem to="/settings" exact label="Settings" lead={<SettingsIcon className={icon} />} />
           </div>
         )}
         <Suspense fallback={<WhoTrigger onClick={rememberClick("who")} />}>
@@ -366,7 +369,7 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
       {item("jobs", at("queues") || at("workflows") || at("jobs") || at("schedules"))}
       <div className="my-2 h-px bg-rule" aria-hidden />
       {one && <NavItem to="/projects/$project/observability" params={params} label="Observability" active={at("observability") || at("usage")} />}
-      <NavItem to="/projects/$project/history" params={params} label="History" />
+      <NavItem to="/projects/$project/history" params={params} label="Activity" />
       <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings")} />
     </>
   );
@@ -403,10 +406,10 @@ function NavItem({
       activeOptions={{ exact: !!exact, includeSearch: false }}
       data-force={active ? "" : undefined}
       className={cn(
-        "group relative flex items-center gap-2 rounded-[7px] text-ink-2 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover hover:text-ink",
+        "group relative flex items-center gap-2 rounded-[7px] text-ink-2 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover hover:text-ink lg:hover:bg-side-hover",
         sub ? "h-7 pr-2 pl-[26px] text-[0.8125rem]" : "h-[30px] px-2.5 text-[0.875rem]",
-        active === false ? "" : "data-[status=active]:bg-paper-select data-[status=active]:text-ink",
-        "data-[force]:bg-paper-select data-[force]:text-ink",
+        active === false ? "" : "data-[status=active]:bg-paper-select data-[status=active]:text-ink lg:data-[status=active]:bg-side-select",
+        "data-[force]:bg-paper-select data-[force]:text-ink lg:data-[force]:bg-side-select",
         !sub && "data-[force]:font-[550]",
         !sub && active !== false && "data-[status=active]:font-[550]",
       )}

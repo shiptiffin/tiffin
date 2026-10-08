@@ -42,7 +42,7 @@ export function BarList({
             <span className="relative min-w-0 flex-1 py-1.5 pl-2.5">
               <span
                 aria-hidden
-                className={cn("absolute inset-y-0 left-0 rounded-[5px] transition-[width,background-color] duration-[var(--dur-state)]", on ? "bg-brass-wash" : "bg-ink/[0.07]")}
+                className={cn("absolute inset-y-0 left-0 rounded-[5px] transition-[width,background-color] duration-[var(--dur-state)]", on ? "bg-data/30" : "bg-data-wash")}
                 style={{ width: `${Math.max(1.5, (r.value / most) * 100)}%` }}
               />
               <span className={cn("relative flex min-w-0 items-center gap-2 text-[0.84375rem] text-ink", mono && "font-mono text-[0.78rem]")}>

@@ -16,6 +16,15 @@
   --color-paper-hover: var(--paper-hover);
   --color-paper-select: var(--paper-select);
   --color-paper-lift: var(--paper-lift);
+  --color-side: var(--side);
+  --color-side-hover: var(--side-hover);
+  --color-side-select: var(--side-select);
+  --color-data: var(--data);
+  --color-data-wash: var(--data-wash);
+  --color-data-2: var(--data-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);

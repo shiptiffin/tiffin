@@ -74,7 +74,7 @@ export function ChangePage({ id }: { id: string }) {
     return (
       <Page>
         <Leaf>
-          <LedgerCrumbs items={[{ label: "History", to: "/ledger" }, { label: "Change" }]} />
+          <LedgerCrumbs items={[{ label: "Activity", to: "/ledger" }, { label: "Change" }]} />
           <ProblemNote
             className="mt-6"
             error={error}
@@ -108,7 +108,7 @@ export function ChangePage({ id }: { id: string }) {
                 ),
                 to: `/projects/${encodeURIComponent(c.project)}`,
               },
-              { label: "History", to: `/projects/${encodeURIComponent(c.project)}/history` },
+              { label: "Activity", to: `/projects/${encodeURIComponent(c.project)}/history` },
               { label: `Change · version ${c.version}` },
             ]}
           />

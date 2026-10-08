@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Fingerprint, KeyRound, LogOut, MonitorSmartphone, Terminal } from "lucide-react";
+import { Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Sun, Terminal } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
 import { copyText } from "@/lib/clipboard";
@@ -7,6 +7,8 @@ import { mcpCommand } from "@/lib/mcp";
 import { roleCopy, useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
 import { passkeyWords } from "@/lib/webauthn";
+import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
+import { cn } from "@/lib/cn";
 import { signOut } from "@/lib/command-history";
 import { clickedEarly, WhoTrigger } from "./shell-triggers";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
@@ -51,6 +53,8 @@ export function WhoMenu() {
           {role && <p className="mt-1 text-sm text-ink-3">{roleCopy[role]?.blurb}</p>}
         </div>
         <MenuSeparator />
+        <ThemeRow />
+        <MenuSeparator />
         <MenuItem
           onSelect={async (e) => {
             e.preventDefault();
@@ -89,5 +93,40 @@ export function WhoMenu() {
         </MenuItem>
       </MenuContent>
     </Menu>
+  );
+}
+
+const THEMES: Array<{ v: ThemePref; label: string; icon: ReactNode }> = [
+  { v: "system", label: "Match system", icon: <Monitor /> },
+  { v: "light", label: "Light", icon: <Sun /> },
+  { v: "dark", label: "Dark", icon: <Moon /> },
+];
+
+/** Theme, in the account menu: three icons, the way Supabase, Render and Neon do it. Picking one keeps the menu open. */
+function ThemeRow() {
+  const { pref } = useTheme();
+  return (
+    <div className="flex h-9 items-center justify-between gap-3 px-2 text-[0.875rem] text-ink">
+      Theme
+      <div role="radiogroup" aria-label="Theme" className="flex rounded-[7px] border border-rule-2 bg-paper-sunk p-0.5">
+        {THEMES.map((t) => (
+          <button
+            key={t.v}
+            type="button"
+            role="radio"
+            aria-checked={pref === t.v}
+            aria-label={t.label}
+            title={t.label}
+            onClick={() => setTheme(t.v)}
+            className={cn(
+              "grid h-6 w-7 place-items-center rounded-[5px] text-ink-3 transition-colors hover:text-ink [&_svg]:size-3.5",
+              pref === t.v && "bg-paper-raised text-ink shadow-[0_0_0_1px_var(--rule-2)]",
+            )}
+          >
+            {t.icon}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

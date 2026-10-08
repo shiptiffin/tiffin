@@ -96,12 +96,27 @@ export function ProjectPage({ project }: { project: string }) {
           </div>
         </div>
         {pulse.url && (
-          <Button asChild variant="secondary" size="lg" className="self-start">
-            <a href={pulse.url} target="_blank" rel="noopener noreferrer">
-              {pulse.url.replace(/^https?:\/\//, "").replace(/:\d+$/, "")}
-              <ArrowUpRight className="text-ink-3" />
-            </a>
-          </Button>
+          <div className="flex flex-col items-start gap-1.5 sm:items-end">
+            <Button asChild variant="secondary" size="lg">
+              <a href={pulse.url} target="_blank" rel="noopener noreferrer">
+                {hostOf(pulse.url)}
+                <ArrowUpRight className="text-ink-3" />
+              </a>
+            </Button>
+            {pulse.otherUrls.length > 0 && (
+              <p className="text-[0.8125rem] text-ink-3">
+                also at{" "}
+                {pulse.otherUrls.map((u, i) => (
+                  <span key={u}>
+                    {i > 0 && ", "}
+                    <a href={u} target="_blank" rel="noopener noreferrer" className="ident text-[0.75rem] hover:text-ink">
+                      {hostOf(u)}
+                    </a>
+                  </span>
+                ))}
+              </p>
+            )}
+          </div>
         )}
       </header>
       <ReadOnlyBanner project={project} className="mt-6" />
@@ -478,3 +493,5 @@ function PendingRow({ words }: { words: string }) {
     </li>
   );
 }
+
+const hostOf = (u: string) => u.replace(/^https?:\/\//, "").replace(/:\d+$/, "");

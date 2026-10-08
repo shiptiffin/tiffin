@@ -154,7 +154,7 @@ export function Rows({
             <span className="relative flex h-8 min-w-0 flex-1 items-center pl-2.5">
               <span
                 aria-hidden
-                className={cn("absolute inset-y-0.5 left-0 rounded-[5px] transition-[width,background-color] duration-[var(--dur-state)]", on ? "bg-brass-wash ring-1 ring-brass/50" : "bg-ink/[0.065] group-hover:bg-ink/[0.1]")}
+                className={cn("absolute inset-y-0.5 left-0 rounded-[5px] transition-[width,background-color] duration-[var(--dur-state)]", on ? "bg-data/30 ring-1 ring-data/60" : "bg-data-wash group-hover:bg-data/25")}
                 style={{ width: `${Math.max(1.5, (r.value / most) * 100)}%` }}
               />
               <span className={cn("relative flex min-w-0 items-center gap-2 text-[0.84375rem] text-ink", mono && "font-mono text-[0.78rem]")}>

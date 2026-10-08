@@ -59,7 +59,7 @@ export function AreaChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, H, max]);
 
-  const color = { ink: "var(--ink-2)", rev: "var(--ok)", out: "var(--warn-ink)", irr: "var(--danger)" }[tone];
+  const color = { ink: "var(--data)", rev: "var(--ok)", out: "var(--warn-ink)", irr: "var(--danger)" }[tone];
   const h = hover !== null ? points[hover] : points[points.length - 1];
 
   if (points.length < 2)

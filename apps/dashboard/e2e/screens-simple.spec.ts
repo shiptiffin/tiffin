@@ -94,7 +94,7 @@ const pages: Array<{
   },
   { name: "observability", url: "/projects/shop/observability", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   { name: "observability-limit", url: "/projects/shop/observability", stub: withUsage, wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
-  { name: "history", url: "/projects/shop/history", wait: (p) => p.getByRole("heading", { name: "History" }).waitFor() },
+  { name: "history", url: "/projects/shop/history", wait: (p) => p.getByRole("heading", { name: "Activity" }).waitFor() },
   { name: "project-settings", url: "/projects/shop/settings", wait: (p) => p.getByRole("heading", { name: "Built-in parts" }).waitFor() },
   {
     name: "confirm",

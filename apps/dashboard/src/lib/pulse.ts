@@ -2,6 +2,7 @@ import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from 
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
 import { toast } from "@/components/toast";
+import { projectDomainsQuery } from "./domains";
 import { liveSince, relative, sinceWhen } from "./time";
 
 /**
@@ -70,8 +71,10 @@ export type ProjectPulse = {
   words: string;
   /** Where "see why" goes, when something is wrong. */
   why?: { app: string };
-  /** The project's public address, if it has one live. */
+  /** The project's public address, if it has one live: its own domain when that's live, else the automatic one. */
   url?: string;
+  /** Its other live addresses (the automatic one, other apps). */
+  otherUrls: string[];
   apps: string[];
   services: string[];
   loading: boolean;
@@ -110,7 +113,12 @@ export function useProjectPulse(project: string, active = true): ProjectPulse {
     .filter((_, i) => apps[i].spec?.role !== "worker")
     .map((r) => r.data?.production?.url)
     .filter((u): u is string => !!u);
-  const url = urls.find((u) => u.includes(`//${project}.`)) ?? urls.find((u) => /\/\/(web|www|app)\./.test(u)) ?? urls[0];
+  const auto = urls.find((u) => u.includes(`//${project}.`)) ?? urls.find((u) => /\/\/(web|www|app)\./.test(u)) ?? urls[0];
+  // Your own domain, once it's live and serves the whole site, is the address people know.
+  const doms = useQuery({ ...projectDomainsQuery(project), enabled: urls.length > 0, ...(active ? {} : { refetchInterval: false }) });
+  const own = doms.data?.find((d) => d.state === "live" && !d.redirectTo && d.routes?.some((r) => r.path === "/"))?.url;
+  const url = own ?? auto;
+  const otherUrls = [...new Set([...(own ? [own] : []), ...urls])].filter((u) => u !== url);
 
   // An app whose last deploy failed with none live reads failed too: its deploys say that more exactly, below.
   const failedRes = Object.values(p.data?.status ?? {}).filter((s) => s.state === "failed" && s.release !== "failed");
@@ -171,7 +179,7 @@ export function useProjectPulse(project: string, active = true): ProjectPulse {
     if (since) words += ` · updated ${relative(since)}`;
   }
   const retry = tone === "unknown" ? () => failedChecks.forEach((x) => void x.refetch()) : undefined;
-  return { tone, words, why, url, apps: apps.map((a) => a.name), services, loading, retry, wake: canWake ? () => wake.mutate() : undefined, waking: wake.isPending };
+  return { tone, words, why, url, otherUrls, apps: apps.map((a) => a.name), services, loading, retry, wake: canWake ? () => wake.mutate() : undefined, waking: wake.isPending };
 }
 
 export const toneClass: Record<Tone, string> = {

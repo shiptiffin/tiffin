@@ -32,7 +32,7 @@ type Entry = { change: Change; at: string } | { event: LimitEvent; at: string } 
  * page has the plan and the diff.
  */
 export function ProjectHistoryPage({ project }: { project: string }) {
-  useTitle(`${project} · History`);
+  useTitle(`${project} · Activity`);
   useEffect(() => rememberProject(project), [project]);
   const changes = useQuery({ ...q.changes(project), placeholderData: (p) => p });
   const usage = useQuery({ ...usageQuery(project), refetchInterval: false });
@@ -64,7 +64,7 @@ export function ProjectHistoryPage({ project }: { project: string }) {
 
   return (
     <Page>
-      <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "History" }]} />} title="History" />
+      <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "Activity" }]} />} title="Activity" />
       <p className="mt-2 text-[0.9375rem] text-ink-2">Everything that changed in {project}, by you or your agents, and when its limit held it back. Most things can be undone.</p>
 
       {changes.isPending ? (

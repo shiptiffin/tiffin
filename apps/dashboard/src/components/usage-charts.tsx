@@ -38,10 +38,10 @@ const cpuFmt = (v: number) => `${dec(v, v < 10 ? 1 : 0)}%`;
 const msFmt = (v: number) => (v >= 1000 ? `${dec(v / 1000, 2)}${NNBSP}s` : `${int(v)}${NNBSP}ms`);
 const perMin = (v: number) => num(Math.round(v * 10) / 10);
 
-/** Status classes, quiet unless they're trouble: answered in grays, client errors amber, server errors red. */
+/** Status classes: answered green, redirects blue, client errors amber, server errors red. */
 const STATUS: Array<{ code: string; label: string; color: string }> = [
-  { code: "2xx", label: "2xx", color: "var(--part-3)" },
-  { code: "3xx", label: "3xx", color: "var(--part-4)" },
+  { code: "2xx", label: "2xx", color: "var(--ok)" },
+  { code: "3xx", label: "3xx", color: "var(--data-2)" },
   { code: "4xx", label: "4xx", color: "var(--warn)" },
   { code: "5xx", label: "5xx", color: "var(--danger)" },
 ];
@@ -115,11 +115,11 @@ export function UsageCharts({
         id: "latency",
         title: "Response time",
         note: "95% and half of requests within",
-        series: [line(s.p95, "95% within"), { ...line(s.p50, "Half within"), color: "var(--part-3)" }],
+        series: [line(s.p95, "95% within"), { ...line(s.p50, "Half within"), color: "var(--data-2)" }],
         format: msFmt,
         legend: [
-          { label: "95% within", color: "var(--ink-2)", line: true },
-          { label: "Half within", color: "var(--part-3)", line: true },
+          { label: "95% within", color: "var(--data)", line: true },
+          { label: "Half within", color: "var(--data-2)", line: true },
         ],
         empty: "No requests in this time.",
       },
@@ -229,7 +229,7 @@ type ChartSpec = {
 
 const MB = 1048576;
 const GB = 1073741824;
-const BAND = ["var(--part-1)", "var(--part-2)", "var(--part-3)", "var(--part-4)", "var(--rule-3)"];
+const BAND = ["var(--data)", "var(--data-2)", "var(--chart-3)", "var(--chart-4)", "var(--rule-3)"];
 
 function legendFor(series: ChartSeries[]) {
   return series.map((x, i) => ({ label: x.label, color: BAND[i % BAND.length] }));
@@ -337,7 +337,7 @@ function Builds({ project, apps, range, tables }: { project: string; apps: strin
   const total = buckets.reduce((s, b) => s + b.values.ok + b.values.failed, 0);
   const failed = buckets.reduce((s, b) => s + b.values.failed, 0);
   const keys = [
-    { id: "ok", label: "Built", color: "var(--part-2)" },
+    { id: "ok", label: "Built", color: "var(--ok)" },
     { id: "failed", label: "Failed", color: "var(--danger)" },
   ];
   const label = ranges.find((x) => x.value === range)!.label;

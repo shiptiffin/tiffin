@@ -27,9 +27,9 @@ export type ChartSeries = {
 export type ChartMarker = { t: number; label: string; failed?: boolean };
 
 /** Line colours by position: ink first, then the neutral part shades. */
-export const LINE_COLORS = ["var(--ink-2)", "var(--part-3)", "var(--ink-4)"];
+export const LINE_COLORS = ["var(--data)", "var(--data-2)", "var(--ink-4)"];
 /** Band colours by position, darkest at the bottom; the same shades as the box bar. */
-export const BAND_COLORS = ["var(--part-1)", "var(--part-2)", "var(--part-3)", "var(--part-4)", "var(--rule-3)"];
+export const BAND_COLORS = ["var(--data)", "var(--data-2)", "var(--chart-3)", "var(--chart-4)", "var(--rule-3)"];
 
 type Shared = { t: number | null; src: string | null; set: (t: number | null, src: string | null) => void };
 const Ctx = createContext<Shared | null>(null);

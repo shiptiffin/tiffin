@@ -74,7 +74,7 @@ export function TimeChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, top, min, t0, span, H]);
 
-  const color = tone === "danger" ? "var(--danger)" : tone === "warn" ? "var(--warn)" : "var(--ink-2)";
+  const color = tone === "danger" ? "var(--danger)" : tone === "warn" ? "var(--warn)" : "var(--data)";
   const shown = markers.filter((m) => m.t >= t0 && m.t <= t1);
   const hp = hover !== null ? points[hover] : null;
   const near = hp ? shown.find((m) => Math.abs(x(m.t) - x(hp[0])) < 12) : undefined;

@@ -444,7 +444,7 @@ function MainChart({
           </h2>
           <Legend
             items={[
-              { label: per.label, color: "var(--ink-2)", line: true },
+              { label: per.label, color: "var(--data)", line: true },
               ...(compare ? [{ label: per.before.replace(/^./, (c) => c.toUpperCase()), color: "var(--ink-4)", line: true, dashed: true }] : []),
               ...(markers.length ? [{ label: "Deploy", color: "var(--ink-4)", line: true }] : []),
             ]}
@@ -587,7 +587,7 @@ function Events({ data, pending, visitors, onSetup }: { data: AnalyticsEvent[]; 
                 const body = (
                   <>
                     <span className="relative flex h-8 min-w-0 flex-1 items-center pl-2.5">
-                      <span aria-hidden className="absolute inset-y-0.5 left-0 rounded-[5px] bg-ink/[0.065]" style={{ width: `${Math.max(1.5, (e.visitors / most) * 100)}%` }} />
+                      <span aria-hidden className="absolute inset-y-0.5 left-0 rounded-[5px] bg-data-wash" style={{ width: `${Math.max(1.5, (e.visitors / most) * 100)}%` }} />
                       <span className="relative truncate text-[0.84375rem] text-ink">{e.name}</span>
                       {props.length > 0 && <ChevronRight aria-hidden className="relative ml-1 size-3.5 shrink-0 text-ink-3 transition-transform group-data-[state=open]:rotate-90" />}
                     </span>
@@ -619,7 +619,7 @@ function Events({ data, pending, visitors, onSetup }: { data: AnalyticsEvent[]; 
                               {(vs ?? []).slice(0, 6).map((v) => (
                                 <li key={v.value} className="flex items-center gap-3 py-0.5 pr-1 text-[0.8125rem]">
                                   <span className="relative min-w-0 flex-1 py-0.5 pl-2">
-                                    <span aria-hidden className="absolute inset-y-0 left-0 rounded-[4px] bg-ink/[0.05]" style={{ width: `${Math.max(2, (v.count / top) * 100)}%` }} />
+                                    <span aria-hidden className="absolute inset-y-0 left-0 rounded-[4px] bg-data-wash" style={{ width: `${Math.max(2, (v.count / top) * 100)}%` }} />
                                     <span className="relative block truncate text-ink-2" title={v.value}>
                                       {v.value}
                                     </span>

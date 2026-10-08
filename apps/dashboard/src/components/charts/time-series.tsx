@@ -26,7 +26,7 @@ export type Series = {
   ghost?: boolean;
 };
 
-const stroke: Record<Tone, string> = { ink: "var(--ink-2)", soft: "var(--part-3)", faint: "var(--ink-4)" };
+const stroke: Record<Tone, string> = { ink: "var(--data)", soft: "var(--data-2)", faint: "var(--ink-4)" };
 const PAD = { top: 10, right: 6, bottom: 22, left: 46 };
 
 export type TimeSeriesProps = {
@@ -58,6 +58,7 @@ export function TimeSeries(props: TimeSeriesProps) {
   const [wrap, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const live = useId();
+  const grad = useId().replace(/:/g, "");
   const main = series.find((s) => !s.ghost) ?? series[0];
   const xs = useMemo(() => (main?.points ?? []).map((p) => p[0]), [main]);
   const n = xs.length;
@@ -167,7 +168,20 @@ export function TimeSeries(props: TimeSeriesProps) {
             {placed.map((m) => (
               <line key={`${m.t}${m.label}`} x1={geo.x(m.t)} x2={geo.x(m.t)} y1={PAD.top} y2={PAD.top + geo.H} stroke="var(--ink-4)" strokeWidth={1} strokeOpacity={0.7} shapeRendering="crispEdges" />
             ))}
-            {geo.paths.map(({ s, fill }) => fill && <path key={`a${s.id}`} d={fill} fill={stroke[s.tone ?? "ink"]} fillOpacity={0.1} />)}
+            {geo.paths.map(
+              ({ s, fill }, i) =>
+                fill && (
+                  <g key={`a${s.id}`}>
+                    <defs>
+                      <linearGradient id={`${grad}${i}`} x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stopColor={stroke[s.tone ?? "ink"]} stopOpacity={0.24} />
+                        <stop offset="1" stopColor={stroke[s.tone ?? "ink"]} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <path d={fill} fill={`url(#${grad}${i})`} />
+                  </g>
+                ),
+            )}
             {geo.paths
               .filter((p) => p.s.ghost)
               .map(({ s, solid }) => (

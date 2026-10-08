@@ -50,8 +50,8 @@ export function Sparkline({
   return (
     <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" className={cn("block w-full overflow-visible", className)} style={{ height }} aria-hidden>
       {d.before && <path d={d.before} fill="none" stroke="var(--ink-4)" strokeWidth={1.25} strokeDasharray="2 3" vectorEffect="non-scaling-stroke" />}
-      {d.fill && <path d={d.fill} fill="var(--ink-2)" fillOpacity={0.08} />}
-      <path d={d.now} fill="none" stroke="var(--ink-2)" strokeWidth={1.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {d.fill && <path d={d.fill} fill="var(--data)" fillOpacity={0.12} />}
+      <path d={d.now} fill="none" stroke="var(--data)" strokeWidth={1.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }

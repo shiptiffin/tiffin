@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { ProjectIcon } from "@/components/project-icon";
@@ -26,9 +27,7 @@ export function Crumbs({ items }: { items: Array<{ label: ReactNode; to?: string
       {items.map((c, i) => (
         <span key={i} className="flex min-w-0 items-center gap-1.5">
           {i > 0 && (
-            <span aria-hidden className="text-ink-4">
-              ›
-            </span>
+            <ChevronRight aria-hidden className="size-3.5 shrink-0 text-ink-4" strokeWidth={2.25} />
           )}
           {c.to ? (
             <Link to={c.to as "/"} params={c.params as never} className="truncate transition-colors hover:text-ink">

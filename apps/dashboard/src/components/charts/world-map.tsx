@@ -51,7 +51,7 @@ export function WorldMap({
               <path
                 key={`${s.code}${i}`}
                 d={s.d}
-                fill={on ? "var(--brass)" : k === 0 ? fills[0] : "var(--ink-2)"}
+                fill={on ? "var(--brass)" : k === 0 ? fills[0] : "var(--data)"}
                 fillOpacity={on || k === 0 ? 1 : Number(fills[k])}
                 stroke={hover?.code === s.code && s.code ? "var(--ink)" : "var(--paper)"}
                 strokeWidth={hover?.code === s.code && s.code ? 1 : 0.6}
