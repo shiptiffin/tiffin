@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { TriangleAlert } from "lucide-react";
+import { ChevronRight, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mod, mq, type Backup, type BackupDrill, type BackupOffsite, type BackupOffsiteTest, type BackupRestored, type OffsiteInput } from "@/api/modules";
@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
 import { Input, Label } from "@/components/ui/input";
 import { Confirm } from "@/components/confirm";
+import { RestoreChooser, type RestorePick } from "@/components/backup-restore";
+import { groupByDay, shortDate, stored, total, type BackupDay } from "@/lib/backup-days";
 import { CopyValue } from "@/components/copy";
 import { bytes, count, countWords, dec, duration, int, ms, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -27,6 +29,7 @@ import { clock, dayLabel, full, relative } from "@/lib/time";
 type Preview = {
   backup: string;
   takenAt: string;
+  time?: string;
   targets: string[];
   overwrites: Array<{ target: string; what: string; items?: string[] }>;
   safety: string;
@@ -37,13 +40,6 @@ type Schedule = { enabled: boolean; fullEveryHours: number; incrementalEveryHour
 const targetCopy: Record<string, string> = { postgres: "Postgres", valkey: "Valkey", files: "Files (storage and mail)" };
 const H = 3600_000;
 
-function total(b: Backup) {
-  return (b.postgres?.sizeBytes ?? 0) + (b.valkey?.sizeBytes ?? 0) + Object.values(b.files ?? {}).reduce((n, f) => n + f.sizeBytes, 0);
-}
-/** What a backup added to the repository: Postgres's compressed delta plus the copied files. */
-function stored(b: Backup) {
-  return (b.postgres?.repoBytes ?? 0) + (b.valkey?.sizeBytes ?? 0) + Object.values(b.files ?? {}).reduce((n, f) => n + f.sizeBytes, 0);
-}
 const every = (h: number) => (h === 1 ? "every hour" : h === 24 ? "every day" : h === 168 ? "every week" : h % 24 === 0 ? `every ${h / 24} days` : `every ${h} hours`);
 /** Seconds in words, to a tenth under ten: "0.3 s", "14 s", "2 min". */
 const secs = (n: number) => (n < 0.1 ? "under 0.1\u202Fs" : n < 10 ? `${dec(n, 1)}\u202Fs` : duration(n));
@@ -67,7 +63,8 @@ export function BackupsPage() {
     onSuccess: () => toast({ title: "Backing up the whole box now. It shows in the history when it’s done." }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["backups"] }),
   });
-  const [restoring, setRestoring] = useState<Backup | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  const [restoring, setRestoring] = useState<RestorePick | null>(null);
   const [targets, setTargets] = useState<string[]>(["postgres", "valkey"]);
   const [done, setDone] = useState<BackupRestored | null>(null);
 
@@ -102,12 +99,15 @@ export function BackupsPage() {
   const nextKind = next === nextFull ? "a full one" : "changes only";
   const nextWords = next <= now + 60_000 ? `The next one, ${nextKind}, is due now.` : `The next one, ${nextKind}, runs at about ${clock(new Date(next).toISOString())}${dayLabel(new Date(next).toISOString()) === "Today" ? "" : ` ${dayLabel(new Date(next).toISOString()).toLowerCase()}`}.`;
   const restores = list.filter((b) => b.trigger === "pre-restore");
+  const range = d.restorable;
+  const days = groupByDay(list);
   const disk = res.data?.disks.data;
 
   let line: string;
   if (running) line = `Backing up now, started ${relative(running.startedAt, now)}.`;
   else if (!last) line = "Nothing has been backed up yet.";
   else line = `Backed up ${relative(last, now)}. ${sch.enabled ? nextWords : "Automatic backups are off."}`;
+  if (range && !running) line += ` You can restore to any moment since ${shortDate(range.earliest)}.`;
   const ld = d.lastDrill as BackupDrill | null | undefined;
   const drillLine = !ld
     ? " No restore drill yet."
@@ -124,10 +124,17 @@ export function BackupsPage() {
         title="Backups"
         actions={
           owner && (
-            <Button variant="primary" size="lg" onClick={() => run.mutate("full")} disabled={run.isPending || !!running}>
-              {running ? <PilotLight state="busy" /> : null}
-              {running || run.isPending ? "Backing up…" : "Back up now"}
-            </Button>
+            <>
+              {ok[0] && (
+                <Button size="lg" onClick={() => setChoosing(true)}>
+                  Restore…
+                </Button>
+              )}
+              <Button variant="primary" size="lg" onClick={() => run.mutate("full")} disabled={run.isPending || !!running}>
+                {running ? <PilotLight state="busy" /> : null}
+                {running || run.isPending ? "Backing up…" : "Back up now"}
+              </Button>
+            </>
           )
         }
       />
@@ -138,7 +145,8 @@ export function BackupsPage() {
       {run.isError && <ProblemNote className="mt-6" error={run.error} />}
       {done && (
         <p className="mt-6 max-w-[48rem] text-[0.875rem] text-ink">
-          Restored {done.targets?.map((t) => targetCopy[t] ?? t).join(" and ")} from {done.backup} in {ms(done.durationMs)}. If that was a mistake, restore{" "}
+          Restored {done.targets?.map((t) => targetCopy[t] ?? t).join(" and ")} {done.time ? `to ${full(done.time)} (from ${done.backup})` : `from ${done.backup}`} in {ms(done.durationMs)}. If that was
+          a mistake, restore{" "}
           <code className="ident">{done.safetyBackup}</code>: it’s what was there a moment ago.
         </p>
       )}
@@ -150,51 +158,12 @@ export function BackupsPage() {
           </Calm>
         ) : (
           <Rows>
-            {list.map((b) => (
-              <li key={b.id} className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5">
-                <span className="text-[0.78125rem] leading-4 text-ink-3 tnum" title={full(b.startedAt)}>
-                  {clock(b.startedAt)}
-                  <span className="block">{dayLabel(b.startedAt) === "Today" ? "today" : dayLabel(b.startedAt).replace(/,.*$/, "")}</span>
-                </span>
-                <span className="min-w-0">
-                  <span className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-ink">
-                    {b.status === "running" && <PilotLight state="busy" label="Running" />}
-                    {b.kind === "full" ? "Full backup" : "Changes since the last one"}
-                    <span className="text-[0.8125rem] text-ink-3">
-                      {b.trigger === "pre-restore" ? "safety copy before a restore" : b.trigger === "manual" ? "taken by hand" : "on schedule"}
-                      {b.offsite?.status === "ok" ? " · copied off the box" : b.offsite?.status === "failed" ? " · not copied off the box" : ""}
-                    </span>
-                  </span>
-                  <span className="mt-0.5 block text-[0.8125rem] text-ink-3 sm:truncate">
-                    {b.status === "running" ? (
-                      "Running…"
-                    ) : b.status === "failed" ? (
-                      <span className="text-danger">Failed: {b.error}</span>
-                    ) : (
-                      <>
-                        {/* What this backup stored (pgBackRest's compressed delta), and what it restores to. */}
-                        {b.postgres?.repoBytes !== undefined ? (
-                          <>
-                            Stored {bytes(stored(b))}
-                            {b.kind !== "full" ? " of changes" : ""}, restores {bytes(total(b))} · took {ms(b.durationMs)}
-                          </>
-                        ) : (
-                          <>
-                            {bytes(total(b))} · took {ms(b.durationMs)}
-                          </>
-                        )}
-                      </>
-                    )}
-                  </span>
-                </span>
-                {owner && b.status === "ok" ? (
-                  <Button variant="ghost" size="sm" onClick={() => setRestoring(b)}>
-                    Restore…
-                  </Button>
-                ) : (
-                  <span />
-                )}
-              </li>
+            {days.map((day, i) => (
+              <DayRow key={day.key} day={day} open={i === 0 && (day.running || day.failed > 0)}>
+                {day.sets.map((b) => (
+                  <SetRow key={b.id} b={b} owner={owner} onRestore={() => setRestoring({ id: b.id })} />
+                ))}
+              </DayRow>
             ))}
           </Rows>
         )}
@@ -237,14 +206,24 @@ export function BackupsPage() {
         </Group>
       </SettingsFold>
 
+      <RestoreChooser
+        open={choosing}
+        onOpenChange={setChoosing}
+        sets={ok}
+        range={range}
+        onPick={(pick) => {
+          setChoosing(false);
+          setRestoring(pick);
+        }}
+      />
       <HazardDialog<Preview, BackupRestored>
-        key={restoring?.id + targets.join()}
+        key={`${restoring?.id}${restoring?.time ?? ""}${targets.join()}`}
         open={!!restoring}
         onOpenChange={(open) => !open && setRestoring(null)}
-        title={restoring ? `Restore the backup from ${relative(restoring.startedAt)}?` : "Restore this backup?"}
+        title={restoreTitle(restoring, list)}
         word="restore"
-        action="Overwrite with the backup"
-        run={(confirm) => mod.restore(restoring!.id, targets, confirm)}
+        action={restoring?.time ? "Go back to that moment" : "Overwrite with the backup"}
+        run={(confirm) => mod.restore(restoring!.id, targets, confirm, restoring?.time)}
         renderPreview={(p) => (
           <div className="flex flex-col gap-4">
             <fieldset>
@@ -258,8 +237,14 @@ export function BackupsPage() {
                 ))}
               </div>
             </fieldset>
+            {p.time && (
+              <p className="text-[0.84375rem] text-ink-2">
+                The database goes back to {full(p.time)}, from the backup of {full(p.takenAt)} and the log of every change after it. KV and files keep no such log, so
+                they go back to that backup, the newest before the moment, not to the second.
+              </p>
+            )}
             <div className="border-y border-danger-rule py-3">
-              <p className="text-[0.875rem] font-[550] text-danger">Everything since {relative(p.takenAt)} is lost:</p>
+              <p className="text-[0.875rem] font-[550] text-danger">Everything since {relative(p.time ?? p.takenAt)} is lost:</p>
               <ul className="mt-2 flex flex-col gap-2 text-[0.84375rem]">
                 {p.overwrites.map((x) => (
                   <li key={x.target} className="text-ink-2">
@@ -281,6 +266,82 @@ export function BackupsPage() {
         }}
       />
     </Page>
+  );
+}
+
+function restoreTitle(r: RestorePick | null, list: Backup[]): string {
+  if (!r) return "Restore this backup?";
+  if (r.time) return `Restore to ${full(r.time)}?`;
+  const b = r.id === "latest" ? list.find((x) => x.status === "ok") : list.find((x) => x.id === r.id);
+  return b ? `Restore the backup from ${relative(b.startedAt)}?` : "Restore this backup?";
+}
+
+/** One day of the history: how many restore points it holds and their size, opening to that day's backups. */
+function DayRow({ day, open: initial, children }: { day: BackupDay; open: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(initial);
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((x) => !x)}
+        className="grid w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5 text-left hover:bg-paper-hover/50"
+      >
+        <ChevronRight className={cn("size-4 text-ink-3 transition-transform duration-[var(--dur-state)]", open && "rotate-90")} />
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-[0.875rem] text-ink">
+          {day.running && <PilotLight state="busy" label="Running" />}
+          {day.label}
+          <span className="text-[0.8125rem] text-ink-3">· {count(day.points, "restore point")}</span>
+          {day.failed > 0 && <span className="text-[0.8125rem] text-danger">· {day.failed} failed</span>}
+        </span>
+        <span className="text-[0.8125rem] text-ink-3 tnum">{bytes(day.bytes)}</span>
+      </button>
+      {open && <ul className="mb-2 ml-7 divide-y divide-rule border-t border-rule">{children}</ul>}
+    </li>
+  );
+}
+
+/** One backup set: when, what kind, what it stored, and Restore. */
+function SetRow({ b, owner, onRestore }: { b: Backup; owner: boolean; onRestore: () => void }) {
+  return (
+    <li className="grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2">
+      <span className="text-[0.78125rem] text-ink-3 tnum" title={full(b.startedAt)}>
+        {clock(b.startedAt)}
+      </span>
+      <span className="min-w-0">
+        <span className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-ink">
+          {b.status === "running" && <PilotLight state="busy" label="Running" />}
+          {b.kind === "full" ? "Full backup" : "Changes since the last one"}
+          <span className="text-[0.8125rem] text-ink-3">
+            {b.trigger === "pre-restore" ? "safety copy before a restore" : b.trigger === "manual" ? "taken by hand" : "on schedule"}
+            {b.offsite?.status === "ok" ? " · copied off the box" : b.offsite?.status === "failed" ? " · not copied off the box" : ""}
+          </span>
+        </span>
+        <span className="mt-0.5 block text-[0.8125rem] text-ink-3 sm:truncate">
+          {b.status === "running" ? (
+            "Running…"
+          ) : b.status === "failed" ? (
+            <span className="text-danger">Failed: {b.error}</span>
+          ) : b.postgres?.repoBytes !== undefined ? (
+            <>
+              Stored {bytes(stored(b))}
+              {b.kind !== "full" ? " of changes" : ""}, restores {bytes(total(b))} · took {ms(b.durationMs)}
+            </>
+          ) : (
+            <>
+              {bytes(total(b))} · took {ms(b.durationMs)}
+            </>
+          )}
+        </span>
+      </span>
+      {owner && b.status === "ok" ? (
+        <Button variant="ghost" size="sm" onClick={onRestore}>
+          Restore…
+        </Button>
+      ) : (
+        <span />
+      )}
+    </li>
   );
 }
 
@@ -360,14 +421,14 @@ function ScheduleLevers({ sch, owner, className }: { sch: Schedule; owner: boole
         />
         <Lever
           name="Changes in between"
-          status="Small and quick: only what changed since the last one."
+          status="Small and quick: only what changed since the last one. The database can go back to any moment in between either way."
           control={
             <Segmented
               label="Save changes every"
               disabled={dis || !sch.enabled}
               value={String(sch.incrementalEveryHours)}
               onChange={(v) => set.mutate({ incrementalEveryHours: Number(v) })}
-              options={[0, 1, 4, 12].map((h) => ({ v: String(h), label: h === 0 ? "Off" : `${h} h` }))}
+              options={[0, 1, 6, 12].map((h) => ({ v: String(h), label: h === 0 ? "Off" : `${h} h` }))}
             />
           }
         />
@@ -389,7 +450,7 @@ function ScheduleLevers({ sch, owner, className }: { sch: Schedule; owner: boole
           name="Restore drills"
           status={
             sch.drillEnabled ? (
-              `Proves the newest backup restores, ${everyDays(sch.drillEveryDays)}, without touching anything live.`
+              `Proves the newest backup restores, ${everyDays(sch.drillEveryDays)}, without touching anything live; every other drill replays the log to a moment between backups.`
             ) : (
               <span className="text-warn-ink">Off: backups are only checked when you run a drill.</span>
             )
@@ -519,7 +580,7 @@ function DrillReceipt({ d }: { d: BackupDrill }) {
     <article className={cn("mt-4 max-w-[46rem] rounded-[10px] border bg-paper-raised px-4 py-3.5", passed ? "border-rule-2" : "border-danger")}>
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className={cn("text-[0.9375rem] font-[550]", passed ? "text-ink" : "text-danger")}>
-          {passed ? "✓ The backup restores." : "× The drill failed."}{" "}
+          {passed ? (d.targetTime ? "✓ The backup restores to a moment after it." : "✓ The backup restores.") : "× The drill failed."}{" "}
           <span className="font-[400] text-ink-3">
             {d.trigger === "schedule" ? "On schedule" : "Run by hand"}{d.source === "offsite" ? ", from the off-box copy" : ""}, {relative(d.finishedAt ?? d.startedAt)}
           </span>
@@ -530,7 +591,7 @@ function DrillReceipt({ d }: { d: BackupDrill }) {
         <p className="mt-1.5 text-[0.84375rem] text-ink-2">
           Restored in <b className="font-[550] text-ink">{secs(d.seconds.restore)}</b> · started in <b className="font-[550] text-ink">{secs(d.seconds.start)}</b> ·
           verified in <b className="font-[550] text-ink">{secs(d.seconds.verify)}</b>. The backup was taken {duration(d.backupAgeSeconds)} before the drill (
-          {bytes(d.backupBytes)}).
+          {bytes(d.backupBytes)}){d.targetTime ? `; the log after it was replayed up to ${full(d.targetTime)}` : ""}.
         </p>
       ) : (
         <p className="mt-1.5 text-[0.84375rem] text-danger">

@@ -235,8 +235,9 @@ export const mod = {
   // backups
   backups: () => request<BackupOverview>("GET", "/v1/backups"),
   backupNow: (kind: "full" | "incremental") => request<Backup>("POST", "/v1/backups", { kind }),
-  restore: (id: string, targets: string[], confirm?: string) =>
-    request<BackupRestored>("POST", `/v1/backups/${e(id)}/restore`, { targets, ...(confirm ? { confirm } : {}) }),
+  /** Restores a set; with time (id "latest"), Postgres to that moment and the rest to the newest set before it. */
+  restore: (id: string, targets: string[], confirm?: string, time?: string) =>
+    request<BackupRestored>("POST", `/v1/backups/${e(id)}/restore`, { targets, ...(time ? { time } : {}), ...(confirm ? { confirm } : {}) }),
   setSchedule: (body: S["Backups-schedule-setRequest"]) => request<S["BackupSchedule"]>("PUT", "/v1/backups/schedule", body),
   /** Starts a restore drill of the newest good backup, or of one backup; poll drillGet until it isn't running. */
   drill: (backup?: string) => request<BackupDrill>("POST", backup ? `/v1/backups/${e(backup)}/drill` : "/v1/backups/drill", {}),

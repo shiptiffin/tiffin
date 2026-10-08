@@ -431,7 +431,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a backup
-         * @description Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files, platform, or all). Everything changed since the backup is lost, so a safety backup of the current state is taken first. id is a backup ID or latest. from=offsite restores the copy in the bucket (`tiffin backups offsite list`), which works on a new box after `tiffin backups offsite set ... --passphrase`: on a box with no projects every target is restored by default (platform: projects, settings, secrets, tokens, the box key; this box's owner token, domain and backup settings are kept), and no safety backup is taken. Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. A restore from the bucket goes on if the call gives up waiting (pass timeoutSeconds to wait longer). Box owner only.
+         * @description Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files, platform, or all). Everything changed since the backup is lost, so a safety backup of the current state is taken first. id is a backup ID or latest. time (with id latest) restores Postgres to that moment instead: any time in the overview's restorable range (the newest backup set before it, then the archived log replayed up to it); Valkey and files have no log, so they go back to that set, the newest at or before the moment, not to the second. from=offsite restores the copy in the bucket (`tiffin backups offsite list`), which works on a new box after `tiffin backups offsite set ... --passphrase`: on a box with no projects every target is restored by default (platform: projects, settings, secrets, tokens, the box key; this box's owner token, domain and backup settings are kept), and no safety backup is taken. Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. A restore from the bucket goes on if the call gives up waiting (pass timeoutSeconds to wait longer). Box owner only.
          */
         post: operations["backup-restore"];
         delete?: never;
@@ -6263,6 +6263,8 @@ export interface components {
             from?: "local" | "offsite" | "";
             /** @description What to restore: postgres, valkey, files, platform, all (default postgres and valkey; all on a box with no projects) */
             targets?: string[] | null;
+            /** @description Restore Postgres to this moment (RFC 3339 such as 2026-10-07T14:32:00Z, or 2026-10-07 14:32 in UTC); id must be latest. Valkey and files go back to the newest set at or before it */
+            time?: string;
             /**
              * Format: int64
              * @description How long the call waits for a restore from the bucket (default 60 s; it goes on after)
@@ -6326,6 +6328,11 @@ export interface components {
             startedAt: string;
             /** @enum {string} */
             status: "running" | "passed" | "failed";
+            /**
+             * Format: date-time
+             * @description A point-in-time drill: the moment it restored to, replaying the archived log from the backup (halfway to the next backup)
+             */
+            targetTime?: string;
             /** @enum {string} */
             trigger: "manual" | "schedule";
         };
@@ -6558,6 +6565,8 @@ export interface components {
              * @description Disk used by the local backup repository and sets
              */
             repoBytes: number;
+            /** @description The moments Postgres can be restored to (POST /v1/backups/latest/restore with time); null with no successful backup */
+            restorable: components["schemas"]["BackupRestorable"];
             schedule: components["schemas"]["BackupSchedule"];
         };
         BackupPart: {
@@ -6569,6 +6578,11 @@ export interface components {
         };
         BackupPostgresStruct: {
             label: string;
+            /**
+             * Format: date-time
+             * @description When a marker commit was written just before this backup (point-in-time restores to earlier moments stop on it)
+             */
+            markAt?: string;
             /**
              * Format: int64
              * @description What this backup added to the repository (compressed)
@@ -6588,6 +6602,18 @@ export interface components {
             name: string;
             ok: boolean;
         };
+        BackupRestorable: {
+            /**
+             * Format: date-time
+             * @description The oldest moment Postgres can be restored to: when the oldest backup set finished
+             */
+            earliest: string;
+            /**
+             * Format: date-time
+             * @description The newest: now (a time restore first takes a safety backup, which archives everything up to it)
+             */
+            latest: string;
+        };
         BackupRestored: {
             backup: string;
             /** Format: int64 */
@@ -6601,6 +6627,11 @@ export interface components {
             /** @description Backup of the state just before the restore; restore it to go back (empty on a box with no projects) */
             safetyBackup: string;
             targets: string[] | null;
+            /**
+             * Format: date-time
+             * @description A point-in-time restore: the moment Postgres went back to
+             */
+            time?: string;
         };
         BackupSchedule: {
             /** @description Run restore drills automatically: restore the newest backup into a scratch copy and verify it (default on) */
@@ -6619,7 +6650,7 @@ export interface components {
             fullEveryHours: number;
             /**
              * Format: int64
-             * @description Hours between incremental backups; 0 turns them off (default 1)
+             * @description Hours between incremental backups; 0 turns them off (default 6)
              */
             incrementalEveryHours: number;
             /**
@@ -6675,7 +6706,7 @@ export interface components {
             fullEveryHours?: number;
             /**
              * Format: int64
-             * @description Hours between incremental backups; 0 turns them off (default 1)
+             * @description Hours between incremental backups; 0 turns them off (default 6)
              */
             incrementalEveryHours?: number;
             /**
