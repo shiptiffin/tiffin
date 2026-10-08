@@ -108,6 +108,19 @@ body {
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
+/* Short pages keep the footer at the bottom of the window, not halfway up. */
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100svh;
+}
+body > main {
+  flex: 1 0 auto;
+}
+body > footer {
+  flex-shrink: 0;
+}
 h1,
 h2,
 h3,
