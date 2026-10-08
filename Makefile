@@ -27,7 +27,7 @@ NOTES        ?=
 BASE_URL     ?=
 RELEASE_KEY  ?=
 
-.PHONY: build release release-sign test site-test lint golden-update e2e ci clean auth-engine dashboard sdk
+.PHONY: build release release-sign test site-test lint golden-update e2e ci clean auth-engine dashboard sdk notices
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
@@ -43,15 +43,24 @@ sdk:
 	elif [ ! -d node_modules ]; then echo "no node_modules (run bun install to rebuild the SDK): using the committed SDK build in internal/sdkpkg/files"; \
 	else bun scripts/sdk-pack.ts; fi
 
+# THIRD_PARTY_NOTICES: the third-party software in the binary and its
+# licences (go-licenses for every release target, the JS bundled into the
+# dashboard and the auth engine, the SDK's dependencies). The binary embeds
+# it and make release copies it into dist/. Run after changing dependencies
+# and commit the result; it needs Go, Bun and bun install.
+notices:
+	bun scripts/notices.ts $(RELEASE_TARGETS)
+
 build: sdk
 	@mkdir -p bin
 	CGO_ENABLED=0 go build $(GOFLAGS_BUILD) -o bin/tiffin ./cmd/tiffin
 
 # Reproducible builds for every target (trimmed paths, no build ID, the
 # commit's date, the committed SDK build), named as `tiffin up` looks for them:
-# dist/tiffin-<os>-<arch>.
+# dist/tiffin-<os>-<arch>, with the licence files beside them.
 release:
 	@rm -rf dist && mkdir -p dist
+	@cp LICENSE NOTICE THIRD_PARTY_NOTICES dist/
 	@set -e; for t in $(RELEASE_TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; \
 		out="dist/tiffin-$${os}-$${arch}"; \

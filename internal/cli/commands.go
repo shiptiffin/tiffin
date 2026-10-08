@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	tiffin "github.com/btahir/tiffin"
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge"
@@ -48,10 +49,27 @@ func (a *app) versionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if a.tty() {
 				fmt.Fprintln(a.io.Out, version.String())
+				fmt.Fprintln(a.io.Out, "AGPL-3.0-only. Source: "+version.SourceURL()+" (tiffin licenses for the details)")
 				return nil
 			}
-			writeJSON(a.io.Out, map[string]string{"name": "tiffin", "version": version.Version, "commit": version.Commit, "date": version.Date})
+			writeJSON(a.io.Out, map[string]string{"name": "tiffin", "version": version.Version, "commit": version.Commit, "date": version.Date,
+				"license": "AGPL-3.0-only", "source": version.SourceURL()})
 			return nil
+		},
+	}
+}
+
+func (a *app) licensesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "licenses",
+		Short: "Print Tiffin's licence and the third-party notices",
+		Long: "Prints the licence Tiffin is under (AGPL-3.0-only), where the source of this version is, and the " +
+			"third-party software inside the binary with its licences, NOTICE files and licence texts. " +
+			"The dashboard shows the same at /licenses.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := io.WriteString(a.io.Out, tiffin.Licenses(version.Version, version.SourceURL()))
+			return err
 		},
 	}
 }

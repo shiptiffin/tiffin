@@ -93,7 +93,7 @@ jobs:
         run: |
           pre=""
           case "$TAG" in *-*) pre="--prerelease" ;; esac
-          gh release create "$TAG" dist/tiffin-* dist/checksums.txt --title "$TAG" --notes-from-tag --verify-tag $pre
+          gh release create "$TAG" dist/tiffin-* dist/checksums.txt dist/LICENSE dist/NOTICE dist/THIRD_PARTY_NOTICES --title "$TAG" --notes-from-tag --verify-tag $pre
 
       - name: Point the channels at it
         run: |

@@ -71,6 +71,7 @@ make dashboard  # rebuild the embedded dashboard
 make sdk        # rebuild the embedded @shiptiffin/sdk (make build runs it; bump the version in packages/sdk when its API changes)
 make e2e        # every acceptance test, each on a fresh VM (slow)
 make release    # macOS and Linux binaries for arm64 and amd64
+make notices    # regenerate THIRD_PARTY_NOTICES after changing dependencies
 ```
 
 ## Licensing
