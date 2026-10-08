@@ -36,4 +36,4 @@ Services: [apps and deploys](apps.md) · [Postgres, Valkey and backups](data.md)
 [storage](storage.md) · [email](email.md) · [sign-in](auth.md) ·
 [queues and workflows](queues.md) · [observability](observe.md) ·
 [analytics](analytics.md) · [domains](domains.md) · [protection](protection.md) · [security model](security.md) ·
-[copying and moving](moving.md) · [what works and what doesn't](limits.md)
+[copying and moving](moving.md) · [managed boxes (ShipTiffin)](managed.md) · [what works and what doesn't](limits.md)

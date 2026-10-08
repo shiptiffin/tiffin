@@ -7,6 +7,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: "https://shiptiffin.com/", lastModified },
     { url: "https://shiptiffin.com/early-access", lastModified },
+    { url: "https://shiptiffin.com/managed", lastModified },
     { url: "https://shiptiffin.com/privacy", lastModified },
     { url: "https://shiptiffin.com/terms", lastModified },
   ];

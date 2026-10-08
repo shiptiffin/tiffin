@@ -580,3 +580,48 @@ automatic events from sign-ups and deploys.
   (64 MiB) and then drops new ones, counted as lost in `tiffin status`. There is no
   per-project share yet: one app flooding the collector can crowd out other projects'
   events while the store catches up.
+
+## Managed boxes (ShipTiffin)
+
+See [managed boxes](managed.md). What is not done yet, or done the simple way:
+
+- **shiptiffin.app is not on the Public Suffix List yet.** Until it is, browsers treat
+  every `<name>.shiptiffin.app` as one site with `shiptiffin.app` (cookies set on the
+  parent domain would be shared between customers' boxes; the dashboard's own cookies are
+  host-only), and Let's Encrypt's limit of 50 new certificates a week per registered domain
+  is shared by every managed box and its apps. The owner submits `shiptiffin.app` to the
+  PSL (github.com/publicsuffix/list, private section, with the `_psl` TXT record);
+  acceptance takes weeks.
+- **One certificate per name, over HTTP-01.** The box holds no DNS token, so it cannot get
+  a wildcard: each new app or preview gets its certificate on its first visit (a few
+  seconds), counted against the limit above.
+- **Support access has no button yet.** Support never logs in by default; a customer who
+  wants help on the server adds a temporary SSH key and firewall rule by hand. A dashboard
+  switch that does both, and undoes them, is planned.
+- **Resize changes the server type only.** Growing the data volume is still `tiffin up
+  --volume-size` from a computer with SSH access, or the Hetzner console plus
+  `xfs_growfs`. A type change keeps the architecture (cx↔cx, cax↔cax): Hetzner can't move a
+  server between ARM and x86.
+- **Automatic updates are gated, the releases are not.** An unpaid managed box stops
+  installing updates by itself; the signed releases stay where every box reads them, so an
+  owner can still update by hand. Gating is a courtesy switch on a server the customer
+  fully controls, not a lock.
+- **Monitoring is one place.** The checks run from ShipTiffin's own box every five minutes;
+  if that box is down, nobody is told. A box that misses its daily check-in for 36 hours
+  gets one email.
+- **One worker, a few jobs at once.** Setups run three at a time in the `cloud` app; more
+  wait their turn. A deploy of the worker mid-setup fails that setup ("the worker stopped
+  while this ran"); the customer pastes the key again and *Clean up and try again* removes
+  what the first try left.
+- **The KEK has no rotation tool.** `CLOUD_KEK` seals stored Hetzner keys and setup sign-in
+  keys; changing it makes the stored ones unreadable (customers paste their key again).
+  The format carries a version prefix (`v1.`) for a rotation later.
+- **Project secrets reach both apps.** The Cloudflare token and the licence key are
+  secrets of the `website` project, so the Next.js app could read them too; only the worker
+  uses them.
+- **Release downloads need a reachable release source.** The worker installs the newest
+  `stable` release from `release.DefaultSource` (or `CLOUD_RELEASE_SOURCE`); while the
+  repository's releases are private, set that to a URL the worker can read.
+- **Founding offer counter.** The first 100 paid boxes get the coupon. Our own count is
+  checked when Checkout opens, so two people at the 100th can both be offered it; the
+  coupon's own limit in Stripe (100 redemptions) is the hard stop.
