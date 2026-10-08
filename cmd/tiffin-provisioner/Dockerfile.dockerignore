@@ -2,7 +2,7 @@
 *
 !go.mod
 !go.sum
-!cmd/tiffin-cloud
+!cmd/tiffin-provisioner
 !internal
 internal/dashboard/ui/node_modules
 **/*_test.go

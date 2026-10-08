@@ -8,8 +8,8 @@ import { defineConfig } from "@shiptiffin/sdk";
 //   Stripe Checkout and webhooks, the Hetzner key check, managed boxes'
 //   check-ins, the monitor cron.
 //
-// The worker that touches infrastructure is a separate project, "cloud"
-// (cmd/tiffin-cloud/tiffin.config.ts), so the Cloudflare token, the licence
+// The worker that touches infrastructure is a separate project, "provisioner"
+// (cmd/tiffin-provisioner/tiffin.config.ts), so the Cloudflare token, the licence
 // signing key and the key that opens customers' Hetzner tokens never reach
 // this app. The website's Postgres holds the cloud_* tables; the worker
 // reaches it with this project's DATABASE_URL as its CONTROL_DATABASE_URL.

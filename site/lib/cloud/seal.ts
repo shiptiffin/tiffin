@@ -1,4 +1,4 @@
-// Seals customers' Hetzner tokens to the cloud worker's X25519 public key
+// Seals customers' Hetzner tokens to the provisioner's X25519 public key
 // (CLOUD_SEAL_PUBLIC), in the format the worker opens (internal/cloud/seal.go).
 // The website can seal but never open: only the worker holds the private key,
 // in its own project's secrets. Each value gets a fresh ephemeral key; the

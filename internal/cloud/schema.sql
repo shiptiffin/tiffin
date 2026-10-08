@@ -1,5 +1,5 @@
 -- ShipTiffin control plane tables, in the website project's Postgres. The
--- cloud worker (its own project, which reaches this database with the
+-- provisioner (its own project, which reaches this database with the
 -- website's DATABASE_URL as CONTROL_DATABASE_URL) applies this at start; it
 -- is safe to run again. The website reads and writes the same tables. The
 -- owner can read them in the website project's Database browser.
@@ -124,7 +124,7 @@ create index if not exists cloud_jobs_queue on cloud_jobs (status, id);
 create index if not exists cloud_jobs_box on cloud_jobs (box_id, created_at desc);
 -- One running job per box: infrastructure work on a box never overlaps.
 create unique index if not exists cloud_jobs_one_running on cloud_jobs (box_id) where status = 'running';
-comment on table cloud_jobs is 'Work for the cloud worker. token_sealed holds a customer''s Hetzner token only while its job waits or runs (and never past token_expires_at); it is cleared when the job ends. lease_gen fences a worker that lost its lease; checkpoint records the phases a retry skips; not_before delays a retry.';
+comment on table cloud_jobs is 'Work for the provisioner. token_sealed holds a customer''s Hetzner token only while its job waits or runs (and never past token_expires_at); it is cleared when the job ends. lease_gen fences a worker that lost its lease; checkpoint records the phases a retry skips; not_before delays a retry.';
 
 create table if not exists cloud_hetzner_calls (
   id bigint generated always as identity primary key,

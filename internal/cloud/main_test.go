@@ -30,7 +30,7 @@ func run(m *testing.M) int {
 		pgBase = v
 		return m.Run()
 	}
-	dir, err := os.MkdirTemp("", "tiffin-cloud-pg-")
+	dir, err := os.MkdirTemp("", "tiffin-provisioner-pg-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

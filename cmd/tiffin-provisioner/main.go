@@ -1,11 +1,11 @@
-// Command tiffin-cloud is ShipTiffin's control plane worker, the `worker`
-// app of the `cloud` project (cmd/tiffin-cloud/tiffin.config.ts): a project
+// Command tiffin-provisioner is ShipTiffin's control plane worker, the `worker`
+// app of the `provisioner` project (cmd/tiffin-provisioner/tiffin.config.ts): a project
 // of its own, so its secrets never reach the website or its builds. It runs
 // the jobs the website queues in the website's Postgres: creating managed
 // boxes in customers' own Hetzner projects, resizing and deleting them, and
 // keeping their <name>.shiptiffin.app records. It answers /health on $PORT.
 //
-// Settings (the cloud project's secrets):
+// Settings (the provisioner project's secrets):
 //
 //	CONTROL_DATABASE_URL   the website project's DATABASE_URL (the cloud_* tables)
 //	CLOUD_SEAL_KEY         base64 X25519 private key: opens customers' Hetzner tokens
@@ -17,7 +17,7 @@
 //	CLOUD_RELEASE_SOURCE   optional: the signed release manifest URL ({channel})
 //
 // The website gets only the public halves: CLOUD_SEAL_PUBLIC and
-// CLOUD_LICENCE_PUBLIC. `tiffin-cloud keygen` makes both pairs and prints
+// CLOUD_LICENCE_PUBLIC. `tiffin-provisioner keygen` makes both pairs and prints
 // which secret goes to which project.
 //
 // Until the required ones are set it waits, answering /health, and does nothing.
@@ -68,11 +68,11 @@ func main() {
 
 	w, missing := configure(ctx, log)
 	if w == nil {
-		log.Warn("tiffin-cloud is not configured yet; waiting (set the project secrets, then redeploy)", "missing", strings.Join(missing, ", "))
+		log.Warn("tiffin-provisioner is not configured yet; waiting (set the project secrets, then redeploy)", "missing", strings.Join(missing, ", "))
 		<-ctx.Done()
 		return
 	}
-	log.Info("tiffin-cloud running", "zone", w.DNS.Zone, "control", w.ControlURL,
+	log.Info("tiffin-provisioner running", "zone", w.DNS.Zone, "control", w.ControlURL,
 		"CLOUD_SEAL_PUBLIC", cloud.KeyText(w.SealKey.PublicKey().Bytes()),
 		"CLOUD_LICENCE_PUBLIC", licence.PublicKeyText(w.Licence.Public().(ed25519.PublicKey)))
 	w.Run(ctx)
@@ -138,7 +138,7 @@ func configure(ctx context.Context, log *slog.Logger) (*cloud.Worker, []string) 
 	}, nil
 }
 
-// keygen prints fresh keys: the private halves for the cloud project, the
+// keygen prints fresh keys: the private halves for the provisioner project, the
 // public halves for the website project.
 func keygen(w io.Writer) {
 	seal, err := ecdh.X25519().GenerateKey(rand.Reader)
@@ -150,7 +150,7 @@ func keygen(w io.Writer) {
 		panic(err)
 	}
 	lic := ed25519.NewKeyFromSeed(seed)
-	fmt.Fprintf(w, `# cloud project (the worker) only:
+	fmt.Fprintf(w, `# provisioner project (the worker) only:
 CLOUD_SEAL_KEY=%s
 CLOUD_LICENCE_KEY=%s
 

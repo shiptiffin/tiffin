@@ -1,4 +1,4 @@
-// The control plane's tables in the website's Postgres. The cloud worker
+// The control plane's tables in the website's Postgres. The provisioner
 // (Go) creates them (internal/cloud/schema.sql) and runs the jobs queued
 // here; this file is the website's half.
 import { randomBytes } from "node:crypto";

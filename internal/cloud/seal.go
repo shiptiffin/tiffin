@@ -3,7 +3,7 @@
 // <name>.shiptiffin.app records, resizes them and, when asked, deletes
 // them. The website (site/) is the other half: accounts, billing, the
 // pages, the box check-in and the monitor. The worker runs in a project of
-// its own (cmd/tiffin-cloud/tiffin.config.ts) and reaches the website's
+// its own (cmd/tiffin-provisioner/tiffin.config.ts) and reaches the website's
 // database, whose cloud_* tables this package owns.
 package cloud
 
@@ -54,7 +54,7 @@ func decodeKey(s string) ([]byte, error) {
 func ParseSealKey(s string) (*ecdh.PrivateKey, error) {
 	raw, err := decodeKey(s)
 	if err != nil || len(raw) != 32 {
-		return nil, errors.New("CLOUD_SEAL_KEY: want the base64 of a 32-byte X25519 private key (tiffin-cloud keygen makes one)")
+		return nil, errors.New("CLOUD_SEAL_KEY: want the base64 of a 32-byte X25519 private key (tiffin-provisioner keygen makes one)")
 	}
 	return ecdh.X25519().NewPrivateKey(raw)
 }

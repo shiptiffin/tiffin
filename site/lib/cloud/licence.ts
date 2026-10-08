@@ -1,7 +1,7 @@
 // Checks a managed box's licence (internal/licence): "tl1." + base64url(JSON)
 // + "." + base64url(ed25519 signature of everything before the last dot). The
-// website only verifies, with the public key (CLOUD_LICENCE_PUBLIC); the cloud
-// worker signs with the private key, which only its own project holds.
+// website only verifies, with the public key (CLOUD_LICENCE_PUBLIC); the
+// provisioner signs with the private key, which only its own project holds.
 import { createPublicKey, verify, type KeyObject } from "node:crypto";
 
 export type Licence = { v: number; box: string; name: string; domain: string; iat: number; gen?: number };

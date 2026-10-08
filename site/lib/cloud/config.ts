@@ -1,8 +1,8 @@
-// Whether sign-up is open: every secret it needs is set and the cloud worker
+// Whether sign-up is open: every secret it needs is set and the provisioner
 // has made its tables. Until then /start shows the sign-up list instead of
 // erroring. Names only here; values stay in the project's secrets. The
 // website holds public keys only: it seals Hetzner tokens it can't open, and
-// checks licences it can't sign (the private halves are the cloud project's).
+// checks licences it can't sign (the private halves are the provisioner project's).
 import type { KeyObject } from "node:crypto";
 import { tablesReady } from "./db";
 import { licencePublicFrom } from "./licence";

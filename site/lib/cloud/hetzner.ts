@@ -3,7 +3,7 @@
 // customer's own prices and stock. Read-only calls, plus one write that
 // creates nothing (an SSH key with no key in it, which Hetzner refuses with
 // 400 for a read & write key and 403 for a read-only one). Every call is
-// recorded for the customer. Creating the server is the cloud worker's job
+// recorded for the customer. Creating the server is the provisioner's job
 // (Go, internal/provider/hetzner), never this file's.
 
 export const HETZNER_API = "https://api.hetzner.cloud/v1";

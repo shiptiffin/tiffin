@@ -165,7 +165,7 @@ Two projects on ShipTiffin's own box, so the worker's secrets never reach the we
 
 - **`website`** (`site/tiffin.config.ts`): the Next.js app (`web`), previews off. Its
   Postgres holds the `cloud_*` tables (the worker creates them).
-- **`cloud`** (`cmd/tiffin-cloud/tiffin.config.ts`): the Go worker (`worker`), previews off.
+- **`provisioner`** (`cmd/tiffin-provisioner/tiffin.config.ts`): the Go worker (`worker`), previews off.
   It reaches the website's database with that project's `DATABASE_URL`, given to it as
   `CONTROL_DATABASE_URL` (projects can't share a role; see limits).
 
@@ -178,19 +178,19 @@ Secrets, by name:
 | website | `CLOUD_SEAL_PUBLIC`, `CLOUD_LICENCE_PUBLIC` | public keys only |
 | website | `CLOUD_ADMIN_USER_IDS` | account ids allowed into /admin (verified email) |
 | website | `CLOUD_ABUSE_NOTIFY`, `EARLY_ACCESS_NOTIFY`, `SITE_URL` | optional |
-| cloud | `CONTROL_DATABASE_URL` | the website project's `DATABASE_URL` |
-| cloud | `CLOUD_SEAL_KEY`, `CLOUD_LICENCE_KEY` | private keys |
-| cloud | `CLOUDFLARE_API_TOKEN` | Zone · DNS · Edit on shiptiffin.app only |
-| cloud | `CLOUD_SSH_FROM`, `CLOUD_RELEASE_SOURCE`, `CLOUD_CONTROL_URL`, `CLOUD_ZONE` | optional |
+| provisioner | `CONTROL_DATABASE_URL` | the website project's `DATABASE_URL` |
+| provisioner | `CLOUD_SEAL_KEY`, `CLOUD_LICENCE_KEY` | private keys |
+| provisioner | `CLOUDFLARE_API_TOKEN` | Zone · DNS · Edit on shiptiffin.app only |
+| provisioner | `CLOUD_SSH_FROM`, `CLOUD_RELEASE_SOURCE`, `CLOUD_CONTROL_URL`, `CLOUD_ZONE` | optional |
 
 Setting it up:
 
-1. `go run ./cmd/tiffin-cloud keygen` prints both key pairs, labelled by project.
-2. Apply `cmd/tiffin-cloud/tiffin.config.ts` (`tiffin apply` from that folder) to create
-   the `cloud` project, and remove the old `cloud` app from the `website` project (the
+1. `go run ./cmd/tiffin-provisioner keygen` prints both key pairs, labelled by project.
+2. Apply `cmd/tiffin-provisioner/tiffin.config.ts` (`tiffin apply` from that folder) to create
+   the `provisioner` project, and remove the old `cloud` app from the `website` project (the
    website's config no longer lists it). Delete `CLOUD_KEK`, `CLOUD_LICENCE_KEY`,
    `CLOUDFLARE_API_TOKEN` and `CLOUD_ADMIN_EMAILS` from the website's secrets.
-3. Set the cloud project's secrets (above), then the website's.
+3. Set the provisioner project's secrets (above), then the website's.
 4. In Stripe, point the webhook at `https://shiptiffin.com/api/stripe/webhook` with
    `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
    `checkout.session.async_payment_failed`, `customer.subscription.created`,

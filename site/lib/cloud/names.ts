@@ -1,5 +1,5 @@
 // A managed box's name: its address is <name>.shiptiffin.app. The same rules
-// as the cloud worker's (internal/cloud/names.go); keep the lists in step.
+// as the provisioner's (internal/cloud/names.go); keep the lists in step.
 // Safe in the browser.
 
 export const NAME_MIN = 3;

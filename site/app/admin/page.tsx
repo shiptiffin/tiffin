@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function Admin() {
   const acct = await currentAccount();
   if (!isAdmin(acct)) notFound();
-  if (!(await tablesReady())) return <p className="wrap cp">The cloud worker hasn&rsquo;t made its tables yet.</p>;
+  if (!(await tablesReady())) return <p className="wrap cp">The provisioner hasn&rsquo;t made its tables yet.</p>;
   const s = db();
   const boxes = await s`select id, name, email, status, plan_status, dns_state, founding, server_type, location, ipv4, last_heartbeat_at, last_version, kill_reason, attention,
     first_paid_at, refunded_at, stripe_subscription_id, heartbeat_refused_at, heartbeat_refused_why, created_at

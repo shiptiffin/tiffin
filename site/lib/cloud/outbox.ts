@@ -5,7 +5,7 @@
 // does: money is at stake, so it is retried for as long as it takes (at most
 // an hour apart), and once one is over an hour old the admin is emailed
 // (CLOUD_ABUSE_NOTIFY, else EARLY_ACCESS_NOTIFY), once per action.
-// Billing, the monitor and the cloud worker (ready, setup failed) all write
+// Billing, the monitor and the provisioner (ready, setup failed) all write
 // here; the website drains it after each webhook and on every monitor run.
 import { deliver, render, SITE, type Mail } from "./emails";
 

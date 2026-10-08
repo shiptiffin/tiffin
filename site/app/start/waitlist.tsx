@@ -1,5 +1,5 @@
 // The sign-up list, shown on /start until sign-up opens (every secret set and
-// the cloud worker's tables made): leave your email and we send your link.
+// the provisioner's tables made): leave your email and we send your link.
 import { EarlyAccessForm } from "../early-access-form";
 import type { ErrorCode } from "@/lib/form";
 

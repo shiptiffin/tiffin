@@ -1,6 +1,6 @@
 // /start: sign up, pay, connect Hetzner, pick a name, size and place, watch
-// the box being made, open it. Until sign-up opens (secrets set, the cloud
-// worker's tables made) it shows the sign-up list instead.
+// the box being made, open it. Until sign-up opens (secrets set, the
+// provisioner's tables made) it shows the sign-up list instead.
 import type { Metadata } from "next";
 import Link from "next/link";
 import { confirmCheckout } from "@/lib/cloud/actions";
