@@ -674,9 +674,9 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   role, so the worker reaches the `cloud_*` tables with the website's `DATABASE_URL`
   (`CONTROL_DATABASE_URL`). The worker is the more trusted side; a scoped role would need
   the box's superuser and is planned with per-project grants.
-- **Release downloads need a reachable release source.** The worker installs the newest
-  `stable` release from `release.DefaultSource` (or `CLOUD_RELEASE_SOURCE`); while the
-  repository's releases are private, set that to a URL the worker can read.
+- **Releases come from one place.** Boxes and the worker read the signed manifest at
+  `releases.shiptiffin.com` (`release.DefaultSource`; `CLOUD_RELEASE_SOURCE` overrides it
+  for the worker). If that host is down, setup and updates wait; running boxes are unaffected.
 - **The address goes only after a delivered warning.** The grace removal waits for the
   "goes soon" email to be accepted by our mail server (SMTP accepted it: a later bounce
   isn't seen) and for 7 days after that; a warning that failed all its tries is sent again
