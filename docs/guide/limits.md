@@ -658,7 +658,9 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   when the sweep gives up on it, the box gets *needs attention* and a `server_off` email. A delete, clean-up or address change that fails is tried again by
   itself, five times at most, backing off from a minute, with the customer's key while it
   lasts (two hours); a delete always removes the address first, so what's left after
-  that is only the server, which the customer can delete in the console.
+  that is only the server, which the customer can delete in the console. A new setup of a
+  box whose clean-up gave up removes the old address before it deletes anything the
+  earlier attempt left, and stops (keeping it all) while the address can't be removed.
 - **No key rotation tool.** `CLOUD_SEAL_KEY` opens stored Hetzner keys; changing it makes
   the stored ones unreadable (customers paste their key again). The sealed format carries
   a version prefix (`v2.`) for a rotation later. `CLOUD_LICENCE_KEY` signs licences;
@@ -683,7 +685,14 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
 - **Checkout requests are saved before they are sent.** The idempotency key and exact
   parameters go to the database first, so a retry replays the same request. A saved
   request Stripe refused as invalid (it never ran there) is replaced by a fresh one; one
-  that is no longer useful (its session would expire within two minutes) too.
+  that is no longer useful (its session would expire within two minutes) too. A new
+  request asks for a session of 35 minutes (Stripe's minimum is 30), fixed when the
+  request is saved, so a slow commit or a retry within five minutes still goes through.
+- **Stripe cancellations and refunds are never given up on.** The cancel and refund of a
+  duplicate subscription (and the money-back one) is retried until Stripe takes it, at
+  most an hour apart; one still not done an hour after it was queued is emailed to the
+  admin (`CLOUD_ABUSE_NOTIFY`, else `EARLY_ACCESS_NOTIFY`) once. Emails still stop after
+  ten tries.
 - **Billing is cards only.** Checkout offers cards (and Link with `STRIPE_CHECKOUT_LINK=1`),
   so a box is set up only after its first payment went through; bank debits and other
   methods that confirm days later are off until the setup can wait for them.

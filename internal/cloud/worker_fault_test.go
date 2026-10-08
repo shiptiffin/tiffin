@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btahir/tiffin/internal/install"
+	"github.com/btahir/tiffin/internal/provider"
 	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
 	"github.com/btahir/tiffin/internal/provider/remote"
 )
@@ -292,5 +294,56 @@ func TestInterruptedResizeAlwaysPowersOn(t *testing.T) {
 	}
 	if h.num(`select count(*) from cloud_outbox where box_id = 'box_e1' and kind = 'server_off' and key = $1`, stale) != 1 || h.box("box_e1").Attention != ServerOffWhy {
 		t.Fatal("a resize given up on half way must tell the customer")
+	}
+}
+
+// A setup failed, its clean-up gave up on Cloudflare, and the customer sets
+// the box up again: the old records go before the old server (and its IP)
+// does, and while they can't, the old server stays.
+func TestResetupRemovesDNSBeforeTheOldServer(t *testing.T) {
+	h := newHarness(t)
+	var broken atomic.Bool
+	broken.Store(true)
+	h.cf.SetFault(func(method, _ string) bool { return broken.Load() && method == "DELETE" })
+	failInstall := func(context.Context, provider.Machine, string, install.Options, func(string)) (*install.Result, error) {
+		return nil, errors.New("provision: apt failed")
+	}
+	okInstall := h.w.Install
+	h.w.Install = failInstall
+	h.addBox("box_r1", "again")
+	args := ProvisionArgs{Name: "again", ServerType: "cax11", Location: "fsn1"}
+	h.enqueue("box_r1", "provision", hetznertest.Token, args)
+	h.runNext()
+	old := h.hz.ServerByName("again")
+	if old == nil || h.cf.Count() == 0 {
+		t.Fatalf("after the failed setup: server %v, %d records", old, h.cf.Count())
+	}
+	// The clean-up exhausts its retries.
+	h.exec(`update cloud_jobs set status = 'failed' where box_id = 'box_r1' and kind = 'cleanup'`)
+
+	// Setup again while Cloudflare still refuses: nothing is deleted.
+	h.w.Install = okInstall
+	id := h.enqueue("box_r1", "provision", hetznertest.Token, args)
+	h.runNext()
+	if j := h.job(id); j.Status != "failed" || !strings.Contains(j.text(), "server stays") {
+		t.Fatalf("re-setup: %s", j.text())
+	}
+	if s := h.hz.ServerByName("again"); s == nil || s.ID != old.ID || h.cf.Count() == 0 {
+		t.Fatal("the old server went while its records still point at its IP")
+	}
+	h.exec(`update cloud_jobs set status = 'failed' where box_id = 'box_r1' and kind = 'cleanup' and status = 'queued'`)
+
+	// Cloudflare works again: records, then the old server, then a new setup.
+	broken.Store(false)
+	id = h.enqueue("box_r1", "provision", hetznertest.Token, args)
+	h.runNext()
+	if j := h.job(id); j.Status != "done" {
+		t.Fatalf("re-setup: %s", j.text())
+	}
+	if s := h.hz.ServerByName("again"); s == nil || s.ID == old.ID {
+		t.Fatal("the old server is still there")
+	}
+	if b := h.box("box_r1"); b.DNSState != "live" || b.IPv4 == "" {
+		t.Fatalf("box %+v", b)
 	}
 }

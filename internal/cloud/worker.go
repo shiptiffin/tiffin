@@ -500,6 +500,18 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if err != nil {
 		return err
 	}
+	if !in.Empty() || box.DNSState == "pending" || box.DNSState == "live" {
+		// An earlier attempt's address may still point at the server below
+		// (its clean-up may have given up on Cloudflare): the records go
+		// first, and nothing is deleted (no IP released) until they have.
+		progress("Removing " + w.DNS.Domain(box.Name) + " first")
+		if err := w.DNS.Remove(ctx, box.Name); err != nil {
+			return fmt.Errorf("remove the DNS records of the earlier attempt (its server stays until they are gone): %w", err)
+		}
+		if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "removed"); err != nil {
+			return err
+		}
+	}
 	if !in.Empty() {
 		// Only what an earlier attempt for this very box made (it carries the
 		// box's shiptiffin-box label); the box never ran, so there's no data.
