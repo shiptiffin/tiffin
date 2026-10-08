@@ -37,7 +37,13 @@ type Fake struct {
 	next    int
 	// Requests is every request, "METHOD /path?query", in order.
 	Requests []string
+	// Fault, when set, fails the requests it returns true for (HTTP 500,
+	// nothing changed): for "Cloudflare broke half way" tests.
+	Fault func(method, path string) bool
 }
+
+// SetFault sets Fault under the fake's lock.
+func (f *Fake) SetFault(fn func(method, path string) bool) { f.mu.Lock(); f.Fault = fn; f.mu.Unlock() }
 
 // New returns a fake holding the given zones.
 func New(zones ...string) *Fake {
@@ -109,6 +115,10 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Requests = append(f.Requests, r.Method+" "+r.URL.Path+qs(r))
+	if f.Fault != nil && f.Fault(r.Method, r.URL.Path) {
+		reply(w, 500, "injected failure", nil)
+		return
+	}
 	if r.Header.Get("Authorization") != "Bearer "+Token {
 		reply(w, 403, "Invalid API token", nil)
 		return

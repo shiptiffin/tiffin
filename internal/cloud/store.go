@@ -60,6 +60,10 @@ type Box struct {
 	TokenSealed     string
 	LastHeartbeatAt *time.Time
 	ReadyAt         *time.Time
+	// InstalledAt: Tiffin finished installing. From then on nothing deletes
+	// the server or its volume.
+	InstalledAt *time.Time
+	Attention   string
 }
 
 // ServerInfo is what provisioning learned about the server.
@@ -110,6 +114,19 @@ type Store interface {
 	CertPending(ctx context.Context, olderThan time.Time, limit int) ([]Box, error)
 	// MarkReady makes a cert_pending box active and queues its "ready" email.
 	MarkReady(ctx context.Context, boxID string) (bool, error)
+	// MarkInstalled records that Tiffin is installed: from then on the
+	// server and its volume are never deleted by a clean-up.
+	MarkInstalled(ctx context.Context, l Lease, boxID string) error
+	// FailSetup turns a setup of generation gen into "failed" and says
+	// whether its resources may be deleted: only when the box was never
+	// installed nor ready (checked in the same statement).
+	FailSetup(ctx context.Context, l Lease, boxID string, gen int64) (bool, error)
+	// Attention records a problem that needs a person, keeping the server
+	// and its data. A box still provisioning moves on to cert_pending (it is
+	// installed), so the certificate check can make it active.
+	Attention(ctx context.Context, l Lease, boxID, why string) error
+	// ClearAttention clears the note if it still says why (a later job fixed it).
+	ClearAttention(ctx context.Context, l Lease, boxID, why string) error
 	CheckedHTTPS(ctx context.Context, boxID string) error
 	// Sweep recovers after workers that stopped (failing or retrying their
 	// jobs), wipes tokens past their time and expired sign-in links, and
@@ -280,12 +297,12 @@ func (s *PG) Retry(ctx context.Context, l Lease, jobErr error, delay time.Durati
 
 func (s *PG) Box(ctx context.Context, id string) (*Box, error) {
 	var b Box
-	var name, st, loc, v4, v6, tok, mac *string
+	var name, st, loc, v4, v6, tok, mac, att *string
 	var srv *int64
 	err := s.Pool.QueryRow(ctx, `select id, name, status, plan_status, first_paid_at is not null, extras_paused_at, server_type, location, ipv4, ipv6,
-		addr_mac, generation, hetzner_server_id, dns_state, killed_at is not null, token_sealed, last_heartbeat_at, ready_at from cloud_boxes where id = $1`, id).
+		addr_mac, generation, hetzner_server_id, dns_state, killed_at is not null, token_sealed, last_heartbeat_at, ready_at, installed_at, attention from cloud_boxes where id = $1`, id).
 		Scan(&b.ID, &name, &b.Status, &b.PlanStatus, &b.FirstPaid, &b.ExtrasPausedAt, &st, &loc, &v4, &v6, &mac, &b.Generation, &srv, &b.DNSState, &b.Killed, &tok,
-			&b.LastHeartbeatAt, &b.ReadyAt)
+			&b.LastHeartbeatAt, &b.ReadyAt, &b.InstalledAt, &att)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +312,7 @@ func (s *PG) Box(ctx context.Context, id string) (*Box, error) {
 		}
 		return *p
 	}
-	b.Name, b.ServerType, b.Location, b.IPv4, b.IPv6, b.TokenSealed, b.AddrMAC = deref(name), deref(st), deref(loc), deref(v4), deref(v6), deref(tok), deref(mac)
+	b.Name, b.ServerType, b.Location, b.IPv4, b.IPv6, b.TokenSealed, b.AddrMAC, b.Attention = deref(name), deref(st), deref(loc), deref(v4), deref(v6), deref(tok), deref(mac), deref(att)
 	if srv != nil {
 		b.ServerID = *srv
 	}
@@ -434,6 +451,37 @@ func (s *PG) MarkReady(ctx context.Context, boxID string) (bool, error) {
 	return ok, err
 }
 
+func (s *PG) MarkInstalled(ctx context.Context, l Lease, boxID string) error {
+	return s.fenced(ctx, l, `update cloud_boxes set installed_at = coalesce(installed_at, now()), updated_at = now() where id = $1`, boxID)
+}
+
+func (s *PG) FailSetup(ctx context.Context, l Lease, boxID string, gen int64) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `update cloud_boxes set status = 'failed', signin_code = null, signin_expires_at = null, updated_at = now()
+		where id = $1 and generation = $2 and status in ('provisioning', 'failed') and installed_at is null and ready_at is null`+fmt.Sprintf(fence, l.JobID, l.Gen), boxID, gen)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		if !s.held(ctx, l) {
+			return false, ErrLeaseLost
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
+func (s *PG) Attention(ctx context.Context, l Lease, boxID, why string) error {
+	if len(why) > 1000 {
+		why = why[:1000]
+	}
+	return s.fenced(ctx, l, `update cloud_boxes set attention = $2, attention_at = now(),
+		status = case when status = 'provisioning' then 'cert_pending' else status end, updated_at = now() where id = $1`, boxID, why)
+}
+
+func (s *PG) ClearAttention(ctx context.Context, l Lease, boxID, why string) error {
+	return s.fenced(ctx, l, `update cloud_boxes set attention = null, attention_at = null, updated_at = now() where id = $1 and attention = $2`, boxID, why)
+}
+
 // MaxAttempts is how often a job is tried before it stays failed.
 const MaxAttempts = 5
 
@@ -467,14 +515,32 @@ func (s *PG) Sweep(ctx context.Context, now time.Time) (string, error) {
 		rows.Close()
 		for _, st := range stales {
 			if st.kind == "provision" {
-				// A setup is not resumed half way: it fails, and a clean-up job
-				// (with the same key, while it lasts) removes what it made.
+				// A setup is not resumed half way: it fails. Before Tiffin was
+				// installed, a clean-up job (with the same key, while it lasts)
+				// removes what it made; once installed (or ever ready) the server
+				// and its volume stay and the box needs a person instead.
 				if _, err := tx.Exec(ctx, `update cloud_jobs set status = 'failed', token_sealed = null, finished_at = $2, lease_until = null,
-					error = 'the worker stopped while this ran; we clean up what it made, then you can try again' where id = $1`, st.id, now); err != nil {
+					error = 'the worker stopped while this ran' where id = $1`, st.id, now); err != nil {
 					return err
 				}
 				var gen int64
-				if err := tx.QueryRow(ctx, `update cloud_boxes set status = 'failed', updated_at = now() where id = $1 and status = 'provisioning' returning generation`, st.box).Scan(&gen); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				var installed bool
+				err := tx.QueryRow(ctx, `select generation, installed_at is not null or ready_at is not null from cloud_boxes where id = $1 for update`, st.box).Scan(&gen, &installed)
+				if err != nil {
+					return err
+				}
+				if installed {
+					if _, err := tx.Exec(ctx, `update cloud_boxes set attention = 'The setup worker stopped after Tiffin was installed. Your server and its data are kept; we check it by hand.',
+						attention_at = now(), status = case when status = 'provisioning' then 'cert_pending' else status end, updated_at = now() where id = $1`, st.box); err != nil {
+						return err
+					}
+					if _, err := tx.Exec(ctx, `insert into cloud_outbox (box_id, kind, key, params) values ($1, 'attention', $2, '{}'::jsonb) on conflict do nothing`, st.box, fmt.Sprintf("setup:%d", st.id)); err != nil {
+						return err
+					}
+					out = append(out, "a setup of "+st.box+" stopped after the install: kept, needs attention")
+					continue
+				}
+				if _, err := tx.Exec(ctx, `update cloud_boxes set status = 'failed', updated_at = now() where id = $1 and status = 'provisioning'`, st.box); err != nil {
 					return err
 				}
 				args, _ := json.Marshal(CleanupArgs{Reason: "setup_failed", Gen: gen})
@@ -492,6 +558,12 @@ func (s *PG) Sweep(ctx context.Context, now time.Time) (string, error) {
 				if _, err := tx.Exec(ctx, `update cloud_jobs set status = 'failed', token_sealed = null, finished_at = $2, lease_until = null,
 					error = 'the worker stopped while this ran, too many times' where id = $1`, st.id, now); err != nil {
 					return err
+				}
+				if st.kind == "resize" {
+					// A resize may have left the server off: never silently.
+					if err := resizeGaveUp(ctx, tx, st.box, st.id); err != nil {
+						return err
+					}
 				}
 				out = append(out, "gave up on a "+st.kind+" job of "+st.box)
 				continue
@@ -521,12 +593,12 @@ func (s *PG) Sweep(ctx context.Context, now time.Time) (string, error) {
 	if n := tag.RowsAffected(); n > 0 {
 		out = append(out, fmt.Sprintf("forgot %d sign-in links", n))
 	}
-	// An address still live on a box that failed, is being deleted or was
+	// An address live (or being published, or half published) on a box that failed, is being deleted or was
 	// released: remove it (again, if an earlier try failed), at most every
 	// five minutes per box.
 	tag, err = s.Pool.Exec(ctx, `insert into cloud_jobs (box_id, kind, args)
 		select b.id, 'dns_remove', jsonb_build_object('reason', case b.status when 'failed' then 'setup_failed' else 'released' end, 'gen', b.generation)
-		from cloud_boxes b where b.dns_state = 'live' and b.status in ('failed', 'deleting', 'released')
+		from cloud_boxes b where b.dns_state in ('live', 'pending') and b.status in ('failed', 'deleting', 'released')
 		and not exists (select 1 from cloud_jobs j where j.box_id = b.id and (j.status in ('queued', 'running') or j.created_at > $1::timestamptz - interval '5 minutes'))`, now)
 	if err != nil {
 		return "", err
@@ -538,4 +610,23 @@ func (s *PG) Sweep(ctx context.Context, now time.Time) (string, error) {
 		return "", nil
 	}
 	return fmt.Sprint(out), nil
+}
+
+// ServerOffWhy is what the customer reads when a resize may have left their
+// server off and we can't start it ourselves.
+const ServerOffWhy = "A resize of your server stopped half way and we couldn't start the server again ourselves. If it is off, start it in the Hetzner console (Servers › your server › Power on), or paste your Hetzner key in your account to let us finish."
+
+func resizeGaveUp(ctx context.Context, tx pgx.Tx, boxID string, jobID int64) error {
+	var phase *string
+	if err := tx.QueryRow(ctx, `select checkpoint->>'phase' from cloud_jobs where id = $1`, jobID).Scan(&phase); err != nil {
+		return err
+	}
+	if phase == nil || *phase == "done" {
+		return nil // it never got as far as touching the server
+	}
+	if _, err := tx.Exec(ctx, `update cloud_boxes set attention = $2, attention_at = now(), updated_at = now() where id = $1`, boxID, ServerOffWhy); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `insert into cloud_outbox (box_id, kind, key, params) values ($1, 'server_off', $2, '{}'::jsonb) on conflict do nothing`, boxID, fmt.Sprint(jobID))
+	return err
 }

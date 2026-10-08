@@ -44,7 +44,7 @@ create table if not exists cloud_boxes (
   token_kept_at timestamptz,
   signin_code text,
   signin_expires_at timestamptz,
-  dns_state text not null default 'none' check (dns_state in ('none', 'live', 'removed', 'parked', 'killed')),
+  dns_state text not null default 'none' check (dns_state in ('none', 'pending', 'live', 'removed', 'parked', 'killed')),
   dns_changed_at timestamptz,
   last_heartbeat_at timestamptz,
   last_heartbeat_ip text,
@@ -56,6 +56,12 @@ create table if not exists cloud_boxes (
   health_checked_at timestamptz,
   https_checked_at timestamptz,
   ready_at timestamptz,
+  installed_at timestamptz,
+  attention text,
+  attention_at timestamptz,
+  handoff_closed_at timestamptz,
+  signin_requested_at timestamptz,
+  checkout_attempt jsonb,
   down_alerted_at timestamptz,
   heartbeat_alerted_at timestamptz,
   killed_at timestamptz,
@@ -64,6 +70,15 @@ create table if not exists cloud_boxes (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- Columns added after the first build (the tables may predate them).
+alter table cloud_boxes add column if not exists installed_at timestamptz;
+alter table cloud_boxes add column if not exists attention text;
+alter table cloud_boxes add column if not exists attention_at timestamptz;
+alter table cloud_boxes add column if not exists handoff_closed_at timestamptz;
+alter table cloud_boxes add column if not exists signin_requested_at timestamptz;
+alter table cloud_boxes add column if not exists checkout_attempt jsonb;
+alter table cloud_boxes drop constraint if exists cloud_boxes_dns_state_check;
+alter table cloud_boxes add constraint cloud_boxes_dns_state_check check (dns_state in ('none', 'pending', 'live', 'removed', 'parked', 'killed'));
 create index if not exists cloud_boxes_user on cloud_boxes (user_id, created_at);
 -- One box waiting for its first payment per account: two tabs reuse it.
 create unique index if not exists cloud_boxes_one_pending on cloud_boxes (user_id) where status = 'awaiting_payment';
@@ -77,8 +92,13 @@ comment on column cloud_boxes.extras_paused_at is 'When the managed extras pause
 comment on column cloud_boxes.addr_mac is 'The worker''s MAC over (box, name, ipv4, ipv6, generation): DNS only ever points at addresses the worker recorded itself.';
 comment on column cloud_boxes.generation is 'Installation generation: each setup attempt gets the next one; licences carry it and only the current one counts.';
 comment on column cloud_boxes.token_sealed is 'The customer''s Hetzner token, sealed to the worker''s public key, only when they chose "keep my key". Empty otherwise.';
-comment on column cloud_boxes.signin_code is 'The one-time owner sign-in link the box made at setup (it expires on the box after 24 hours). Deleted at the first "Open your dashboard" or when it expires.';
-comment on column cloud_boxes.dns_state is 'none, live, removed (grace period over, setup failed, released or deleted), parked (no check-in for 72 hours; the next one brings it back) or killed (abuse kill switch; only an admin restores it).';
+comment on column cloud_boxes.signin_code is 'The one-time owner sign-in link the box made (at setup, or at a check-in once the dashboard is ready or the customer asked for a new one); it expires on the box after 24 hours. Kept until the box reports the owner signed in, the customer forgets it, or it expires.';
+comment on column cloud_boxes.installed_at is 'When Tiffin finished installing. From then on nothing we do deletes the server or its volume: a failure leaves them and sets attention.';
+comment on column cloud_boxes.attention is 'Set when something after the install went wrong and needs a person (shown to the customer and in /admin). The server and data are kept.';
+comment on column cloud_boxes.handoff_closed_at is 'When the hand-off ended: the box reported its owner signed in, or the customer forgot the link. No sign-in link is asked for after that.';
+comment on column cloud_boxes.signin_requested_at is 'The customer asked for a new one-time sign-in link; the box makes it at its next check-in.';
+comment on column cloud_boxes.checkout_attempt is 'The Checkout request being made (its idempotency key and exact parameters), saved before Stripe is called so a retry sends the very same request.';
+comment on column cloud_boxes.dns_state is 'none, pending (records are being published, or a publish failed half way: treated as live for removal), live, removed (grace period over, setup failed, released or deleted), parked (no check-in for 72 hours; the next one brings it back) or killed (abuse kill switch; only an admin restores it).';
 comment on column cloud_boxes.last_heartbeat_at is 'The last check-in that counted: a licence of the current generation, sent from the box''s own address.';
 
 create table if not exists cloud_jobs (

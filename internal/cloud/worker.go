@@ -248,16 +248,29 @@ func (w *Worker) keepLease(ctx context.Context, cancel context.CancelCauseFunc, 
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			err := w.Store.Extend(ctx, job.Lease, w.Lease)
+			// Every renewal has a deadline: the point where this worker must
+			// stop anyway (half the lease after the last renewal that worked).
+			// A database call that hangs can't keep the job running past it.
+			deadline := last.Add(w.Lease / 2)
+			rctx, rcancel := context.WithDeadline(ctx, deadline)
+			res := make(chan error, 1)
+			go func() { res <- w.Store.Extend(rctx, job.Lease, w.Lease) }()
+			var err error
+			select {
+			case err = <-res:
+			case <-rctx.Done(): // even a call that ignores its context
+				err = rctx.Err()
+			}
+			rcancel()
 			switch {
 			case err == nil:
 				last = time.Now()
 			case errors.Is(err, ErrLeaseLost):
 				cancel(ErrLeaseLost)
 				return
-			case time.Since(last) > w.Lease/2:
-				// The database is unreachable: stop well before the lease ends,
-				// so the job is never run twice at once.
+			case !time.Now().Before(deadline):
+				// The database is unreachable (or hangs): stop well before the
+				// lease ends, so the job is never run twice at once.
 				cancel(ErrLeaseLost)
 				return
 			}
@@ -404,21 +417,26 @@ const MaintenanceWindow = "03:00"
 
 func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionArgs, progress func(string)) (err error) {
 	var (
-		started bool // past the checks: a failure from here on is cleaned up
-		gen     int64
-		hp      *hetzner.Provider
+		started   bool // past the checks: a failure from here on is cleaned up
+		installed bool // Tiffin is on the server: from here on nothing is deleted
+		gen       int64
+		hp        *hetzner.Provider
 	)
 	defer func() {
 		// A lost lease or a shutdown: the sweep fails the job and queues
-		// the clean-up, so a worker that may no longer own the box does nothing.
+		// the clean-up (or, once installed, flags the box), so a worker
+		// that may no longer own the box does nothing.
 		if err == nil || ctx.Err() != nil {
 			return
 		}
 		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
 		defer cancel()
-		if started {
+		switch {
+		case installed:
+			w.needsAttention(bg, job, box, progress, "Tiffin is installed, but the last setup steps didn't finish ("+firstLine(err.Error())+"). Your server and its data are kept; we look at it and email you.")
+		case started:
 			w.failSetup(bg, job, box, gen, hp, progress, err)
-		} else if box.Status == "provisioning" && box.ReadyAt == nil {
+		case box.Status == "provisioning" && box.ReadyAt == nil && box.InstalledAt == nil:
 			_ = w.Store.SetStatus(bg, job.Lease, box.ID, "failed")
 			progress("Setup stopped: " + firstLine(err.Error()))
 		}
@@ -438,7 +456,7 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if box.Status != "provisioning" && box.Status != "paid" && box.Status != "failed" {
 		return fmt.Errorf("the box is %s; setup runs only for a new or failed box", box.Status)
 	}
-	if box.ReadyAt != nil {
+	if box.ReadyAt != nil || box.InstalledAt != nil {
 		return errors.New("this box was set up before; it is not set up again")
 	}
 	token, err := w.token(job, box, false)
@@ -517,6 +535,11 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 
 	domain := w.DNS.Domain(a.Name)
 	progress("Pointing " + domain + " at your server")
+	// The intent first: if publishing stops half way (or this worker does),
+	// the records are known to exist and are removed with the rest.
+	if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "pending"); err != nil {
+		return err
+	}
 	if err := w.DNS.Set(ctx, a.Name, ip4, ip6); err != nil {
 		return fmt.Errorf("set the DNS records: %w", err)
 	}
@@ -561,6 +584,12 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 		Managed: &platform.ManagedConfig{ControlPlane: w.ControlURL, BoxID: box.ID, Licence: tok,
 			PublicKey: licence.PublicKeyText(w.Licence.Public().(ed25519.PublicKey))}}
 	if _, err := w.Install(ctx, m, bin, opts, progress); err != nil {
+		return err
+	}
+	// From here on the server holds the customer's box: whatever fails
+	// next, nothing deletes it (failures need a person, not a clean-up).
+	installed = true
+	if err := w.markInstalled(ctx, job, box.ID); err != nil {
 		return err
 	}
 	// The one sign-in we keep: a link the box made, which works once and
@@ -623,10 +652,55 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 		return nil
 	}
 	if _, err := w.Store.MarkReady(ctx, box.ID); err != nil {
-		return err
+		// The commit may have happened with its answer lost: read it back.
+		// Either way the box is installed, so nothing is deleted: a box
+		// still cert_pending is made active by the certificate check.
+		if b, rerr := w.reread(ctx, box.ID); rerr == nil && b.ReadyAt != nil {
+			progress("Your box is ready")
+			return nil
+		}
+		progress("The dashboard answers; we confirm it within a minute and email you")
+		return nil
 	}
 	progress("Your box is ready")
 	return nil
+}
+
+// markInstalled records the install, trying a few times (a lost answer is
+// harmless: it only ever sets installed_at once).
+func (w *Worker) markInstalled(ctx context.Context, job *Job, boxID string) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		if err = w.Store.MarkInstalled(ctx, job.Lease, boxID); err == nil || errors.Is(err, ErrLeaseLost) {
+			return err
+		}
+		sleepCtx(ctx, time.Duration(i+1)*time.Second)
+	}
+	return err
+}
+
+// reread reads the box again, retrying briefly.
+func (w *Worker) reread(ctx context.Context, boxID string) (*Box, error) {
+	var b *Box
+	var err error
+	for i := 0; i < 3; i++ {
+		if b, err = w.Store.Box(ctx, boxID); err == nil {
+			return b, nil
+		}
+		sleepCtx(ctx, time.Duration(i+1)*time.Second)
+	}
+	return nil, err
+}
+
+// needsAttention: something after the install failed. The server, its
+// volume and the address stay; the box is flagged for a person and the
+// customer is emailed.
+func (w *Worker) needsAttention(ctx context.Context, job *Job, box *Box, progress func(string), why string) {
+	progress(why)
+	if err := w.Store.Attention(ctx, job.Lease, box.ID, why); err != nil {
+		w.Log.Error("flag a box for attention", "box", box.ID, "err", err)
+	}
+	_ = w.Store.QueueEmail(ctx, job.Lease, box.ID, "attention", fmt.Sprint(job.ID), map[string]any{"why": why})
 }
 
 // saveResources records the IDs of what Ensure made or reused.
@@ -649,45 +723,68 @@ func (w *Worker) saveResources(ctx context.Context, job *Job, box *Box, hp *hetz
 	return w.Store.SetResources(ctx, job.Lease, box.ID, r)
 }
 
-// failSetup cleans up after a setup that stopped: the box is failed, its
-// address goes (no name may point at a server that may never be finished,
-// or whose IP Hetzner hands to someone else), and what this setup made in
-// the customer's project is deleted (the box never ran, so there's no data
-// to keep). What can't be done now is retried by a clean-up job.
+// failSetup cleans up after a setup that stopped before Tiffin was
+// installed: the box is failed, its address goes (no name may point at a
+// server that may never be finished, or whose IP Hetzner hands to someone
+// else), and then what this setup made in the customer's project is deleted
+// (the box never ran, so there's no data to keep). The decision is the
+// database's: only a box never installed nor ready is failed and deleted.
+// The server (and so its IP) goes only once the address is gone. What can't
+// be done now is retried by a clean-up job.
 func (w *Worker) failSetup(ctx context.Context, job *Job, box *Box, gen int64, hp *hetzner.Provider, progress func(string), cause error) {
-	_ = w.Store.SetStatus(ctx, job.Lease, box.ID, "failed")
-	_ = w.Store.SetSignin(ctx, job.Lease, box.ID, "", time.Time{})
-	if box.Name != "" && ValidName(box.Name) == nil {
-		if err := w.DNS.Remove(ctx, box.Name); err == nil {
-			_ = w.Store.SetDNS(ctx, job.Lease, box.ID, "removed")
-		}
-	}
 	progress("Setup stopped: " + firstLine(cause.Error()))
+	retry := func(why string) {
+		progress(why + "; we try again")
+		_ = w.Store.EnqueueCleanup(ctx, job.Lease, box.ID, CleanupArgs{Reason: "setup_failed", Gen: gen}, job.TokenSealed, job.TokenExpiry)
+	}
+	ok, err := w.Store.FailSetup(ctx, job.Lease, box.ID, gen)
+	if err != nil {
+		// Unknown whether it committed: the clean-up job decides again.
+		retry("Couldn't record the failure (" + firstLine(err.Error()) + ")")
+		return
+	}
+	if !ok {
+		progress("The box was installed meanwhile: nothing is deleted")
+		return
+	}
+	_ = w.Store.QueueEmail(ctx, job.Lease, box.ID, "setup_failed", fmt.Sprint(gen), map[string]any{"error": firstLine(cause.Error())})
+	if box.Name != "" && ValidName(box.Name) == nil {
+		if err := w.DNS.Remove(ctx, box.Name); err != nil {
+			retry("Couldn't remove " + w.DNS.Domain(box.Name) + " yet (" + firstLine(err.Error()) + "), so the server stays until it is gone")
+			return
+		}
+		_ = w.Store.SetDNS(ctx, job.Lease, box.ID, "removed")
+	}
 	if hp != nil {
 		progress("Deleting what this setup made in your Hetzner project")
 		if _, err := hp.DestroyAll(ctx, true, func(string) {}); err != nil {
-			progress("Couldn't delete it all yet (" + firstLine(err.Error()) + "); we try again")
-			_ = w.Store.EnqueueCleanup(ctx, job.Lease, box.ID, CleanupArgs{Reason: "setup_failed", Gen: gen}, job.TokenSealed, job.TokenExpiry)
+			retry("Couldn't delete it all yet (" + firstLine(err.Error()) + ")")
 		}
 	}
-	_ = w.Store.QueueEmail(ctx, job.Lease, box.ID, "setup_failed", fmt.Sprint(gen), map[string]any{"error": firstLine(cause.Error())})
 }
 
-// cleanup finishes what failSetup could not (or what a stopped worker left).
+// cleanup finishes what failSetup could not (or what a stopped worker
+// left): the same database decision first, then the address (whatever state
+// was recorded: a publish may have stopped half way), and only then the
+// server and volume.
 func (w *Worker) cleanup(ctx context.Context, job *Job, box *Box, a CleanupArgs, progress func(string)) error {
-	if box.Status != "failed" || box.Generation != a.Gen || box.ReadyAt != nil {
+	ok, err := w.Store.FailSetup(ctx, job.Lease, box.ID, a.Gen)
+	if err != nil {
+		return err
+	}
+	if !ok {
 		progress("Nothing to clean up: the box has moved on")
 		return nil
 	}
-	if box.DNSState == "live" && box.Name != "" {
+	_ = w.Store.QueueEmail(ctx, job.Lease, box.ID, "setup_failed", fmt.Sprint(a.Gen), nil)
+	if box.Name != "" {
 		if err := w.DNS.Remove(ctx, box.Name); err != nil {
-			return fmt.Errorf("remove the DNS records: %w", err)
+			return fmt.Errorf("remove the DNS records (the server stays until they are gone): %w", err)
 		}
 		if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "removed"); err != nil {
 			return err
 		}
 	}
-	_ = w.Store.SetSignin(ctx, job.Lease, box.ID, "", time.Time{})
 	if job.TokenSealed == "" {
 		progress("Your Hetzner key is forgotten, so what the setup made stays: delete what carries the label shiptiffin-box=" + box.ID + " in the Hetzner console, or try the setup again (it cleans up first)")
 		return nil
@@ -747,14 +844,26 @@ echo removed`
 }
 
 func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, progress func(string)) error {
-	if box.Status != "active" && box.Status != "cert_pending" {
-		return fmt.Errorf("the box is %s; only a running box is resized", box.Status)
+	// A resize that stopped half way (its checkpoint says how far it got)
+	// may have left the server off. Starting it again is always allowed:
+	// with the job's key, or the key the customer kept, whatever the box's
+	// subscription or status is now. Without either, the customer is told.
+	var phase string
+	_ = json.Unmarshal(job.Checkpoint["phase"], &phase)
+	recovering := phase != "" && phase != "done"
+	if !recovering {
+		if box.Status != "active" && box.Status != "cert_pending" {
+			return fmt.Errorf("the box is %s; only a running box is resized", box.Status)
+		}
+		if !extrasOn(box) {
+			return errors.New("one-click resize is part of the subscription, which isn't active")
+		}
 	}
-	if !extrasOn(box) {
-		return errors.New("one-click resize is part of the subscription, which isn't active")
-	}
-	token, err := w.token(job, box, a.UseStored)
+	token, err := w.token(job, box, a.UseStored || recovering)
 	if err != nil {
+		if recovering {
+			w.serverMayBeOff(ctx, job, box, progress)
+		}
 		return err
 	}
 	hp, err := w.hetzner(job, box, "resize", token, hetzner.Config{})
@@ -762,17 +871,28 @@ func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, p
 		return err
 	}
 	// Whatever happens below (a failure, a cancelled job, a retry after the
-	// worker stopped half way), the server ends up running.
+	// worker stopped half way), the server ends up running, or the
+	// customer hears that it may not be.
 	defer func() {
-		bg := context.WithoutCancel(ctx)
+		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancel()
 		if err := hp.EnsureRunning(bg, 3*time.Minute); err != nil {
 			progress("Couldn't start the server again (" + firstLine(err.Error()) + "): start it in the Hetzner console")
+			w.serverMayBeOff(bg, job, box, progress)
 		}
 	}()
-	var phase string
-	_ = json.Unmarshal(job.Checkpoint["phase"], &phase)
-	if phase != "" {
+	if recovering {
 		progress("Picking up a resize that stopped while " + phase)
+		if (box.Status != "active" && box.Status != "cert_pending") || !extrasOn(box) {
+			progress("The box is " + box.Status + " and its subscription may have ended since, so we only make sure the server runs")
+			if err := hp.EnsureRunning(ctx, 3*time.Minute); err != nil {
+				return err
+			}
+			_ = w.Store.Checkpoint(ctx, job.Lease, "phase", "done")
+			_ = w.Store.ClearAttention(ctx, job.Lease, box.ID, ServerOffWhy)
+			progress("The server runs")
+			return nil
+		}
 	}
 	r, err := hp.PlanResize(ctx, a.ServerType, 0)
 	if err != nil {
@@ -815,8 +935,19 @@ func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, p
 		}
 	}
 	_ = w.Store.Checkpoint(ctx, job.Lease, "phase", "done")
+	_ = w.Store.ClearAttention(ctx, job.Lease, box.ID, ServerOffWhy)
 	progress("Resized. The box retunes Postgres and the apps' memory as it starts")
 	return nil
+}
+
+// serverMayBeOff tells the customer (an email, and a note on the box) that
+// a resize may have left their server off and we couldn't start it.
+func (w *Worker) serverMayBeOff(ctx context.Context, job *Job, box *Box, progress func(string)) {
+	progress(ServerOffWhy)
+	if err := w.Store.Attention(ctx, job.Lease, box.ID, ServerOffWhy); err != nil {
+		w.Log.Error("flag a box for attention", "box", box.ID, "err", err)
+	}
+	_ = w.Store.QueueEmail(ctx, job.Lease, box.ID, "server_off", fmt.Sprint(job.ID), nil)
 }
 
 // deleteServer deletes the customer's server when they ask: the address
@@ -899,6 +1030,10 @@ func (w *Worker) dnsSet(ctx context.Context, job *Job, box *Box, a DNSArgs, prog
 	if why != "" {
 		progress(w.DNS.Domain(box.Name) + " stays off: " + why)
 		return nil
+	}
+	// The intent first, so records a failed publish leaves are removed with the rest.
+	if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "pending"); err != nil {
+		return err
 	}
 	if err := w.DNS.Set(ctx, box.Name, box.IPv4, box.IPv6); err != nil {
 		return fmt.Errorf("set the DNS records: %w", err)

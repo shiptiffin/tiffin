@@ -33,12 +33,19 @@ type fakeMachine struct {
 	mu      sync.Mutex
 	scripts []string
 	copies  []string
+	// hook, when set, answers a script first (ok false: the default answer).
+	hook func(script string) (out string, ok bool)
 }
 
 func (m *fakeMachine) Exec(_ context.Context, script string) (string, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.scripts = append(m.scripts, script)
+	if m.hook != nil {
+		if out, ok := m.hook(script); ok {
+			return out, "", nil
+		}
+	}
 	if strings.Contains(script, "authorized_keys") {
 		return "removed\n", "", nil
 	}
