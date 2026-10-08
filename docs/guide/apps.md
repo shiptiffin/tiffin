@@ -24,6 +24,11 @@ library that leans on Node internals), set `runtime: "node"` (or pick Node.js un
 app's Runtime in the dashboard): it then builds and runs on Node.js, from the next deploy. A
 build or start that fails on Bun says so, and the version that was serving keeps serving.
 
+The box pins both runtimes: Bun to the release it ships with, and Node.js to major 24
+(Railpack's own default, "lts", would move to a new major on its own). An app that picks
+its own version keeps it: `engines` or `packageManager` in `package.json`, `.nvmrc`,
+`.node-version`, `.bun-version`, `mise.toml` or `.tool-versions`.
+
 After a Next.js, SvelteKit, Nuxt or React Router app passes its health check, the box also
 asks it for `/` and for a page that doesn't exist; a 5xx on either stops the deploy before
 it takes traffic.

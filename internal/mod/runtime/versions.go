@@ -8,10 +8,13 @@ package runtime
 //	CNI plugins and tini (all Apache-2.0, tini MIT).
 //	Railpack 0.40.1 (MIT) plans builds; its BuildKit frontend image runs them.
 //	Bun 1.4.2 (MIT) builds static sites; Railpack installs Bun inside app images.
+//	Node.js 24 is the major Railpack installs in app images. Railpack's own
+//	default is "lts", which moves to a new major without a Tiffin release.
 const (
 	NerdctlVersion  = "2.4.1"
 	RailpackVersion = "0.40.1"
 	BunVersion      = "1.4.2"
+	NodeVersion     = "24"
 )
 
 // nerdctlFullSHA256 is per GOARCH (nerdctl-full-<v>-linux-<arch>.tar.gz).

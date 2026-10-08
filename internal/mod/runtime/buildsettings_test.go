@@ -188,6 +188,27 @@ func TestRailpackHonoursBuildSettings(t *testing.T) {
 	}
 }
 
+// Railpack's default Node.js is "lts", which moves on its own: the box pins
+// the major unless the app chose one.
+func TestRailpackPinsNode(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"default": {"package.json": `{"scripts":{"start":"node index.js"}}`},
+		"engines": {"package.json": `{"engines":{"node":"22"},"scripts":{"start":"node index.js"}}`},
+		"nvmrc":   {"package.json": `{"scripts":{"start":"node index.js"}}`, ".nvmrc": "22\n"},
+	} {
+		bin, log := fakeTools(t)
+		b := &boxBuilder{eng: newFakeEngine(), binDir: bin, memoryMB: 2048}
+		req := buildReq(t, manifest.App{Framework: manifest.FrameworkBun}, files)
+		if _, err := b.Build(context.Background(), req); err != nil {
+			t.Fatal(name, err)
+		}
+		pinned := strings.Contains(readCalls(t, log), "env: RAILPACK_NODE_VERSION="+NodeVersion+"\n")
+		if pinned != (name == "default") {
+			t.Errorf("%s: RAILPACK_NODE_VERSION set = %v", name, pinned)
+		}
+	}
+}
+
 func TestStaticSiteHonoursBuildSettings(t *testing.T) {
 	bin, log := fakeTools(t)
 	b := &boxBuilder{eng: newFakeEngine(), binDir: bin, staticDir: t.TempDir(), memoryMB: 512}

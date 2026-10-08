@@ -278,6 +278,9 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 	if !pinsBun(req.SrcDir) {
 		env["RAILPACK_BUN_VERSION"] = BunVersion
 	}
+	if !pinsNode(req.SrcDir) {
+		env["RAILPACK_NODE_VERSION"] = NodeVersion
+	}
 	var imageEnv map[string]string
 	appDir := req.appDir()
 	pm := packageManager(req.SrcDir)
@@ -1111,6 +1114,24 @@ func pinsBun(dir string) bool {
 	}
 	_ = json.Unmarshal(raw, &pkg)
 	return strings.HasPrefix(pkg.PackageManager, "bun@") || pkg.Engines["bun"] != ""
+}
+
+// pinsNode reports whether the app chose a Node.js version itself.
+func pinsNode(dir string) bool {
+	for _, f := range []string{".nvmrc", ".node-version", "mise.toml", ".tool-versions"} {
+		if exists(filepath.Join(dir, f)) {
+			return true
+		}
+	}
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Engines map[string]string `json:"engines"`
+	}
+	_ = json.Unmarshal(raw, &pkg)
+	return pkg.Engines["node"] != ""
 }
 
 // runLogged runs a command with its output streamed to w.
