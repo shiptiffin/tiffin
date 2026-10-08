@@ -82,19 +82,22 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
       sub={active ? `You have ${active} box${active > 1 ? "es" : ""} already. Each box is its own subscription.` : undefined}
     >
       <div className="cp-card">
-        <h2>{founding ? "$12 a month, locked for 24 months" : "$19 a month per box"}</h2>
-        <p className="cp-sub">
-          {founding ? "The founding price for our first 100 customers: $12 instead of $19 for 24 months, then $19. " : ""}
-          Your Hetzner server is billed by Hetzner, about €5 to €7 a month for the sizes we suggest. Cancel any time: your server and
-          apps keep running; updates and the extras stop, and the address stays 30 days. 14-day money-back guarantee.
-        </p>
-        <ul className="cp-guide">
-          <li>Tiffin installed, then kept up to date with signed releases</li>
-          <li>Monitoring from outside, with an email when the box stops answering</li>
+        <div>
+          <h2>{founding ? "$12 a month, locked for 24 months" : "$19 a month per box"}</h2>
+          {founding && <p className="cp-muted cp-price-note">Founding price for our first 100 customers. $19 a month after that.</p>}
+        </div>
+        <ul className="cp-perks">
+          <li>Tiffin installed on your own server, then kept up to date</li>
+          <li>Monitoring from outside, with an email if your box stops answering</li>
           <li>
             A free <strong>name.shiptiffin.app</strong> address with HTTPS
           </li>
           <li>One-click resize, and support by email</li>
+        </ul>
+        <ul className="cp-facts">
+          <li>Hetzner bills the server itself: about €5 to €7 a month.</li>
+          <li>Cancel any time. Your server and apps keep running.</li>
+          <li>14-day money-back guarantee.</li>
         </ul>
         {sp.canceled && <p className="cp-hint">Payment cancelled; nothing was charged.</p>}
         <PayButton />

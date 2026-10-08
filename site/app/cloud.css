@@ -218,6 +218,57 @@
   color: var(--ink);
 }
 
+/* what the price includes, then the small print */
+.cp-price-note {
+  margin-top: 6px;
+}
+.cp-card > .cp-perks {
+  margin-top: 20px;
+}
+.cp-perks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+  color: var(--ink-2);
+}
+.cp-perks li {
+  position: relative;
+  padding-left: 28px;
+  line-height: 1.45;
+}
+.cp-perks li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.32em;
+  width: 6px;
+  height: 11px;
+  border: solid var(--enamel-leaf);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.cp-perks strong {
+  color: var(--ink);
+}
+.cp-card > .cp-facts {
+  margin-top: 22px;
+}
+.cp-card > .cp-facts + * {
+  margin-top: 24px;
+}
+.cp-facts {
+  margin: 0;
+  padding: 16px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 6px;
+  font-size: 0.92rem;
+  color: var(--ink-3);
+}
+
 /* sizes and places */
 .cp-options {
   display: grid;
