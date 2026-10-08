@@ -141,7 +141,10 @@ func (b *cliBox) inBox(script string) string {
 // apply writes a JSON manifest, plans and applies it; it returns the change ID.
 func (b *cliBox) apply(name, manifest string) string {
 	b.t.Helper()
-	path := filepath.Join(b.dir, name+".json")
+	// A folder of its own: the CLI refuses a manifest beside its settings (dir/config).
+	proj := filepath.Join(b.dir, "project")
+	_ = os.MkdirAll(proj, 0o755)
+	path := filepath.Join(proj, name+".json")
 	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil {
 		b.t.Fatal(err)
 	}
