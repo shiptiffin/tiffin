@@ -603,14 +603,19 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   HTTPS with a valid certificate; until then it shows *certificate pending* and the worker
   checks every minute (the ready email goes then). A box stuck there for days (the shared
   rate limit above) has no automatic escalation beyond the admin page.
-- **The first sign-in is a link that works once, for 24 hours.** The box makes it at setup
-  and enforces both; the control plane hands it out at the first *Open your dashboard* and
-  forgets it. A customer who opens it and adds no passkey (and has no mail service on the
-  box for email links) gets back in through the Hetzner console: in the server's root
-  console, `sudo tiffin login --home /var/lib/tiffin/platform` prints a one-time path
-  (`/login#…`) to open on the dashboard's address. While unused, the link
-  sits in the website's database: whoever can read that database within the 24 hours can
-  sign in as the box's owner.
+- **The first sign-in is a link that works once, for 24 hours.** The box makes it (at
+  setup, again once the dashboard is ready if that took over an hour, and whenever the
+  customer asks until their first sign-in) and enforces both; the control plane keeps the
+  newest until the box reports the owner signed in. A customer who signs in and adds no
+  passkey (and has no mail service on the box for email links) gets back in through the
+  Hetzner console: in the server's root console, `sudo tiffin login --home
+  /var/lib/tiffin/platform` prints a one-time path (`/login#…`) to open on the dashboard's
+  address. Until the owner first signs in, the website's account (and its database) can
+  get an owner link: whoever controls the customer's ShipTiffin account, or can read and
+  write that database, before the first sign-in can sign in as the box's owner. A box
+  waiting for its first sign-in checks in every 2 to 10 minutes instead of every six
+  hours. "Signed in" means a link was redeemed on the box; a box released before then
+  keeps answering nothing about it.
 - **Resize changes the server type only.** Growing the data volume is still `tiffin up
   --volume-size` from a computer with SSH access, or the Hetzner console plus
   `xfs_growfs`. A type change keeps the architecture (cx↔cx, cax↔cax): Hetzner can't move a
@@ -630,15 +635,28 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   the next one puts the address back. A box whose IP changed (a new primary IP) is parked
   for good: write to support. The address check needs shiptiffin.com served directly
   (DNS only, not through a proxy), as it is.
-- **A failed setup cleans up at once.** It removes its address and deletes what it made
-  in the customer's project (only resources labelled with its box id). If the worker stops
+- **A failed setup cleans up at once, until Tiffin is installed.** Before the install it
+  records the address before publishing it (`dns_state` *pending*), removes it on failure
+  whatever was recorded, and deletes what it made in the customer's project (only
+  resources labelled with its box id) only once the address is gone. If the worker stops
   mid-setup, a clean-up job does the same while the customer's key lasts (two hours);
   after that, what's left stays, labelled `shiptiffin-box=<id>`, until the next try (which
-  cleans up first) or the customer deletes it. A setup is never resumed half way.
+  cleans up first) or the customer deletes it, and the sweep keeps removing the address.
+  From the install on (`installed_at`, written right after it, retried), nothing deletes
+  the server or volume: one database statement decides every clean-up (never installed,
+  never ready, same setup), a later failure sets *needs attention* (account, /admin,
+  email) and leaves the box *certificate pending* so it becomes ready by itself, and a
+  "ready" whose answer was lost is read back. The one gap: a worker that loses the
+  database exactly between a finished install and recording it, then stops, is cleaned up
+  as a failed setup (that box had no owner sign-in yet, so no data). A setup is never
+  resumed half way.
 - **One worker, a few jobs at once.** Jobs run three at a time, one per box, oldest first;
   more wait their turn. A worker that can't renew its lease (5 minutes) stops its job
-  within half of it, and the sweep then retries it (resize, delete, DNS) or fails it and
-  cleans up (setup). A delete, clean-up or address change that fails is tried again by
+  within half of it (each renewal is abandoned at that deadline, even a database call
+  that hangs), and the sweep then retries it (resize, delete, DNS) or fails it and
+  cleans up (setup). An interrupted resize always powers the server back on, with its
+  own key (two hours) or the kept one, whatever the subscription; without either, or
+  when the sweep gives up on it, the box gets *needs attention* and a `server_off` email. A delete, clean-up or address change that fails is tried again by
   itself, five times at most, backing off from a minute, with the customer's key while it
   lasts (two hours); a delete always removes the address first, so what's left after
   that is only the server, which the customer can delete in the console.
@@ -658,6 +676,15 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
 - **Release downloads need a reachable release source.** The worker installs the newest
   `stable` release from `release.DefaultSource` (or `CLOUD_RELEASE_SOURCE`); while the
   repository's releases are private, set that to a URL the worker can read.
+- **The address goes only after a delivered warning.** The grace removal waits for the
+  "goes soon" email to be accepted by our mail server (SMTP accepted it: a later bounce
+  isn't seen) and for 7 days after that; a warning that failed all its tries is sent again
+  a day later, and the address stays until one gets through. Parking (no check-ins) and
+  the kill switch don't wait for an email.
+- **Checkout requests are saved before they are sent.** The idempotency key and exact
+  parameters go to the database first, so a retry replays the same request. A saved
+  request Stripe refused as invalid (it never ran there) is replaced by a fresh one; one
+  that is no longer useful (its session would expire within two minutes) too.
 - **Billing is cards only.** Checkout offers cards (and Link with `STRIPE_CHECKOUT_LINK=1`),
   so a box is set up only after its first payment went through; bank debits and other
   methods that confirm days later are off until the setup can wait for them.

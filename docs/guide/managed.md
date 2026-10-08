@@ -33,14 +33,17 @@ A box made with `tiffin up` is not managed and none of this runs on it.
    `shiptiffin-box=<box id>`; it never touches anything without that second label), points
    the address at the server, installs Tiffin the way `tiffin up --provider hetzner` does,
    then removes its access (below). The page shows each step live; it takes about five
-   minutes. If setup fails, it removes the address and deletes what it made, and you get
-   an email.
+   minutes. If setup fails before Tiffin is installed, it removes the address first and
+   then deletes what it made (the server only once the address is gone), and you get an
+   email. Once Tiffin is installed nothing is ever deleted: a later step that fails leaves
+   the server, its data and the address, marks the box *needs attention* in your account
+   and emails you and us.
 6. **Ready.** The box is ready once its dashboard answers over HTTPS with a valid
    certificate. Until then the page says *certificate pending*; we check every minute and
    email you when it's ready.
-7. **Open your dashboard.** The first time, the button signs you in with a one-time link
-   your box made at setup (below). Add a passkey on the box then: after that you sign in on
-   the box itself, and the button just opens its sign-in page.
+7. **Open your dashboard.** Until you first sign in, the button signs you in with a
+   one-time link your box made (below). Add a passkey on the box then: after that you sign
+   in on the box itself, and the button just opens its sign-in page.
 
 ## Your Hetzner key
 
@@ -71,22 +74,30 @@ A box made with `tiffin up` is not managed and none of this runs on it.
   starts again, and the failed setup is cleaned up). Port 22 is then closed to everyone;
   HTTP, HTTPS and ping stay open. (Hetzner's cloud-init adds keys only on a server's first
   boot, so a reboot or a resize does not bring the key back.)
-- **One sign-in link, for 24 hours.** ShipTiffin never holds your box's owner token: it
-  stays on the box. At setup the box makes a one-time owner sign-in link and the worker
-  keeps only that. Your box enforces it: the link works once, and the box refuses it 24
-  hours after setup even if a copy leaks later. We hand it to you at your first *Open your
-  dashboard* and delete it then (or when it expires, or when you click *Forget the sign-in
-  link*). After that, we have no way to sign in to your box.
+- **One-time sign-in links, until you sign in.** ShipTiffin never holds your box's owner
+  token: it stays on the box. Your box makes one-time owner sign-in links and we keep only
+  the newest. Your box enforces them: a link works once, and the box refuses it 24 hours
+  after it made it, even if a copy leaks later. The first is made at setup; if the
+  dashboard took more than an hour longer to become ready (a slow certificate), the box
+  makes a fresh one once it is, so you get the full 24 hours from readiness. If a link
+  expires unused, *Get a new sign-in link* in your account (or *Open your dashboard*) asks
+  your box for another: it makes it and sends it with its next check-in (every few minutes
+  while it waits for your first sign-in). No SSH is involved. We keep the link until your
+  box tells us you signed in (so a first click that didn't get through can be tried
+  again), and delete it then, when it expires, or when you click *Forget the sign-in link*
+  (which also tells us never to ask for another). Once you have signed in, your box makes
+  no more links for us: we have no way to sign in to your box.
 - **Updates are pulled, never pushed.** The box reads the signed release manifest itself
   and installs new releases in its maintenance window, 03:00 server time (UTC) unless you
   move it ([Tiffin's own updates](quickstart.md#tiffins-own-updates)); ShipTiffin never
   connects to it to install anything. The only inbound requests from ShipTiffin are the monitor's: `GET
   https://dashboard.<name>.shiptiffin.app/v1/health` every five minutes.
-- **The check-in.** Every six hours the box posts its Tiffin version, uptime and the
-  *names* of any failing status checks to shiptiffin.com, with its licence (an
-  ed25519-signed token naming the box and its setup; it opens nothing on the box). No
-  project names, data, logs or visitors. The answer says whether the subscription is
-  active. A check-in counts only with the licence of the box's latest setup, sent from the
+- **The check-in.** Every six hours the box posts its Tiffin version, uptime, the
+  *names* of any failing status checks and whether its owner has signed in yet to
+  shiptiffin.com, with its licence (an ed25519-signed token naming the box and its setup;
+  it opens nothing on the box). No project names, data, logs or visitors. The answer says
+  whether the subscription is active; until the owner first signs in it may also ask for a
+  fresh sign-in link (above) and for the next check-in within minutes. A check-in counts only with the licence of the box's latest setup, sent from the
   box's own address.
 - **Support access** is yours to grant: support never logs in by default, and there is no
   button for it yet. Write to hello@shiptiffin.com and we arrange it with you by email: you
@@ -94,6 +105,11 @@ A box made with `tiffin up` is not managed and none of this runs on it.
 - **Deleting the server** happens only when you ask in your account, type the box's name and
   paste a key right then. The address goes first, then the server and what else carries
   your box's label; the data volume stays unless you tick that too.
+- **A resize always ends with the server running.** A resize that stops half way (our
+  worker restarting, say) is picked up and starts the server again, with that resize's key
+  or the key you kept, even if your subscription ended meanwhile. If we hold no key by then
+  (a resize key is forgotten after two hours), your account says so and we email you to
+  start the server in the Hetzner console.
 
 ## The address
 
@@ -114,10 +130,13 @@ reserved.
 Nothing happens to your server or apps, ever, over billing. When the subscription ends (or
 stays unpaid after Stripe's retries): automatic updates pause (the box's Updates page says
 why), monitoring emails and support stop, and the address keeps working for **30 days**,
-with an email when it starts, a week before it goes and when it goes (the address never
-goes before that warning was sent). Point a domain of your own at the box before then.
-**Renew** in your account starts a new subscription for the same box; everything turns
-back on, and the address returns within a few hours (at the box's next check-in).
+with an email when it starts, a week before it goes and when it goes. The address never
+goes until the week-before warning was accepted by our mail server at least seven days
+earlier: a warning that fails is sent again a day later, and the address stays meanwhile.
+Point a domain of your own at the box before then. **Renew** in your account starts a new
+subscription for the same box, whatever stage it reached (set up, waiting for Hetzner, or
+a setup that failed); everything turns back on, and the address returns within a few hours
+(at the box's next check-in).
 
 **Money back.** Ask within 14 days of your first payment (write to hello@shiptiffin.com)
 and we refund it in full and end the subscription; the address then keeps its 30 days.
