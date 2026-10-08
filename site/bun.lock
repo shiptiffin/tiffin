@@ -5,7 +5,7 @@
     "": {
       "name": "shiptiffin-site",
       "dependencies": {
-        "@shiptiffin/sdk": "file:./vendor/shiptiffin-sdk-0.1.0.tgz",
+        "@shiptiffin/sdk": "file:./vendor/shiptiffin-sdk-0.2.0.tgz",
         "next": "16.3.8",
         "postgres": "3.4.9",
         "react": "19.3.0",
@@ -94,7 +94,7 @@
 
     "@next/swc-win32-x64-msvc": ["@next/swc-win32-x64-msvc@16.3.8", "", { "os": "win32", "cpu": "x64" }, "sha512-WcTlaKt/TWkh5kUjdJcUmB1XgZ+1c6fz4Y9fDHL73YNSdGaUWjceeWrrlwF0nv19iABYWC4iAq1oX1w4Bn0vfg=="],
 
-    "@shiptiffin/sdk": ["@shiptiffin/sdk@./vendor/shiptiffin-sdk-0.1.0.tgz", { "dependencies": { "altcha-lib": "^2.6.0", "nodemailer": "^10.0.15" }, "peerDependencies": { "@react-email/render": ">=1", "better-auth": ">=1.7", "next": ">=15", "react": ">=18" }, "optionalPeers": ["@react-email/render", "better-auth", "next", "react"] }, "sha512-8FCdx6rFE2hE+23xrL1bKnQX8aE8cAEm65EDPG4lmkdL3qXITK+/YAiusPelJij02JZ2CZEPFkfqhjzvoq7Agw=="],
+    "@shiptiffin/sdk": ["@shiptiffin/sdk@./vendor/shiptiffin-sdk-0.2.0.tgz", { "dependencies": { "altcha-lib": "^2.6.0", "nodemailer": "^10.0.15" }, "peerDependencies": { "@react-email/render": ">=1", "better-auth": ">=1.7", "next": ">=15", "react": ">=18" }, "optionalPeers": ["@react-email/render", "better-auth", "next", "react"] }, "sha512-/syn7+d4hvqTKYaoR5hCxKIP3wwW75nJ8+TWHvMd4PHkj14YIHKzWGDTytX7VhpV8cAsFUYzfJKRGc7eMrP7ig=="],
 
     "@swc/helpers": ["@swc/helpers@0.5.23", "", { "dependencies": { "tslib": "^2.8.0" } }, "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw=="],
 

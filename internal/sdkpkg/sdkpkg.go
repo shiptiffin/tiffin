@@ -1,7 +1,7 @@
 // Package sdkpkg carries @shiptiffin/sdk inside the binary, the same files
 // npm has, so an app can get the SDK without the registry: `tiffin sdk add`
 // (and `tiffin init`) writes vendor/shiptiffin-sdk-<version>.tgz and points
-// package.json at it ("@shiptiffin/sdk": "file:./vendor/shiptiffin-sdk-0.1.0.tgz"),
+// package.json at it ("@shiptiffin/sdk": "file:./vendor/shiptiffin-sdk-0.2.0.tgz"),
 // unless the app already installs it from npm, which wins. The box also
 // copies the SDK's Next.js cache handlers into Next.js builds from here, so
 // those never depend on what the app installed.
@@ -37,7 +37,7 @@ type Package struct {
 	dir     string // under files/; also the tarball's base name, as npm pack names it
 }
 
-// File is the tarball's name in vendor/: "shiptiffin-sdk-0.1.0.tgz".
+// File is the tarball's name in vendor/: "shiptiffin-sdk-0.2.0.tgz".
 func (p Package) File() string { return p.dir + "-" + p.Version + ".tgz" }
 
 // Spec is the package.json dependency value: "file:./vendor/<file>".

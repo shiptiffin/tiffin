@@ -546,7 +546,7 @@ export async function tokensToday(): Promise<number> {
     "@ai-sdk/anthropic": "^4.0.0",
     "@ai-sdk/openai": "^4.0.0",
     "@openrouter/ai-sdk-provider": "^3.1.0",
-    "@shiptiffin/sdk": "^0.1.0",
+    "@shiptiffin/sdk": "^0.2.0",
     "ai": "^7.0.0",
     "fast-xml-parser": "^5.0.0",
     "hono": "^4.13.0",

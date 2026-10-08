@@ -1,6 +1,6 @@
 {
   "name": "@shiptiffin/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The SDK for apps on Tiffin, the agent-first app-in-a-box platform: config, KV, storage, queues, workflows, auth, email, analytics and Next.js helpers.",
   "license": "Apache-2.0",
   "keywords": [
