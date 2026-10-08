@@ -57,7 +57,7 @@ export type Shares = {
   projects: Record<string, number>;
   /** Each project's limit as a share of the box (0–1), when it has one. */
   caps: Record<string, number>;
-  /** Tiffin itself: the platform, Linux and builds. */
+  /** System: Linux, the shared services every project uses, and builds. */
   tiffinMB: number;
   cpuCount: number;
   /** Used / total, 0–1. */

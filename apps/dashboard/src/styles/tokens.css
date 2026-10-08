@@ -18,7 +18,7 @@
      accent ............ --brass          the one primary action, focus, active marker, staged
      accent text ....... --brass-ink      brass words on paper (links, "1 waiting")
    Status colours (--danger, --warn, --ok) appear only when status isn't fine.
-   Enamels (--enamel-*) are project colours: tier rim, swatch, memory-bar share. Nothing else.
+   Enamels (--enamel-*) are project colours: its icon, its share of the box. Nothing else.
    Measured contrast: see /_kit (Contrast) and the table at the end of this file.
 --------------------------------------------------------------------------- */
 
@@ -88,12 +88,12 @@
   --part-3: oklch(0.68 0.012 68);
   --part-4: oklch(0.8 0.01 72);
   /* enamels: six project colours at matched lightness */
-  --enamel-leaf: oklch(0.6 0.1 150);
-  --enamel-teal: oklch(0.6 0.09 200);
-  --enamel-indigo: oklch(0.6 0.11 258);
-  --enamel-plum: oklch(0.6 0.12 0);
-  --enamel-red: oklch(0.6 0.13 38);
-  --enamel-gold: oklch(0.6 0.11 90);
+  --enamel-leaf: oklch(0.62 0.14 150);
+  --enamel-teal: oklch(0.62 0.12 200);
+  --enamel-indigo: oklch(0.6 0.15 258);
+  --enamel-plum: oklch(0.62 0.15 0);
+  --enamel-red: oklch(0.62 0.16 38);
+  --enamel-gold: oklch(0.7 0.14 85);
   /* elevation: ground, raised, overlay */
   --lift-raised: 0 1px 1px oklch(0.3 0.02 60 / 0.05), 0 6px 20px -8px oklch(0.3 0.02 60 / 0.16);
   --lift-overlay: 0 -1px 0 oklch(0.235 0.014 60 / 0.1), 0 -18px 48px -20px oklch(0.3 0.02 60 / 0.28), 0 1px 2px oklch(0.3 0.02 60 / 0.06);
@@ -160,12 +160,12 @@
     --part-2: oklch(0.7 0.009 80);
     --part-3: oklch(0.54 0.008 75);
     --part-4: oklch(0.4 0.007 70);
-    --enamel-leaf: oklch(0.68 0.1 150);
-    --enamel-teal: oklch(0.68 0.09 200);
-    --enamel-indigo: oklch(0.68 0.105 258);
-    --enamel-plum: oklch(0.68 0.115 0);
-    --enamel-red: oklch(0.68 0.125 38);
-    --enamel-gold: oklch(0.68 0.11 90);
+    --enamel-leaf: oklch(0.7 0.14 150);
+    --enamel-teal: oklch(0.7 0.12 200);
+    --enamel-indigo: oklch(0.68 0.14 258);
+    --enamel-plum: oklch(0.7 0.14 0);
+    --enamel-red: oklch(0.7 0.15 38);
+    --enamel-gold: oklch(0.76 0.13 85);
     --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
     --lift-overlay: 0 -1px 0 oklch(1 0 0 / 0.07), 0 -20px 50px -18px oklch(0 0 0 / 0.7);
     --scrim: oklch(0.1 0.005 65 / 0.5);
@@ -229,12 +229,12 @@
   --part-2: oklch(0.7 0.009 80);
   --part-3: oklch(0.54 0.008 75);
   --part-4: oklch(0.4 0.007 70);
-  --enamel-leaf: oklch(0.68 0.1 150);
-  --enamel-teal: oklch(0.68 0.09 200);
-  --enamel-indigo: oklch(0.68 0.105 258);
-  --enamel-plum: oklch(0.68 0.115 0);
-  --enamel-red: oklch(0.68 0.125 38);
-  --enamel-gold: oklch(0.68 0.11 90);
+  --enamel-leaf: oklch(0.7 0.14 150);
+  --enamel-teal: oklch(0.7 0.12 200);
+  --enamel-indigo: oklch(0.68 0.14 258);
+  --enamel-plum: oklch(0.7 0.14 0);
+  --enamel-red: oklch(0.7 0.15 38);
+  --enamel-gold: oklch(0.76 0.13 85);
   --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
   --lift-overlay: 0 -1px 0 oklch(1 0 0 / 0.07), 0 -20px 50px -18px oklch(0 0 0 / 0.7);
   --scrim: oklch(0.1 0.005 65 / 0.5);

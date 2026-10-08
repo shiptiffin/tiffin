@@ -279,7 +279,7 @@ const parts: Array<{ name: string; about: string; checks: string[] }> = [
   { name: "Email", about: "Sending and catching email", checks: ["email"] },
   { name: "Jobs", about: "Queues, workflows and schedules", checks: ["queue"] },
   { name: "Watching", about: "Metrics, logs, errors and analytics", checks: ["observe.metrics", "observe.logs", "observe.ingest", "analytics.collector", "analytics.geoip"] },
-  { name: "Platform", about: "Tiffin itself and the machine", checks: ["state", "provision", "resources", "memory"] },
+  { name: "Platform", about: "The machine and the shared services", checks: ["state", "provision", "resources", "memory"] },
 ];
 
 function partsOf(checks: Check[]) {

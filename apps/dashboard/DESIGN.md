@@ -28,7 +28,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 - **Sidebar** never grows with the number of projects. Top: the project switcher (the current project, or All
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
   Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
-  Health, Backups, API keys; Settings at the bottom. Settings swaps the sidebar for its own (← Back, then
+  Health, Backups, API keys, Settings. Settings swaps the sidebar for its own (← Back, then
   Your box: General, Machine, Git, DNS, Shield, People; You: Sign-ins, Touch ID / Face ID), so the sidebar
   never goes three levels deep. Inside a project: "← All projects", then only that project's sections:
   Overview, Deployments, Logs, Analytics, Observability, Domains, Environment Variables, its services,
@@ -75,7 +75,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 6. **Familiar controls.** On/off: `<Breaker>` renders a horizontal toggle, brass when on, label beside it; a
    crashed service stays on and its row says "Stopped unexpectedly". Counts and sizes: `<Throttle>` renders a
    − 2 + stepper that stops at what fits on the box. Usage: `<SegMeter>` renders a plain rounded bar; put the
-   value as text beside it. A share of the box: `<BoxBar>` (neutral shades, the project in view in brass).
+   value as text beside it. The box's memory: `<BoxBar>`, read like a phone's storage bar: each project in its own colour (its icon's), the five biggest by name, then the rest together, then System (Linux and the shared services) in grey, with a legend of names and sizes; on a project's page only that project is in colour.
    The only blink is the pilot light while something builds.
 7. **Lists are rows on the page** (`divide-y divide-rule`, `border-y border-rule`). Cards only for objects: a
    project, a part of a project, a dialog.
@@ -83,7 +83,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
    primary action, the selected choice, a change on its way. Charts use the data colours: `--data` (warm
    orange) for the series a chart is about, `--data-2` (blue) beside it, then `--chart-3…5`; bars in lists
    are `bg-data-wash`; a comparison period is a dashed `--ink-4` line. `text-danger`, `text-warn-ink`, `text-ok` only
-   when status isn't fine. Projects have icons, not colours.
+   when status isn't fine. A project's colour is its icon's, and appears only where it stands for that project (its icon, its share of the box).
 9. **Snappy.** Only Projects ships in the first load; every other page loads on demand, and hovering a link
    runs its route's loader (code and data). Queries share keys, so moving between pages doesn't refetch.
    Skeletons are shaped like the content and appear only after 300 ms.

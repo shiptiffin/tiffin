@@ -64,7 +64,7 @@ export function BoxUsagePage() {
           <ShareLimit admin={admin} Wrap={Plain} />
 
           <p className="mt-11 text-[0.8125rem] text-ink-3">
-            What Tiffin itself runs (databases, files, sign-in, logs) is in{" "}
+            System is Linux plus the shared services every project uses (databases, files, sign-in, logs). Each one is in{" "}
             <Link to="/settings/box" className="text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink">
               Settings › Machine
             </Link>

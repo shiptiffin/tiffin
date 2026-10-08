@@ -313,15 +313,11 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
           <NavItem to="/status" label="Health" active={under(healthPaths)} lead={<HeartPulse className={icon} />} aside={<Trouble />} />
           {onBox && <NavItem to="/backups" label="Backups" lead={<ArchiveRestore className={icon} />} />}
           <NavItem to="/settings/keys" label="API keys" lead={<KeyRound className={icon} />} />
+          <NavItem to="/settings" exact label="Settings" lead={<SettingsIcon className={icon} />} />
         </div>
       )}
 
       <div className="mt-auto flex flex-col gap-3 pt-2 pl-1">
-        {!project && !inSettings && (
-          <div className="flex flex-col gap-px">
-            <NavItem to="/settings" exact label="Settings" lead={<SettingsIcon className={icon} />} />
-          </div>
-        )}
         <Suspense fallback={<WhoTrigger onClick={rememberClick("who")} />}>
           <LazyWhoMenu />
         </Suspense>

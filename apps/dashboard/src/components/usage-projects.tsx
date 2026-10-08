@@ -8,6 +8,7 @@ import { ProjectIcon } from "@/components/project-icon";
 import { DiskBreakdown } from "@/components/usage-disk";
 import { cn } from "@/lib/cn";
 import { bytes, dec } from "@/lib/format";
+import { enamelVar, useEnamel } from "@/lib/enamel";
 import { rowsOf, sharePct, sortRows, type DiskReport, type Row, type SortKey } from "@/lib/footprint";
 import { memWords, type Shares } from "@/lib/usage";
 
@@ -195,10 +196,11 @@ function ProjectRow({ r, open, held, diskPending }: { r: Row; open: boolean; hel
 function ShareMark({ row: r }: { row: Row }) {
   const w = Math.min(100, r.share * 100);
   const what = r.diskShare > r.memShare ? "disk" : "memory";
+  const colour = enamelVar(useEnamel(r.name));
   return (
     <span className="flex items-center justify-end gap-2.5" title={`${sharePct(r.memShare)} of the memory, ${sharePct(r.diskShare)} of the disk`}>
-      <span aria-hidden className="relative h-[3px] w-10 overflow-hidden rounded-full bg-rule-2">
-        <span className={cn("absolute inset-y-0 left-0 rounded-full bg-ink-3", r.share > 0 && "min-w-[2px]")} style={{ width: `${w}%` }} />
+      <span aria-hidden className="relative h-1 w-12 overflow-hidden rounded-full bg-rule">
+        <span className={cn("absolute inset-y-0 left-0 rounded-full", r.share > 0 && "min-w-[2px]")} style={{ width: `${w}%`, background: colour }} />
       </span>
       <span className="w-8 text-right text-[0.8125rem] text-ink-2 tnum">
         {r.share > 0 ? sharePct(r.share) : "–"}
