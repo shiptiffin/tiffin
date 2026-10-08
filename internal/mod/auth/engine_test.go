@@ -247,20 +247,20 @@ func TestEngineContract(t *testing.T) {
 		t.Fatalf("overview settings: %+v", ov)
 	}
 	var users UserList
-	if st := call("GET", "/v1/projects/shop/auth/users?search=ADA", nil, &users); st != 200 || users.Total != 1 || users.Users[0].Email != "ada@example.com" {
+	if st := call("GET", "/v1/projects/shop/auth/users?search=ADA", nil, &users); st != 200 || len(users.Items) != 1 || users.NextCursor != "" || users.Items[0].Email != "ada@example.com" {
 		t.Fatalf("users: %d %+v", st, users)
 	}
-	id := users.Users[0].ID
+	id := users.Items[0].ID
 	var detail UserDetail
 	if st := call("GET", "/v1/projects/shop/auth/users/"+id, nil, &detail); st != 200 || len(detail.Memberships) != 1 || detail.Memberships[0].Role != "owner" || detail.Accounts[0].ProviderID != "credential" {
 		t.Fatalf("detail: %d %+v", st, detail)
 	}
 	var orgs OrgList
-	if st := call("GET", "/v1/projects/shop/auth/orgs", nil, &orgs); st != 200 || orgs.Total != 1 || orgs.Organizations[0].Name != "Personal" {
+	if st := call("GET", "/v1/projects/shop/auth/orgs", nil, &orgs); st != 200 || len(orgs.Items) != 1 || orgs.Items[0].Name != "Personal" {
 		t.Fatalf("orgs: %d %+v", st, orgs)
 	}
 	var org OrgDetail
-	if st := call("GET", "/v1/projects/shop/auth/orgs/"+orgs.Organizations[0].ID, nil, &org); st != 200 || len(org.Members) != 1 {
+	if st := call("GET", "/v1/projects/shop/auth/orgs/"+orgs.Items[0].ID, nil, &org); st != 200 || len(org.Members) != 1 {
 		t.Fatalf("org: %d %+v", st, org)
 	}
 	var ban BanResult

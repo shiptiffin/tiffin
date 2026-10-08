@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Search, Settings2 } from "lucide-react";
+import { Search, Settings2 } from "lucide-react";
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod3, type AuthOverview, type AuthUser } from "@/api/modules";
@@ -10,6 +10,7 @@ import { CopyButton } from "@/components/copy";
 import { Reading, Readings } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { StateSentence } from "@/components/jobs-words";
+import { ShowMore } from "@/components/more";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Tabs } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
@@ -18,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { countWords, int } from "@/lib/format";
 import { useMe } from "@/lib/me";
+import { countShown, pagedQuery, pagedRows } from "@/lib/paged";
 import { useShortcut } from "@/lib/shortcuts";
 import { clock, dayKey, full, relative } from "@/lib/time";
 
@@ -99,7 +101,6 @@ function useSearchBox(initial: string, onSearch: (q: string) => void) {
   return [q, setQ] as const;
 }
 
-const PAGE = 25;
 const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 const dateYearFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const longFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -125,25 +126,22 @@ const err = (e: unknown) => (e instanceof ApiError ? (e.problem.detail ?? e.mess
 
 // ------------------------------------------------------------------ users
 
-export function UsersPage({ project, search = "", page = 1 }: { project: string; search?: string; page?: number }) {
+export function UsersPage({ project, search = "" }: { project: string; search?: string }) {
   useTitle(`${project} · Users`);
   const navigate = useNavigate();
   const [settings, setSettings] = useState(false);
   const overview = useQuery({ queryKey: ["auth", project], queryFn: () => mod3.auth(project) });
-  const list = useQuery({
-    queryKey: ["auth-users", project, search, page],
-    queryFn: () => mod3.users(project, search, (page - 1) * PAGE),
-    placeholderData: (d) => d,
+  const list = useInfiniteQuery({
+    ...pagedQuery(["auth-users", project, search], (cursor, signal) => mod3.users(project, search, cursor, signal)),
+    placeholderData: keepPreviousData,
   });
-  const go = (o: { search?: string; page?: number }) =>
-    navigate({ to: "/projects/$project/users", params: { project }, search: { search: o.search || undefined, page: o.page && o.page > 1 ? o.page : undefined } });
+  const go = (o: { search?: string }) => navigate({ to: "/projects/$project/users", params: { project }, search: { search: o.search || undefined } });
   const [q, setQ] = useSearchBox(search, (v) => go({ search: v }));
   useShortcut("/", "Search users", () => document.getElementById("user-search")?.focus());
   if (overview.isError && notOnBox(overview.error)) return <NotOnBox what="Sign-in for your apps" />;
   const o = overview.data;
   const st = o?.stats;
-  const total = list.data?.total ?? 0;
-  const users = list.data?.users ?? [];
+  const users = pagedRows(list.data, (u) => u.id);
 
   return (
     <Page wide>
@@ -192,7 +190,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
 
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search users" placeholder="Search by name or email" />
-        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && search ? `${int(total)} found` : null}</span>
+        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && search ? `${countShown(users.length, list.hasNextPage)} found` : null}</span>
       </div>
       {list.isError && <ProblemNote className="mt-4" error={list.error} />}
       <div className="mt-4">
@@ -232,7 +230,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
           )}
         </ul>
       </div>
-      <Pager page={page} total={total} onPage={(p) => go({ search, page: p })} />
+      <ShowMore query={list} label="Show more people" />
       {o && <AuthSettings project={project} o={o} open={settings} onOpenChange={setSettings} />}
     </Page>
   );
@@ -340,29 +338,6 @@ function UserRow({ project, u }: { project: string; u: AuthUser }) {
         </time>
       </Link>
     </li>
-  );
-}
-
-function Pager({ page, total, onPage }: { page: number; total: number; onPage: (p: number) => void }) {
-  const pages = Math.max(1, Math.ceil(total / PAGE));
-  if (total <= PAGE) return null;
-  return (
-    <div className="mt-3 flex items-center justify-between text-[0.8125rem] text-ink-3">
-      <span className="tnum">
-        {int((page - 1) * PAGE + 1)}–{int(Math.min(total, page * PAGE))} of {int(total)}
-      </span>
-      <span className="flex items-center gap-1">
-        <Button size="icon-sm" variant="ghost" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
-          <ChevronLeft />
-        </Button>
-        <span className="px-1 tnum">
-          {page} / {pages}
-        </span>
-        <Button size="icon-sm" variant="ghost" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">
-          <ChevronRight />
-        </Button>
-      </span>
-    </div>
   );
 }
 
@@ -630,16 +605,19 @@ export function UserPage({ project, id }: { project: string; id: string }) {
 export function OrgsPage({ project, search = "" }: { project: string; search?: string }) {
   useTitle(`${project} · Organizations`);
   const navigate = useNavigate();
-  const list = useQuery({ queryKey: ["auth-orgs", project, search], queryFn: () => mod3.orgs(project, search, 0), placeholderData: (d) => d });
+  const list = useInfiniteQuery({
+    ...pagedQuery(["auth-orgs", project, search], (cursor, signal) => mod3.orgs(project, search, cursor, signal)),
+    placeholderData: keepPreviousData,
+  });
   const [q, setQ] = useSearchBox(search, (v) => navigate({ to: "/projects/$project/orgs", params: { project }, search: { search: v || undefined } }));
   if (list.isError && notOnBox(list.error)) return <NotOnBox what="Sign-in for your apps" />;
-  const orgs = list.data?.organizations ?? [];
+  const orgs = pagedRows(list.data, (o) => o.id);
   return (
     <Page wide>
       <Header project={project} title="Auth" lede="Teams your users create in your app, with their members, roles and open invitations." />
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search organizations" placeholder="Search by name or slug" />
-        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && `${int(list.data?.total ?? orgs.length)} in all`}</span>
+        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && `${countShown(orgs.length, list.hasNextPage)} ${search ? "found" : "in all"}`}</span>
       </div>
       {list.isError && <ProblemNote className="mt-4" error={list.error} />}
       <div className="mt-4">
@@ -682,6 +660,7 @@ export function OrgsPage({ project, search = "" }: { project: string; search?: s
           )}
         </ul>
       </div>
+      <ShowMore query={list} label="Show more organizations" />
     </Page>
   );
 }

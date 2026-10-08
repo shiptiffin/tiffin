@@ -357,12 +357,16 @@ export const mod3 = {
   git: (p: string) => request<S["RuntimeGitInfo"]>("GET", `${P(p)}/git`),
   // auth (the project's own end users)
   auth: (p: string) => request<AuthOverview>("GET", `${P(p)}/auth`),
-  users: (p: string, search: string, offset: number) => request<S["AuthUserList"]>("GET", `${P(p)}/auth/users${qs({ search, offset, limit: 25 })}`),
+  /** One page of the project's users, newest first, searched on the box. */
+  users: (p: string, search: string, cursor?: string, signal?: AbortSignal) =>
+    request<S["PageAuthUser"]>("GET", `${P(p)}/auth/users${qs({ search, cursor, limit: 50 })}`, undefined, signal),
   user: (p: string, id: string) => request<AuthUserDetail>("GET", `${P(p)}/auth/users/${e(id)}`),
   ban: (p: string, id: string, reason: string) => request<S["AuthBanResult"]>("POST", `${P(p)}/auth/users/${e(id)}/ban`, reason ? { reason } : {}),
   unban: (p: string, id: string) => request<S["AuthBanResult"]>("POST", `${P(p)}/auth/users/${e(id)}/unban`, {}),
   revokeSessions: (p: string, id: string) => request<S["AuthRevokeResult"]>("POST", `${P(p)}/auth/users/${e(id)}/sessions/revoke`, {}),
-  orgs: (p: string, search: string, offset: number) => request<S["AuthOrgList"]>("GET", `${P(p)}/auth/orgs${qs({ search, offset, limit: 25 })}`),
+  /** One page of the project's organizations, newest first, searched on the box. */
+  orgs: (p: string, search: string, cursor?: string, signal?: AbortSignal) =>
+    request<S["PageAuthOrg"]>("GET", `${P(p)}/auth/orgs${qs({ search, cursor, limit: 50 })}`, undefined, signal),
   org: (p: string, id: string) => request<AuthOrgDetail>("GET", `${P(p)}/auth/orgs/${e(id)}`),
 };
 

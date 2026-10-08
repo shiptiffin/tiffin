@@ -2377,7 +2377,7 @@ export interface paths {
         };
         /**
          * List a project's organizations
-         * @description Newest first, with member and pending-invitation counts. Each person's own org has metadata {"personal":true}.
+         * @description Newest first, a page at a time, with member and pending-invitation counts. Each person's own org has metadata {"personal":true}. More follow when nextCursor is set: pass it as cursor (with the same search).
          */
         get: operations["auth-orgs-list"];
         put?: never;
@@ -2461,7 +2461,7 @@ export interface paths {
         };
         /**
          * List a project's users
-         * @description Newest first. Search matches email or name (case-insensitive) or an exact user ID.
+         * @description Newest first, a page at a time. Search matches email or name (case-insensitive) or an exact user ID. More follow when nextCursor is set: pass it as cursor (with the same search). The overview (auth get) has the totals.
          */
         get: operations["auth-users-list"];
         put?: never;
@@ -6085,15 +6085,6 @@ export interface components {
             members: components["schemas"]["AuthMember"][] | null;
             organization: components["schemas"]["AuthOrg"];
         };
-        AuthOrgList: {
-            /** Format: int64 */
-            limit: number;
-            /** Format: int64 */
-            offset: number;
-            organizations: components["schemas"]["AuthOrg"][] | null;
-            /** Format: int64 */
-            total: number;
-        };
         AuthOverview: {
             /** @description The box can't send email yet: in production, email + password sign-up, magic links, one-time codes and password resets are refused (EMAIL_NOT_SET_UP) until a mail service is connected. Previews use the dev inbox */
             emailBlocked: boolean;
@@ -6201,18 +6192,6 @@ export interface components {
             passkeys: number;
             sessions: components["schemas"]["AuthSession"][] | null;
             user: components["schemas"]["AuthUser"];
-        };
-        AuthUserList: {
-            /** Format: int64 */
-            limit: number;
-            /** Format: int64 */
-            offset: number;
-            /**
-             * Format: int64
-             * @description Users matching the search
-             */
-            total: number;
-            users: components["schemas"]["AuthUser"][] | null;
         };
         Backup: {
             /** Format: int64 */
@@ -9345,6 +9324,18 @@ export interface components {
             loss?: components["schemas"]["Loss"];
             reason: string;
             risk: string;
+        };
+        PageAuthOrg: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["AuthOrg"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
+        };
+        PageAuthUser: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["AuthUser"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
         };
         PageChange: {
             /** @description This page, in the list's order */
@@ -23511,8 +23502,10 @@ export interface operations {
             query?: {
                 /** @description Match email or name (users), name or slug (orgs), or an exact id */
                 search?: string;
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
-                offset?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path: {
@@ -23529,7 +23522,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthOrgList"];
+                    "application/json": components["schemas"]["PageAuthOrg"];
                 };
             };
             /** @description Bad Request */
@@ -23958,8 +23951,10 @@ export interface operations {
             query?: {
                 /** @description Match email or name (users), name or slug (orgs), or an exact id */
                 search?: string;
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
-                offset?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path: {
@@ -23976,7 +23971,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthUserList"];
+                    "application/json": components["schemas"]["PageAuthUser"];
                 };
             };
             /** @description Bad Request */

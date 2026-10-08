@@ -101,7 +101,7 @@ const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPag
 const AppPage = lz<{ project: string; app: string; deploy?: boolean }>(() => import("@/routes/apps"), "AppPage");
 const DeployPage = lz<{ project: string; app: string; id: string }>(() => import("@/routes/apps"), "DeployPage");
 const AppLogsPage = lz<{ project: string; app: string }>(() => import("@/routes/apps"), "AppLogsPage");
-const UsersPage = lz<{ project: string; search?: string; page?: number }>(() => import("@/routes/users"), "UsersPage");
+const UsersPage = lz<{ project: string; search?: string }>(() => import("@/routes/users"), "UsersPage");
 const UserPage = lz<{ project: string; id: string }>(() => import("@/routes/users"), "UserPage");
 const OrgsPage = lz<{ project: string; search?: string }>(() => import("@/routes/users"), "OrgsPage");
 const OrgPage = lz<{ project: string; id: string }>(() => import("@/routes/users"), "OrgPage");
@@ -702,17 +702,14 @@ const appLogs = createRoute({
 const users = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/users",
-  validateSearch: (s: Record<string, unknown>): { search?: string; page?: number } => ({
-    search: str(s.search),
-    page: Number(s.page) > 1 ? Number(s.page) : undefined,
-  }),
+  validateSearch: (s: Record<string, unknown>): { search?: string } => ({ search: str(s.search) }),
   loader: () => void UsersPage.preload(),
   component: function Users() {
     const { project: p } = users.useParams();
-    const { search, page } = users.useSearch();
+    const { search } = users.useSearch();
     return (
       <PartGate project={p} part="auth">
-        <UsersPage key={p} project={p} search={search} page={page} />
+        <UsersPage key={p} project={p} search={search} />
       </PartGate>
     );
   },

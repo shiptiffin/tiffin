@@ -374,24 +374,24 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 	// ---- dashboard API: users, ban, unban ----
 	t0 = time.Now()
 	var users struct {
-		Users []struct{ ID, Email string } `json:"users"`
-		Total int                          `json:"total"`
+		Items      []struct{ ID, Email string } `json:"items"`
+		NextCursor string                       `json:"nextCursor"`
 	}
 	ok(&users, "auth", "users", "list", project)
-	if users.Total != 2 {
+	if len(users.Items) != 2 || users.NextCursor != "" {
 		t.Fatalf("users: %+v", users)
 	}
 	ok(&users, "auth", "users", "list", project, "--search", "bob")
-	bobID := users.Users[0].ID
+	bobID := users.Items[0].ID
 	ok(nil, "auth", "users", "ban", project, bobID, "--body", `{"reason":"e2e"}`)
 	if r := call(newBrowser(), "POST", "/sign-in/email", map[string]any{"email": "bob@example.com", "password": "correct horse battery"}, captcha(newBrowser())); r.code != 403 || r.body["code"] != "BANNED" {
 		t.Fatalf("banned sign-in: %d %s", r.code, r.raw)
 	}
 	ok(nil, "auth", "users", "unban", project, bobID)
-	var orgs struct{ Total int }
+	var orgs struct{ Items []any }
 	ok(&orgs, "auth", "orgs", "list", project)
-	if orgs.Total != 3 { // two personal orgs + Acme
-		t.Fatalf("orgs: %d", orgs.Total)
+	if len(orgs.Items) != 3 { // two personal orgs + Acme
+		t.Fatalf("orgs: %d", len(orgs.Items))
 	}
 	phase("admin api", t0)
 

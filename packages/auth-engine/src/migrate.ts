@@ -53,7 +53,10 @@ export async function migrate(project: string, c: ProjectConfig, pool: pg.Pool):
   // links, invitations) can't leave a duplicate that outlives a removal.
   if (c.organizations) {
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS member_org_user ON ${SCHEMA}."member" ("organizationId", "userId")`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS organization_newest ON ${SCHEMA}."organization" ("createdAt" DESC, id DESC)`);
   }
+  // The admin lists (the dashboard's Users and Organizations) page newest first by ("createdAt", id).
+  await pool.query(`CREATE INDEX IF NOT EXISTS user_newest ON ${SCHEMA}."user" ("createdAt" DESC, id DESC)`);
   return {
     created: m.toBeCreated.map((t) => t.table),
     added: m.toBeAdded.flatMap((t) => Object.keys(t.fields).map((f) => `${t.table}.${f}`)),

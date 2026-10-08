@@ -418,8 +418,23 @@ describe("organizations, roles and invites", () => {
 
   test("admin API: users, orgs, stats, ban and revoke", async () => {
     const users = await adminCall("GET", "/projects/shop/users?search=bob");
-    expect(users.body.total).toBe(1);
+    expect(users.body.users.length).toBe(1);
+    expect(users.body.next).toBeNull();
     const bobId = users.body.users[0].id;
+
+    // Pages of one, newest first, by ("createdAt", id): every user once, none skipped.
+    const all = (await adminCall("GET", "/projects/shop/users?limit=200")).body.users.map((u: any) => u.id);
+    const seen: string[] = [];
+    let after = "";
+    for (let i = 0; i < 50; i++) {
+      const r = await adminCall("GET", `/projects/shop/users?limit=1${after}`);
+      seen.push(...r.body.users.map((u: any) => u.id));
+      if (!r.body.next) break;
+      expect(r.body.users[0]._at).toBeUndefined();
+      after = `&afterAt=${encodeURIComponent(r.body.next.at)}&afterId=${encodeURIComponent(r.body.next.id)}`;
+    }
+    expect(seen).toEqual(all);
+    expect(all.length).toBeGreaterThanOrEqual(6);
     const detail = await adminCall("GET", `/projects/shop/users/${bobId}`);
     expect(detail.body.memberships.map((m: any) => m.name).sort()).toEqual(["Acme", "Personal"]);
     expect(detail.body.sessions.length).toBeGreaterThan(0);

@@ -12,6 +12,7 @@ import (
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -97,11 +98,32 @@ type User struct {
 }
 
 // UserList is one page of users.
-type UserList struct {
-	Users  []User `json:"users"`
-	Total  int    `json:"total" doc:"Users matching the search"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
+type UserList = page.Page[User]
+
+// enginePage is a list as the engine answers it: rows and, when more
+// follow, the last row's position (createdAt as Postgres text, exact).
+type enginePage[T any] struct {
+	Users         []T `json:"users"`
+	Organizations []T `json:"organizations"`
+	Next          *struct {
+		At string `json:"at"`
+		ID string `json:"id"`
+	} `json:"next"`
+}
+
+func (e enginePage[T]) page() page.Page[T] {
+	items := e.Users
+	if items == nil {
+		items = e.Organizations
+	}
+	if items == nil {
+		items = []T{}
+	}
+	out := page.Page[T]{Items: items}
+	if e.Next != nil {
+		out.NextCursor = page.Encode(e.Next.At, e.Next.ID)
+	}
+	return out
 }
 
 // Account is a way a user signs in (credential = email + password).
@@ -166,12 +188,7 @@ type Org struct {
 }
 
 // OrgList is one page of organizations.
-type OrgList struct {
-	Organizations []Org `json:"organizations"`
-	Total         int   `json:"total"`
-	Limit         int   `json:"limit"`
-	Offset        int   `json:"offset"`
-}
+type OrgList = page.Page[Org]
 
 // Member is a person in an organization.
 type Member struct {
@@ -233,8 +250,7 @@ type projectIn struct {
 type pageIn struct {
 	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 	Search  string `query:"search" maxLength:"200" doc:"Match email or name (users), name or slug (orgs), or an exact id"`
-	Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
-	Offset  int    `query:"offset" minimum:"0" default:"0"`
+	page.Params
 }
 
 type userIn struct {
@@ -267,14 +283,14 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	ul := api.Op("auth-users-list", http.MethodGet, "/v1/projects/{project}/auth/users", "auth users list", api.RiskRead,
-		"List a project's users", "Newest first. Search matches email or name (case-insensitive) or an exact user ID.", tag)
+		"List a project's users", "Newest first, a page at a time. Search matches email or name (case-insensitive) or an exact user ID. "+
+			"More follow when nextCursor is set: pass it as cursor (with the same search). The overview (auth get) has the totals.", tag)
 	ul.Errors = append(ul.Errors, 404, 503)
-	huma.Register(a, api.Untrusted(ul), api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body *UserList }, error) {
+	huma.Register(a, api.Untrusted(ul), api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body page.Page[User] }, error) {
 		if _, err := authProject(ctx, p, in.Project, tokens.ScopeRead); err != nil {
 			return nil, err
 		}
-		var out UserList
-		return &struct{ Body *UserList }{&out}, call(ctx, http.MethodGet, in.Project, "/users", pageQuery(in), nil, &out)
+		return list[User](ctx, in, "/users")
 	}))
 
 	ug := api.Op("auth-user-get", http.MethodGet, "/v1/projects/{project}/auth/users/{id}", "auth users get", api.RiskRead,
@@ -341,14 +357,14 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	ol := api.Op("auth-orgs-list", http.MethodGet, "/v1/projects/{project}/auth/orgs", "auth orgs list", api.RiskRead,
-		"List a project's organizations", "Newest first, with member and pending-invitation counts. Each person's own org has metadata {\"personal\":true}.", tag)
+		"List a project's organizations", "Newest first, a page at a time, with member and pending-invitation counts. Each person's own org has metadata {\"personal\":true}. "+
+			"More follow when nextCursor is set: pass it as cursor (with the same search).", tag)
 	ol.Errors = append(ol.Errors, 404, 503)
-	huma.Register(a, api.Untrusted(ol), api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body *OrgList }, error) {
+	huma.Register(a, api.Untrusted(ol), api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body page.Page[Org] }, error) {
 		if _, err := authProject(ctx, p, in.Project, tokens.ScopeRead); err != nil {
 			return nil, err
 		}
-		var out OrgList
-		return &struct{ Body *OrgList }{&out}, call(ctx, http.MethodGet, in.Project, "/orgs", pageQuery(in), nil, &out)
+		return list[Org](ctx, in, "/orgs")
 	}))
 
 	og := api.Op("auth-org-get", http.MethodGet, "/v1/projects/{project}/auth/orgs/{id}", "auth orgs get", api.RiskRead,
@@ -450,12 +466,35 @@ func overview(p *platform.Platform, project string, res map[string]change.Resour
 	return o
 }
 
-func pageQuery(in *pageIn) url.Values {
-	q := url.Values{"limit": {strconv.Itoa(max(in.Limit, 1))}, "offset": {strconv.Itoa(in.Offset)}}
+// pageQuery is the engine's query for a page: the search, the size and, from
+// the cursor, where the page before ended.
+func pageQuery(in *pageIn) (url.Values, error) {
+	q := url.Values{"limit": {strconv.Itoa(page.Clamp(in.Limit))}}
 	if in.Search != "" {
 		q.Set("search", in.Search)
 	}
-	return q
+	key, err := page.Decode(in.Cursor, 2)
+	if err != nil {
+		return nil, err
+	}
+	if key != nil {
+		q.Set("afterAt", key[0])
+		q.Set("afterId", key[1])
+	}
+	return q, nil
+}
+
+// list reads one page of users or organizations from the engine.
+func list[T any](ctx context.Context, in *pageIn, path string) (*struct{ Body page.Page[T] }, error) {
+	q, err := pageQuery(in)
+	if err != nil {
+		return nil, err
+	}
+	var e enginePage[T]
+	if err := call(ctx, http.MethodGet, in.Project, path, q, nil, &e); err != nil {
+		return nil, err
+	}
+	return &struct{ Body page.Page[T] }{e.page()}, nil
 }
 
 // call runs an engine admin request for a project, mapping engine errors to problems.

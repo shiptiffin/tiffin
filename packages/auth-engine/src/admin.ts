@@ -14,11 +14,40 @@ const problem = (status: number, code: string, message: string) => json({ code, 
 
 const T = (t: string) => `"${SCHEMA}"."${t}"`;
 
+/**
+ * A list's page: keyset on ("createdAt", id), newest first, never OFFSET.
+ * afterAt/afterId are the last row of the page before (afterAt exactly as
+ * this engine sent it: Postgres text, so no precision is lost on the way).
+ */
 function page(url: URL) {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 50) || 50, 1), 200);
-  const offset = Math.max(Number(url.searchParams.get("offset") ?? 0) || 0, 0);
   const search = (url.searchParams.get("search") ?? "").trim();
-  return { limit, offset, search };
+  const afterAt = url.searchParams.get("afterAt") ?? "";
+  const afterId = url.searchParams.get("afterId") ?? "";
+  return { limit, search, after: afterAt && afterId ? { at: afterAt, id: afterId } : null };
+}
+
+/** Rows fetched with limit+1, as a page: the extra row only says more follow. */
+function paged<R extends { _at: string; id: string }>(rows: R[], limit: number) {
+  const more = rows.length > limit;
+  const kept = rows.slice(0, limit);
+  const last = kept[kept.length - 1];
+  return { items: kept.map(({ _at: _a, ...r }) => r), next: more && last ? { at: last._at, id: last.id } : null };
+}
+
+/** The WHERE for a search and a page position on table alias a; params continue after the given ones. */
+function where(a: string, cols: string[], p: ReturnType<typeof page>, params: unknown[]): string {
+  const conds: string[] = [];
+  if (p.search) {
+    params.push(`%${p.search.replace(/[\\%_]/g, (c) => "\\" + c)}%`, p.search);
+    const like = `$${params.length - 1}`;
+    conds.push(`(${cols.map((c) => `${a}.${c} ILIKE ${like}`).join(" OR ")} OR ${a}.id = $${params.length})`);
+  }
+  if (p.after) {
+    params.push(p.after.at, p.after.id);
+    conds.push(`(${a}."createdAt", ${a}.id) < ($${params.length - 1}, $${params.length})`);
+  }
+  return conds.length ? `WHERE ${conds.join(" AND ")}` : "";
 }
 
 async function q<T = Record<string, unknown>>(pool: pg.Pool, text: string, params: unknown[] = []): Promise<T[]> {
@@ -81,21 +110,19 @@ export function adminHandler(reg: Registry) {
       }
       if (rest[0] === "users") {
         if (m === "GET" && rest.length === 1) {
-          const { limit, offset, search } = page(url);
-          const where = search ? `WHERE u.email ILIKE $3 OR u.name ILIKE $3 OR u.id = $4` : "";
-          const params: unknown[] = [limit, offset];
-          if (search) params.push(`%${search.replace(/[\\%_]/g, (c) => "\\" + c)}%`, search);
-          const rows = await q(
+          const p = page(url);
+          const params: unknown[] = [p.limit + 1];
+          const rows = await q<{ _at: string; id: string }>(
             pool,
             `SELECT u.id, u.email, u.name, u.image, u."emailVerified", u.banned, u."banReason", u."banExpires", u."createdAt", u."updatedAt",
                     (SELECT max(s."updatedAt") FROM ${T("session")} s WHERE s."userId" = u.id) AS "lastSeenAt",
-                    count(*) OVER () AS total
-               FROM ${T("user")} u ${where}
-              ORDER BY u."createdAt" DESC, u.id LIMIT $1 OFFSET $2`,
+                    u."createdAt"::text AS _at
+               FROM ${T("user")} u ${where("u", ["email", "name"], p, params)}
+              ORDER BY u."createdAt" DESC, u.id DESC LIMIT $1`,
             params,
           );
-          const total = rows.length ? Number(rows[0]!.total) : search ? 0 : Number((await q<{ n: string }>(pool, `SELECT count(*) AS n FROM ${T("user")}`))[0]?.n ?? 0);
-          return json({ users: rows.map(({ total: _t, ...r }) => r), total, limit, offset });
+          const { items, next } = paged(rows, p.limit);
+          return json({ users: items, next });
         }
         const id = rest[1]!;
         const [user] = await q(
@@ -149,26 +176,24 @@ export function adminHandler(reg: Registry) {
       }
       if (rest[0] === "orgs") {
         if (!cfg.organizations || !(await tableExists(pool, "organization"))) {
-          if (m === "GET" && rest.length === 1) return json({ organizations: [], total: 0, limit: 50, offset: 0 });
+          if (m === "GET" && rest.length === 1) return json({ organizations: [], next: null });
           return problem(404, "not_found", "organizations are off for this project");
         }
         if (m === "GET" && rest.length === 1) {
-          const { limit, offset, search } = page(url);
-          const where = search ? `WHERE o.name ILIKE $3 OR o.slug ILIKE $3 OR o.id = $4` : "";
-          const params: unknown[] = [limit, offset];
-          if (search) params.push(`%${search.replace(/[\\%_]/g, (c) => "\\" + c)}%`, search);
-          const rows = await q(
+          const p = page(url);
+          const params: unknown[] = [p.limit + 1];
+          const rows = await q<{ _at: string; id: string }>(
             pool,
             `SELECT o.id, o.name, o.slug, o.logo, o."createdAt", o.metadata,
                     (SELECT count(*) FROM ${T("member")} m WHERE m."organizationId" = o.id)::int AS "memberCount",
                     (SELECT count(*) FROM ${T("invitation")} i WHERE i."organizationId" = o.id AND i.status = 'pending')::int AS "pendingInvitations",
-                    count(*) OVER () AS total
-               FROM ${T("organization")} o ${where}
-              ORDER BY o."createdAt" DESC, o.id LIMIT $1 OFFSET $2`,
+                    o."createdAt"::text AS _at
+               FROM ${T("organization")} o ${where("o", ["name", "slug"], p, params)}
+              ORDER BY o."createdAt" DESC, o.id DESC LIMIT $1`,
             params,
           );
-          const total = rows.length ? Number(rows[0]!.total) : 0;
-          return json({ organizations: rows.map(({ total: _t, ...r }) => r), total, limit, offset });
+          const { items, next } = paged(rows, p.limit);
+          return json({ organizations: items, next });
         }
         if (m === "GET" && rest.length === 2) {
           const id = rest[1]!;
