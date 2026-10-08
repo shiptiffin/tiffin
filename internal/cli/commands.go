@@ -92,7 +92,9 @@ func (a *app) loadManifest(target string) (json.RawMessage, string, error) {
 		root = filepath.Dir(abs)
 	}
 	if d := holdsSettings(root); d != "" {
-		return nil, path, &exitError{ExitInvalid, fmt.Sprintf("%s is in a folder that holds Tiffin's own settings (%s): keep the project in a folder of its own", filepath.Base(path), d)}
+		// The config runs as repository code: it must never be able to read these.
+		return nil, path, &exitError{ExitInvalid, fmt.Sprintf("%s is in %s, which holds Tiffin's own settings (%s), and a config may read any file in its folder. "+
+			"Move the project to a folder of its own, such as %s, and run tiffin there", filepath.Base(path), root, d, filepath.Join(root, "my-project"))}
 	}
 	raw, err := manifest.EvaluateJSONWithin(path, root, map[string]string{})
 	if err != nil {
