@@ -27,7 +27,7 @@ NOTES        ?=
 BASE_URL     ?=
 RELEASE_KEY  ?=
 
-.PHONY: build release release-sign test lint golden-update e2e ci clean auth-engine dashboard sdk
+.PHONY: build release release-sign test site-test lint golden-update e2e ci clean auth-engine dashboard sdk
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
@@ -78,6 +78,13 @@ test:
 	@if [ -f packages/package.json ] || ls packages/*/package.json >/dev/null 2>&1; then \
 		for d in packages/*/ apps/dashboard/; do if [ -n "$$(find $$d -name '*.test.*' -not -path '*/node_modules/*' | head -1)" ]; then (cd $$d && bun test) || exit 1; fi; done; \
 	else echo "packages: no JS packages yet, skipping bun test"; fi
+	$(MAKE) site-test
+
+# The website (site/) is its own package with its own bun.lock (it deploys
+# from site/ alone, with the published SDK), not a workspace member: the
+# repository's `bun install` doesn't install it, so its tests install first.
+site-test:
+	cd site && bun install --frozen-lockfile && bun test lib
 
 lint:
 	@out="$$(gofmt -l $$(git ls-files '*.go' 2>/dev/null; git ls-files --others --exclude-standard '*.go' 2>/dev/null))"; \

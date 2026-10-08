@@ -35,6 +35,7 @@ checks() {
   bun install --frozen-lockfile >/dev/null 2>&1 || { echo "  bun install failed"; return 1; }
   (cd apps/dashboard && bun run typecheck && bun run lint) >/dev/null 2>&1 || { echo "  dashboard checks failed"; return 1; }
   (cd packages/sdk && bun run build && bun test) >/dev/null 2>&1 || { echo "  SDK tests failed"; return 1; }
+  make site-test >/dev/null 2>&1 || { echo "  website tests failed"; return 1; }
 }
 
 step "main is up to date"

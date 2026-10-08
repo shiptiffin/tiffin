@@ -83,7 +83,8 @@ limactl shell tiffin-dev -- sudo journalctl -u tiffin -u tiffin-edge -n 200 --no
 
 Unit tests run on the host: `go test ./internal/mod/<name>/...` (`make test` runs all Go
 tests under the race detector, and the Bun tests; `make lint` runs gofmt, go vet and
-staticcheck). A module also gets an e2e test in `e2e/<name>_test.go` (build tag `e2e`)
+staticcheck). The website (`site/`) is a package of its own with its own `bun.lock`, not a
+workspace member: `make site-test` installs it and runs its tests. A module also gets an e2e test in `e2e/<name>_test.go` (build tag `e2e`)
 that drives the CLI against a fresh box the way `e2e/up_test.go` does; `make e2e` runs
 them all, each on a fresh VM (slow).
 
