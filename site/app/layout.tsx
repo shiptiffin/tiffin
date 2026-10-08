@@ -4,11 +4,11 @@ import { mono, sans, serif } from "./fonts";
 import "./globals.css";
 
 const description =
-  "A server of your own with a database, sign-in, email, file storage and background jobs already on it. Run all your apps on it for one flat price, each with the limit you choose.";
+  "A server of your own with Postgres, sign-in, file storage, jobs, analytics, error tracking and backups already on it. Run all your apps on it for one flat monthly price, each with a hard limit. Invite only.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://shiptiffin.com"),
-  title: { default: "ShipTiffin: all your apps, one server, one price", template: "%s · ShipTiffin" },
+  title: { default: "ShipTiffin: all your apps, one box, one price", template: "%s · ShipTiffin" },
   description,
   applicationName: "ShipTiffin",
   alternates: { canonical: "/" },
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "ShipTiffin",
     url: "https://shiptiffin.com",
-    title: "ShipTiffin: all your apps, one server, one price",
+    title: "ShipTiffin: all your apps, one box, one price",
     description,
     locale: "en",
   },
@@ -34,7 +34,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        {/* Marks that the script will run, so the invite form hides its second step before it hydrates. */}
+        <script dangerouslySetInnerHTML={{ __html: `document.documentElement.classList.add("js")` }} />
+      </head>
       <body>
         <a href="#main" className="skip">
           Skip to content

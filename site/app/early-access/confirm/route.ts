@@ -12,10 +12,10 @@ export async function GET(request: Request) {
   try {
     const r = await confirm(token, deps);
     if (r === "invalid") return to("/early-access/link-invalid");
-    if (r === "confirmed") void track("early_access_confirm", undefined, { request });
+    if (r === "confirmed") void track("invite_confirm", undefined, { request });
     return to("/early-access/confirmed");
   } catch (err) {
-    console.error("early access: confirm failed", err);
+    console.error("invite request: confirm failed", err);
     return to("/early-access?error=unavailable");
   }
 }

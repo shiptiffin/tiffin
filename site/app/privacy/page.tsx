@@ -8,7 +8,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Privacy policy",
   description:
-    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, the early-access list, who helps us run it, and how to have it deleted.",
+    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, invite requests, who helps us run it, and how to have it deleted.",
   alternates: { canonical: "/privacy" },
 };
 
@@ -76,34 +76,38 @@ const sections: Section[] = [
     ),
   },
   {
-    id: "early-access",
-    title: "The early-access list",
+    id: "invites",
+    title: "Invite requests",
     body: (
       <>
         <p>
-          If you join the early-access list on this website, we keep what you give us: your email address and your
-          answers (what you would host, how many projects, what you use today, and your note), whether you have
-          confirmed your address, and when you signed up and confirmed. It is stored in the database of the box that
-          runs this website, in Hetzner&rsquo;s data centres, and nowhere else.
+          If you request an invite on this website, we keep what you give us: your email address, and any of your
+          name, what you build, links to your profiles (GitHub, X, LinkedIn, your website), what you would host
+          first, how many projects you have, what you use and spend on hosting today, which AI coding agents you
+          use, and your note. We also keep whether you have confirmed your address, when you asked and confirmed,
+          where your request stands (waiting, invited, joined or declined) and our own notes about it. It is stored
+          in the database of the box that runs this website, in the EU, and nowhere else.
         </p>
         <p>
-          We use it to invite you when there is a box for you, to offer you the founding price, and to learn what
-          people want to run. Not for a newsletter, not for anything else, and we don&rsquo;t share it with anyone.
-          We send you one email to confirm your address, then an invite; nothing else.
+          We use it to understand who we&rsquo;re building for and to send invites: to decide who to invite next,
+          to size your box, and to offer you the founding price. We may look at the public profiles you link to. Not
+          for a newsletter, not for anything else, and we don&rsquo;t share it with anyone. We send you one email to
+          confirm your address, then an invite; nothing else.
         </p>
         <p>
-          To stop people signing up in bulk, your IP address is held in memory for up to 10 minutes; it is not
+          To stop people sending requests in bulk, your IP address is held in memory for up to 10 minutes; it is not
           stored with your answers. Like every visit, the request appears in the website&rsquo;s request log (kept
-          30 days), which does not contain what you typed. The sign-up is counted as an event in our cookieless
-          visit counts, without your email address. A copy of each email we send you is kept for 7 days and a log
-          entry for 30 days, as for all mail sent from a box.
+          30 days), which does not contain what you typed. Requests are counted as events in our cookieless visit
+          counts, without your email address or answers. A copy of each email we send you is kept for 7 days and a
+          log entry for 30 days, as for all mail sent from a box.
         </p>
-        <h3>Leaving the list</h3>
+        <h3>Removing your request</h3>
         <p>
-          Every email from the list has a link to remove yourself, and your mail app&rsquo;s unsubscribe button
-          works too. Either deletes your address and answers at once. You can also email {mail} from that address.
-          Addresses that are never confirmed are deleted after 30 days. Once you are invited and open an account,
-          your sign-up is deleted; if we close the list, we delete it all.
+          Every email about your request has a link to remove it, and your mail app&rsquo;s unsubscribe button works
+          too. Either deletes your address, your answers and our notes at once. You can also email {mail} from that
+          address. Requests that are never confirmed are deleted after 30 days. Once you have joined, or if we
+          decline a request, it is deleted 12 months after its last change; if we stop taking requests, we delete
+          them all.
         </p>
       </>
     ),
@@ -172,7 +176,7 @@ const sections: Section[] = [
         <ul>
           <li>
             <strong>Where it lives:</strong> on the customer&rsquo;s own box, a server that runs for that one
-            customer only, in Hetzner&rsquo;s data centres. It is not copied to a central ShipTiffin database.
+            customer only, in the EU. It is not copied to a central ShipTiffin database.
           </li>
           <li>
             <strong>Dashboard sign-in keeps nothing new.</strong> The token Google returns is used once to read
@@ -290,7 +294,7 @@ const sections: Section[] = [
         <li>To keep the service secure: spotting abuse, scanners and break-in attempts.</li>
         <li>To tell you about your box: problems, planned maintenance, and changes to these policies.</li>
         <li>To answer you when you write to us.</li>
-        <li>To invite you, if you joined the early-access list.</li>
+        <li>To understand who we&rsquo;re building for, and to invite you, if you requested an invite.</li>
         <li>To bill you, once pricing exists.</li>
       </ul>
     ),
@@ -332,7 +336,7 @@ const sections: Section[] = [
             <tr>
               <td>SendGrid (Twilio)</td>
               <td>
-                Delivers the email ShipTiffin itself sends: account and sign-in emails, notices about your box, and early-access emails.
+                Delivers the email ShipTiffin itself sends: account and sign-in emails, notices about your box, and invite emails.
                 Mail your apps send goes through the mail provider you connect, not through us.
               </td>
             </tr>
@@ -398,7 +402,8 @@ const sections: Section[] = [
         </li>
         <li>Email you send us: as long as we need it to help you, and no longer than we have to.</li>
         <li>
-          The early-access list: until you remove yourself or open an account; unconfirmed addresses for 30 days.
+          Invite requests: until you remove yours; unconfirmed ones for 30 days; once you have joined or a request
+          is declined, 12 months after its last change.
         </li>
       </ul>
     ),

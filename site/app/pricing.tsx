@@ -30,7 +30,7 @@ export const PLANS: Plan[] = [
     fits: "About 3–5 small apps",
     founding: "$22",
     yearly: "$319",
-    cta: { label: "Get early access", href: "#early-access" },
+    cta: { label: "Request an invite", href: "#invite" },
     featured: true,
   },
   {
@@ -41,7 +41,7 @@ export const PLANS: Plan[] = [
     fits: "About 8–12 small apps",
     founding: "$44",
     yearly: "$649",
-    cta: { label: "Get early access", href: "#early-access" },
+    cta: { label: "Request an invite", href: "#invite" },
   },
   {
     name: "Pro",
@@ -51,7 +51,7 @@ export const PLANS: Plan[] = [
     fits: "About 15–25 small apps",
     founding: "$89",
     yearly: "$1,309",
-    cta: { label: "Get early access", href: "#early-access" },
+    cta: { label: "Request an invite", href: "#invite" },
   },
   {
     name: "Dedicated",
@@ -67,13 +67,13 @@ export const PLANS: Plan[] = [
 const EVERY_BOX = [
   "As many projects as fit on the box",
   "Postgres, KV and files",
-  "Email and sign-in",
+  "Sign-in for your apps' users",
   "Jobs, analytics and error tracking",
   "Databases restore to any moment in the last 7 days",
   "A preview for every pull request",
   "Your own domains, with HTTPS",
   "Limits per project",
-  "No usage charges, ever",
+  "No usage charges or seats, ever",
 ];
 
 const TERMS = [
@@ -126,7 +126,7 @@ export function Pricing() {
               <p className="plan-founding">
                 {p.founding ? (
                   <>
-                    <strong>{p.founding}/month</strong> for your first year with early access
+                    <strong>{p.founding}/month</strong> for your first year as a founding member
                   </>
                 ) : (
                   "Tell us what you run and we’ll size it."
@@ -154,9 +154,13 @@ export function Pricing() {
                 <li key={x}>{x}</li>
               ))}
             </ul>
+            <p className="price-email">
+              <strong>Email goes through your own provider.</strong> Connect SendGrid, Resend, Postmark, Amazon SES
+              or any SMTP service in the dashboard by pasting its key; every project on the box can then send.
+            </p>
             <p className="price-founding">
-              <strong>Founding offer.</strong> People on the early-access list get 25% off their first year, and
-              their price is locked for 24 months.
+              <strong>Founding members</strong>, everyone invited from the request list, get 25% off their first
+              year, and their price is locked for 24 months.
             </p>
           </div>
         </div>

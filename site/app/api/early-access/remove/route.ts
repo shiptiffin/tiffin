@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   try {
     await remove(token, deps);
   } catch (err) {
-    console.error("early access: remove failed", err);
+    console.error("invite request: remove failed", err);
     return oneClick ? new Response("unavailable", { status: 503 }) : redirect("/early-access?error=unavailable");
   }
   // Removed, or nothing had this token (already removed): the same either way.

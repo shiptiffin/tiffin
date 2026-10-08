@@ -34,18 +34,21 @@ export function Header() {
           <span>ShipTiffin</span>
         </Link>
         <nav className="header-nav" aria-label="Main">
-          <Link href="/#how" className="nav-link hide-sm">
-            How it works
+          <Link href="/#replaces" className="nav-link hide-md">
+            What it replaces
           </Link>
           <Link href="/#pricing" className="nav-link hide-sm">
             Pricing
           </Link>
-          <Link href="/#faq" className="nav-link hide-sm">
+          <Link href="/#faq" className="nav-link hide-md">
             Questions
           </Link>
-          <a href={DASHBOARD} className="btn btn-quiet btn-sm">
+          <a href={DASHBOARD} className="nav-link">
             Sign in
           </a>
+          <Link href="/#invite" className="btn btn-primary btn-sm">
+            Request an invite
+          </Link>
         </nav>
       </div>
     </header>

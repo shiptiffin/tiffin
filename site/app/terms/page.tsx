@@ -45,6 +45,10 @@ const sections: Section[] = [
           change or remove parts of the service. When a change takes something away that you rely on, we tell you
           ahead of time where we can.
         </p>
+        <p>
+          For now, ShipTiffin is by invitation only. Anyone can <Link href="/#invite">request an invite</Link>; we
+          send invites in small groups, and an invite is needed to open an account.
+        </p>
       </>
     ),
   },
@@ -126,12 +130,25 @@ const sections: Section[] = [
     body: (
       <>
         <p>
-          Pricing isn&rsquo;t set yet. During early access, we will tell you the price of your box before you
-          are ever charged, and you won&rsquo;t be charged without agreeing to it.
+          You pay a flat price for each box, monthly or yearly: Starter $29 a month, Plus $59 and Pro
+          $119, or 11 times the monthly price for a year; a dedicated box from $249 a month, as agreed with you.
+          The current prices are in the <Link href="/#pricing">pricing section</Link>, and the price of your box is
+          shown before you subscribe. Prices are for the box, not for usage: there are no charges per request, per
+          project or per person.
         </p>
         <p>
-          Once pricing exists, the price and how billing works will be shown before you subscribe, and these terms
-          will be updated to cover them. Prices are for a box, flat, not for usage.
+          Founding members, people invited from the request list, get 25% off their first year, and their price
+          does not go up for 24 months from when they subscribe.
+        </p>
+        <h3 id="refunds">Money-back guarantee</h3>
+        <p>
+          If ShipTiffin isn&rsquo;t for you, ask within 14 days of your first payment and we refund it in full. Write
+          to {mail} from your account&rsquo;s address.
+        </p>
+        <h3 id="cancel">Cancelling</h3>
+        <p>
+          You can cancel at any time by writing to {mail}. A monthly box keeps running to the
+          end of the month you have paid for, and is not charged again.
         </p>
       </>
     ),
@@ -240,6 +257,8 @@ export default function Terms() {
       title="Terms of service"
       intro="The rules for using ShipTiffin: what you can run, what stays yours, and what we can and can't promise."
       sections={sections}
+      updated="8 October 2026"
+      updatedIso="2026-10-08"
     />
   );
 }

@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { DASHBOARD } from "./chrome";
-import { EarlyAccessForm } from "./early-access-form";
-import { EarlyAccessNext } from "./early-access-next";
 import { Compare } from "./compare";
+import { EarlyAccessForm } from "./early-access-form";
+import { InviteSteps } from "./early-access-next";
 import { Pricing } from "./pricing";
 
 export const metadata = { alternates: { canonical: "/" } };
@@ -52,17 +51,17 @@ function BoxDrawing() {
 
 /* What's in the box: the plain name, then what it is underneath. */
 const PARTS = [
-  ["Apps", "Next.js, Hono, FastAPI and more", "Deploy from GitHub or with git push. Roll back to any earlier deploy in one step."],
+  ["Apps", "Next.js first, Hono, FastAPI and more", "Deploy from GitHub or with git push. Every deploy keeps its own address, and rolling back takes one step."],
   ["Previews", "One per pull request", "Each pull request gets its own address and its own copy of the database."],
   ["Database", "Postgres 18", "One for each project, behind a connection pooler, with branches made in milliseconds."],
-  ["KV", "Valkey, Redis-compatible", "For caches, sessions, rate limits and counters."],
+  ["KV", "Redis-compatible", "For caches, sessions, rate limits and counters."],
   ["Files", "S3-compatible", "Private or public buckets, with image resizing."],
   ["Sign-in", "Better Auth", "Email and password, magic links, passkeys, and Google, GitHub and other providers."],
-  ["Email", "SMTP and an API", "Send from any app. Until you connect a mail service, every message waits in a test inbox."],
+  ["Email", "Your own provider", "Send from any app through SendGrid, Resend, Postmark, SES or any SMTP service. Until you connect one, mail waits in a test inbox."],
   ["Jobs", "Queues, crons and workflows", "The box calls your app with each job and retries until it succeeds."],
   ["Analytics", "No cookies", "Visits, sources and your own events, counted on the box."],
   ["Error tracking", "Sentry-compatible", "Point any Sentry SDK at the box. Logs, traces and alerts sit beside it."],
-  ["Backups", "Restore to a moment", "Databases go back to any moment in the last 7 days. Restore drills prove each backup works."],
+  ["Backups", "Restore to any moment", "Everything is backed up every 6 hours. Postgres goes back to any second of the last 7 days."],
   ["Domains", "HTTPS included", "Your own domain, with certificates issued and renewed for you."],
 ] as const;
 
@@ -76,12 +75,21 @@ const HOLDS = [
 
 const FAQ: { q: string; a: React.ReactNode }[] = [
   {
-    q: "How much will it cost?",
+    q: "Why invite only?",
     a: (
       <p>
-        One flat monthly price for the whole box: Starter is $29, Plus $59 and Pro $119, with a month free when
-        you pay yearly. You won&rsquo;t pay per request, per project or per seat, so a busy week doesn&rsquo;t
-        change the bill. People on the early-access list get 25% off their first year.
+        We&rsquo;re letting people in in small groups so every box gets attention: we set each one up, watch it
+        closely and fix what we find. Invites go out weekly. Founding members get 25% off their first year and keep
+        their price for 24 months.
+      </p>
+    ),
+  },
+  {
+    q: "When is something else cheaper?",
+    a: (
+      <p>
+        One small app on a free tier can cost less. ShipTiffin pays off from the second app. And if you need servers
+        in many regions, or an app that must stay up through a hardware fault, a bigger platform is the better fit.
       </p>
     ),
   },
@@ -91,7 +99,27 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
       <p>
         Without a limit, it grows into what the box has free, and slows down rather than failing when the box is
         busy. With a limit, it&rsquo;s held at it: its apps, database, cache and builds. Either way the other
-        projects keep running, and the project&rsquo;s Usage page shows when a limit held it back.
+        projects keep running, the bill stays the same, and the project&rsquo;s Usage page shows when a limit held
+        it back. When the box itself is full, move to a bigger one.
+      </p>
+    ),
+  },
+  {
+    q: "Is there a free plan or a trial?",
+    a: (
+      <p>
+        No. Every box is a real server set up for you, so instead there&rsquo;s a 14-day money-back guarantee: if
+        it isn&rsquo;t for you, you get a full refund.
+      </p>
+    ),
+  },
+  {
+    q: "How does email work?",
+    a: (
+      <p>
+        Your apps send through your own email provider: SendGrid, Resend, Postmark, Amazon SES or any SMTP service.
+        Connect it once in the dashboard by pasting its key, and every project on the box can send. Until then,
+        every message waits in a test inbox you can read, which is handy while you build.
       </p>
     ),
   },
@@ -109,10 +137,10 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "How are backups done?",
     a: (
       <p>
-        Every day in full, and every 6 hours in between: databases, KV, files, email and the box&rsquo;s
-        settings. Databases also keep a log of every change, so they can go back to any moment in the last 7
-        days; KV and files go back to the nearest backup, at most 6 hours earlier. Restore drills prove a backup
-        works without touching anything live, and a restore takes a safety backup first.
+        Postgres is backed up in full every day and in part every 6 hours, and its log of changes is kept all the
+        time, so you can restore your databases to any second in the last 7 days. KV, files, email and the
+        box&rsquo;s settings come back from the nearest backup. A restore takes a safety backup first, and restore
+        drills prove a backup works without touching anything live.
       </p>
     ),
   },
@@ -130,9 +158,9 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "Where is my data?",
     a: (
       <p>
-        On your box: a server of your own in a Hetzner data centre in the EU, in Germany or Finland. What your apps store stays on it
-        and isn&rsquo;t copied to a central ShipTiffin database. The <Link href="/privacy">privacy policy</Link> has
-        the details.
+        On your box: a server of your own in a data centre in the EU, in Germany or Finland. What your apps store stays on it and
+        isn&rsquo;t copied to a central ShipTiffin database. The <Link href="/privacy">privacy policy</Link> has the
+        details.
       </p>
     ),
   },
@@ -140,23 +168,10 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "Which frameworks work?",
     a: (
       <p>
-        Next.js, Hono, FastAPI, TanStack Start, SvelteKit, Nuxt, React Router, Astro and static sites are
-        first-class. Other Bun, Node.js and Python servers run too, and anything else from a Dockerfile.
+        Next.js comes first. Hono, FastAPI, TanStack Start, SvelteKit, Nuxt, React Router, Astro and static sites
+        work too, as do other Bun, Node.js and Python servers, and anything else from a Dockerfile.
       </p>
     ),
-  },
-  {
-    q: "When is something else cheaper?",
-    a: (
-      <p>
-        One tiny app on Railway or a free tier can cost less. ShipTiffin pays off from the second app, and more
-        with every one after it.
-      </p>
-    ),
-  },
-  {
-    q: "Will it be open source?",
-    a: <p>We may open it up later. Right now we&rsquo;re focused on the hosted service.</p>,
   },
 ];
 
@@ -182,65 +197,46 @@ export default function Home() {
       <section className="hero">
         <div className="wrap hero-grid">
           <div className="hero-copy">
-            <p className="kicker">Early access</p>
+            <p className="kicker">Invite only. New boxes every week.</p>
             <h1 className="display">
               All your apps.
               <br />
-              One server.
+              One box.
               <br />
               One price.
             </h1>
             <p className="lede">
-              ShipTiffin gives you a server of your own with everything an app needs already on it: a database,
-              sign-in, email, file storage, background jobs, analytics and backups. Run all your projects on it for
-              one flat monthly price, and give each one a limit, so a busy project never turns into a surprise bill.
+              ShipTiffin is a server of your own with everything your apps need already on it: Postgres, sign-in,
+              file storage, jobs, analytics, error tracking and backups. Run all your projects on it for one monthly
+              price. Each gets a hard limit, so nothing runs away and there&rsquo;s never a usage bill.
             </p>
             <div className="actions">
-              <a className="btn btn-primary" href="#early-access">
-                Get early access
+              <a className="btn btn-primary" href="#invite">
+                Request an invite
               </a>
-              <a className="btn btn-quiet" href={DASHBOARD}>
-                Sign in to your box <span aria-hidden="true">→</span>
+              <a className="btn btn-quiet" href="#replaces">
+                See what it replaces
               </a>
             </div>
             <p className="fine">
-              From $29 a month for the whole box. Early access members get 25% off their first year.
+              From $29 a month for the whole box. Founding members get 25% off their first year.
             </p>
           </div>
           <BoxDrawing />
         </div>
       </section>
 
-      <section id="about" className="band" aria-labelledby="about-title">
-        <div className="wrap two-col">
-          <h2 id="about-title" className="h2">
-            What ShipTiffin does
-          </h2>
-          <div className="prose-lg">
-            <p>
-              ShipTiffin is a hosting service for web apps. Each customer gets a server of their own, which we call
-              a box, and runs their apps on it. The box comes with the parts most apps need: a Postgres database,
-              sign-in for the app&rsquo;s users, email sending, file storage, background jobs, logs and visit
-              counts.
-            </p>
-            <p>
-              Customers deploy their apps from GitHub, with <code>git push</code>, the <code>tiffin</code> command
-              line or a coding agent, and manage them from the box&rsquo;s dashboard. It is built for developers and
-              small teams who run several apps and want one flat price instead of a bill for each service.
-            </p>
-          </div>
-        </div>
-      </section>
+      <Compare />
 
       <section id="box" className="band" aria-labelledby="parts-title">
         <div className="wrap">
           <div className="section-head">
             <h2 id="parts-title" className="h2">
-              What&rsquo;s in the box.
+              Everything&rsquo;s already in the box.
             </h2>
             <p className="section-sub">
-              No separate accounts for the database, storage, email or analytics, and no separate bills. Each
-              project gets its own, set up when you ask for it.
+              No separate accounts for the database, storage, analytics or error tracking, and no separate bills.
+              Each project gets its own, set up when you ask for it.
             </p>
           </div>
           <dl className="parts">
@@ -401,27 +397,34 @@ export default function Home() {
             </div>
           </div>
           <p className="fit-line">
-            ShipTiffin is young and made by a small team. Your databases can go back to any moment in the last 7
-            days, and you can leave any time with standard Postgres, S3 and Redis.
+            ShipTiffin is young and made by a small team. Your databases can go back to any second of the last
+            week, and you can leave any time with standard Postgres, S3 and Redis.
           </p>
         </div>
       </section>
 
-      <Compare />
-
       <Pricing />
 
-      <section id="early-access" className="band ea" aria-labelledby="ea-title">
+      <section id="invite" className="band ea" aria-labelledby="ea-title">
+        <span id="early-access" />
         <div className="wrap ea-grid">
           <div className="ea-copy">
             <h2 id="ea-title" className="h2">
-              Get early access.
+              Request an invite.
             </h2>
             <p className="section-sub">
-              We&rsquo;re letting people in a few at a time. Tell us what you&rsquo;d run, and we&rsquo;ll invite
-              you when there&rsquo;s a box for you.
+              We&rsquo;re letting people in in small groups so every box gets attention. Invites go out weekly.
             </p>
-            <EarlyAccessNext />
+            <div className="founding">
+              <p className="founding-title">Founding members</p>
+              <p className="founding-text">
+                <strong>25% off your first year</strong>, then your price stays put for 24 months.
+              </p>
+              <p className="founding-prices">
+                Starter $22 <span>·</span> Plus $44 <span>·</span> Pro $89 <span className="founding-per">a month</span>
+              </p>
+            </div>
+            <InviteSteps />
           </div>
           <div className="ea-panel">
             <EarlyAccessForm />
@@ -441,6 +444,27 @@ export default function Home() {
                 <div className="faq-a">{a}</div>
               </details>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="about" className="band" aria-labelledby="about-title">
+        <div className="wrap two-col">
+          <h2 id="about-title" className="h2">
+            What ShipTiffin is
+          </h2>
+          <div className="prose-lg">
+            <p>
+              ShipTiffin is a hosting service for web apps. Each customer gets a server of their own, which we call a
+              box, and runs their apps on it. The box comes with the parts most apps need: a Postgres database,
+              sign-in for the app&rsquo;s users, email sending, file storage, background jobs, logs, error tracking
+              and visit counts.
+            </p>
+            <p>
+              Customers deploy their apps from GitHub, with <code>git push</code>, the <code>tiffin</code> command
+              line or a coding agent, and manage them from the box&rsquo;s dashboard. It is built for developers and
+              small teams who run several apps and want one flat price instead of a bill for each service.
+            </p>
           </div>
         </div>
       </section>

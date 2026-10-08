@@ -1,9 +1,9 @@
-// The two emails the early-access list sends: the confirmation (with a
+// The two emails invite requests send: the confirmation (with a
 // remove link) and the owner's note. Plain text first, and simple HTML in the
 // box's own paper, ink and brass (packages/emails/src/ui/brand.ts). No images,
 // no tracking.
-import type { Signup } from "./early-access";
-import { HOST_CHOICES, PROJECT_CHOICES } from "./form";
+import type { InviteRequest } from "./early-access";
+import { AGENT_CHOICES, PROJECT_CHOICES, ROLE_CHOICES, SPEND_CHOICES, TOOL_CHOICES, label } from "./form";
 
 export type Mail = {
   to: string;
@@ -53,16 +53,21 @@ const button = (href: string, label: string) =>
 
 const a = (href: string, label: string) => `<a href="${esc(href)}" style="color:${C.link};">${esc(label)}</a>`;
 
-export function confirmEmail(to: string, l: { confirm: string; remove: string; unsubscribe: string }): Mail {
-  const subject = "Confirm your place on the ShipTiffin list";
+export function confirmEmail(
+  to: string,
+  name: string | null,
+  l: { confirm: string; remove: string; unsubscribe: string },
+): Mail {
+  const subject = "Confirm your ShipTiffin invite request";
+  const hello = name ? `Hello ${name.split(" ")[0]},` : "Hello,";
   const text = [
-    "Hello,",
+    hello,
     "",
-    "Thanks for asking about ShipTiffin. Confirm this is your address and you're on the early-access list:",
+    "Thanks for asking for a ShipTiffin invite. Confirm this is your address and your request is in:",
     "",
     l.confirm,
     "",
-    "We're letting people in a few at a time. When it's your turn, we'll email you an invite with the founding price. Until then, we won't write.",
+    "We let people in in small groups, so every box gets attention. Invites go out weekly. Yours will come with the founding price: 25% off your first year, and your price locked for 24 months. Until then, we won't write.",
     "",
     "Didn't ask for this? Ignore this email and you won't hear from us again. Or remove your address now:",
     l.remove,
@@ -70,12 +75,12 @@ export function confirmEmail(to: string, l: { confirm: string; remove: string; u
     "ShipTiffin · hello@shiptiffin.com · https://shiptiffin.com",
   ].join("\n");
   const html = page(
-    "One click and you're on the list.",
-    p("Hello,") +
-      p("Thanks for asking about ShipTiffin. Confirm this is your address and you&rsquo;re on the early-access list.") +
+    "One click and your request is in.",
+    p(esc(hello)) +
+      p("Thanks for asking for a ShipTiffin invite. Confirm this is your address and your request is in.") +
       button(l.confirm, "Confirm my email") +
       p(
-        "We&rsquo;re letting people in a few at a time. When it&rsquo;s your turn, we&rsquo;ll email you an invite with the founding price. Until then, we won&rsquo;t write.",
+        "We let people in in small groups, so every box gets attention. Invites go out weekly. Yours will come with the founding price: 25% off your first year, and your price locked for 24 months. Until then, we won&rsquo;t write.",
       ),
     `Didn&rsquo;t ask for this? Ignore this email and you won&rsquo;t hear from us again, or ${a(l.remove, "remove your address")}.<br>ShipTiffin · ${a("mailto:hello@shiptiffin.com", "hello@shiptiffin.com")}`,
   );
@@ -91,20 +96,25 @@ export function confirmEmail(to: string, l: { confirm: string; remove: string; u
   };
 }
 
-const label = (list: readonly { value: string; label: string }[], v: string | null) =>
-  list.find((c) => c.value === v)?.label ?? v;
+const list = (choices: readonly { value: string; label: string }[], vs: string[]) =>
+  vs.length ? vs.map((v) => label(choices, v)).join(", ") : null;
 
 /** A plain note to the owner when someone confirms. Reply goes to the person. */
-export function ownerEmail(to: string, s: Signup): Mail {
+export function ownerEmail(to: string, r: InviteRequest): Mail {
+  const said = (v: string | null | undefined) => v ?? "(not said)";
   const lines = [
-    `${s.email} confirmed their place on the early-access list.`,
+    `${r.name ? `${r.name} <${r.email}>` : r.email} confirmed their invite request.`,
     "",
-    `Would host: ${s.hosting ?? "(not said)"}`,
-    `Projects: ${label(PROJECT_CHOICES, s.projects) ?? "(not said)"}`,
-    `Uses today: ${s.currentHosts.length ? s.currentHosts.map((h) => label(HOST_CHOICES, h)).join(", ") : "(not said)"}`,
-    `Note: ${s.note ?? "(none)"}`,
+    `Builds: ${said(label(ROLE_CHOICES, r.role))}`,
+    `Would host first: ${said(r.hostFirst)}`,
+    `Projects: ${said(label(PROJECT_CHOICES, r.projects))}`,
+    `Uses today: ${said(list(TOOL_CHOICES, r.tools))}`,
+    `Spends a month: ${said(label(SPEND_CHOICES, r.spend))}`,
+    `AI agents: ${said(list(AGENT_CHOICES, r.agents))}`,
+    ...(["github", "x", "linkedin", "site"] as const).filter((k) => r[k]).map((k) => `${k === "site" ? "Website" : k === "x" ? "X" : k === "github" ? "GitHub" : "LinkedIn"}: ${r[k]}`),
+    `Note: ${r.note ?? "(none)"}`,
     "",
-    `Signed up ${s.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Everyone is in the early_access table of the website project (Database in the dashboard).`,
+    `Asked ${r.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Row ${r.id} of the invite_requests table in the website project (Database in the dashboard): set status and invited_at there when you invite them.`,
   ];
-  return { to, subject: `Early access: ${s.email}`, text: lines.join("\n"), replyTo: s.email };
+  return { to, subject: `Invite request: ${r.name ?? r.email}`, text: lines.join("\n"), replyTo: r.email };
 }
