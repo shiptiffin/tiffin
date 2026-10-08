@@ -96,8 +96,9 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     a: (
       <p>
         Your server and your apps keep running in your Hetzner account. Updates and the managed extras stop:
-        monitoring, the shiptiffin.app address, one-click upgrades and support. Your data was always on your
-        server, in standard formats.
+        monitoring, one-click upgrades and support. Your shiptiffin.app address keeps working for 30 days, with
+        an email when that starts, a week before it goes and when it goes, so you can point your own domain at
+        the box. Your data was always on your server, in standard formats.
       </p>
     ),
   },

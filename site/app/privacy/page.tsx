@@ -44,8 +44,15 @@ const sections: Section[] = [
         <p>
           To create your box, you give us an API key for a Hetzner Cloud project. We use it to create the server,
           its disk and its firewall, and by default we forget it once setup is done; resizing later asks you for a
-          key again, for a minute. We keep a list of each call we made to Hetzner with your key, which you can see
-          in your account. Revoke the key in Hetzner whenever you like.
+          key again, for a minute. While we hold it, it is sealed so that only our setup worker can open it, not
+          the website you gave it to. We keep a list of each call we made to Hetzner with your key, which you can
+          see in your account. Revoke the key in Hetzner whenever you like.
+        </p>
+        <h3>Your box&rsquo;s check-ins</h3>
+        <p>
+          Every six hours a managed box tells us its Tiffin version, how long it has run, the names of any
+          failing checks, and (from the request itself) the address it called from, which we compare with the
+          server&rsquo;s. Nothing about your projects, data or visitors.
         </p>
         <h3>How your box is used</h3>
         <p>
@@ -201,8 +208,10 @@ const sections: Section[] = [
             <strong>Access controls:</strong> databases are not reachable from the internet. On a box, an
             app&rsquo;s data can be reached only by that app&rsquo;s code and by the people the box&rsquo;s owner
             gives access to. The dashboard needs a signed-in session, and API keys are limited in what they can do
-            and stored only as hashes. After setup, ShipTiffin keeps no way to sign in to a box: the
-            box fetches its own updates, and we see its data only if its owner gives us access to help them.
+            and stored only as hashes. After setup, ShipTiffin keeps no way to sign in to a box, except
+            the one-time sign-in link the box makes for its owner&rsquo;s first visit (it works once, and the
+            box refuses it after 24 hours): the box fetches its own updates, and we see its data only if its
+            owner gives us access to help them.
           </li>
           <li>
             <strong>Separation:</strong> every customer has their own server, so one customer&rsquo;s data never

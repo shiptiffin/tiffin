@@ -29,7 +29,7 @@ const PARTS = [
 const TERMS = [
   ["Monthly", "Monthly billing only, for now."],
   ["14-day money-back", "Not for you? Full refund of what you paid us."],
-  ["Cancel any time", "Your server and apps keep running. Updates and the managed extras stop."],
+  ["Cancel any time", "Your server and apps keep running. Updates and the managed extras stop; the address stays 30 days."],
   ["No usage charges", "No seats, no per-project or per-request fees from us."],
 ] as const;
 

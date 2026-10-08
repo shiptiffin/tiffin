@@ -55,10 +55,16 @@ const sections: Section[] = [
         <h3 id="key">Your Hetzner API key</h3>
         <p>
           To create your box you give us an API key for a Hetzner Cloud project. We use it only to create and
-          change the server, its disk and its firewall that ShipTiffin needs, and only when you ask. By default we
-          do not keep it after setup; resizing later asks you for a key again. You can revoke the key in Hetzner at
-          any time. After setup we do not keep a way to sign in to your server; updates are fetched by the box
-          itself.
+          change the server, its disk and its firewall that ShipTiffin needs, and only when you ask; we only ever
+          change or delete what we created for your box (it carries your box&rsquo;s label). By default we do not
+          keep it after setup; resizing later asks you for a key again. You can revoke the key in Hetzner at any
+          time.
+        </p>
+        <p>
+          After setup we keep no way to log in to your server. The one thing we hold is a sign-in link your box
+          makes at setup, so your first &ldquo;Open your dashboard&rdquo; signs you in: it works once, your box
+          refuses it 24 hours after setup, and we delete it when you use it. Updates are fetched by the box
+          itself. Support never logs in unless you arrange it with us by email.
         </p>
       </>
     ),
@@ -150,16 +156,17 @@ const sections: Section[] = [
         <p>Your server is billed separately, by Hetzner, to you.</p>
         <h3 id="refunds">Money-back guarantee</h3>
         <p>
-          If ShipTiffin isn&rsquo;t for you, ask within 14 days of your first payment to us and we refund it in full.
-          Write to {mail} from your account&rsquo;s address. Hetzner&rsquo;s charges for your server are between you
-          and Hetzner.
+          If ShipTiffin isn&rsquo;t for you, ask within 14 days of your first payment to us and we refund it in full
+          and end the subscription. Write to {mail} from your account&rsquo;s address. Hetzner&rsquo;s charges for
+          your server are between you and Hetzner.
         </p>
         <h3 id="cancel">Cancelling</h3>
         <p>
-          You can cancel at any time by writing to {mail}. The service runs to the end of the month you have paid
-          for, and is not charged again. Your server and your apps keep running in your Hetzner account; updates,
-          monitoring, the shiptiffin.app address and support stop. To stop paying Hetzner too, delete the server
-          there.
+          You can cancel at any time in your account, or by writing to {mail}. The service runs to the end of the
+          month you have paid for, and is not charged again. Your server and your apps keep running in your
+          Hetzner account; updates, monitoring and support stop, and the shiptiffin.app address keeps working for
+          30 days after that, with an email when that starts, a week before it goes and when it goes. To stop
+          paying Hetzner too, delete the server there.
         </p>
       </>
     ),

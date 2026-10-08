@@ -595,9 +595,22 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
 - **One certificate per name, over HTTP-01.** The box holds no DNS token, so it cannot get
   a wildcard: each new app or preview gets its certificate on its first visit (a few
   seconds), counted against the limit above.
-- **Support access has no button yet.** Support never logs in by default; a customer who
-  wants help on the server adds a temporary SSH key and firewall rule by hand. A dashboard
-  switch that does both, and undoes them, is planned.
+- **Support access has no button yet.** Support never logs in by default. A customer who
+  wants help on the server writes to hello@shiptiffin.com and we arrange it by email: they
+  add a temporary SSH key and firewall rule by hand, and remove both afterwards. A
+  dashboard switch that does both, and undoes them, is planned.
+- **Certificates can be slow.** A box is *ready* only once its dashboard answers over
+  HTTPS with a valid certificate; until then it shows *certificate pending* and the worker
+  checks every minute (the ready email goes then). A box stuck there for days (the shared
+  rate limit above) has no automatic escalation beyond the admin page.
+- **The first sign-in is a link that works once, for 24 hours.** The box makes it at setup
+  and enforces both; the control plane hands it out at the first *Open your dashboard* and
+  forgets it. A customer who opens it and adds no passkey (and has no mail service on the
+  box for email links) gets back in through the Hetzner console: in the server's root
+  console, `sudo tiffin login --home /var/lib/tiffin/platform` prints a one-time path
+  (`/login#…`) to open on the dashboard's address. While unused, the link
+  sits in the website's database: whoever can read that database within the 24 hours can
+  sign in as the box's owner.
 - **Resize changes the server type only.** Growing the data volume is still `tiffin up
   --volume-size` from a computer with SSH access, or the Hetzner console plus
   `xfs_growfs`. A type change keeps the architecture (cx↔cx, cax↔cax): Hetzner can't move a
@@ -607,25 +620,47 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   owner can still update by hand. Gating is a courtesy switch on a server the customer
   fully controls, not a lock.
 - **Monitoring is one place.** The checks run from ShipTiffin's own box every five minutes;
-  if that box is down, nobody is told. A box that misses its daily check-in for 36 hours
-  gets one email.
-- **A box gone quiet loses its address after a week.** A server deleted in the Hetzner
+  if that box is down, nobody is told. A box that misses its check-ins (every six hours)
+  for 36 hours gets one email.
+- **A box gone quiet loses its address after 72 hours.** A server deleted in the Hetzner
   console frees its IP for someone else, and the `shiptiffin.app` name must not follow it.
-  So a box that neither answers nor checks in for 7 days has its address parked (the owner
-  is emailed); its next check-in puts it back. A failed setup removes its address at once.
-- **One worker, a few jobs at once.** Setups run three at a time in the `cloud` app; more
-  wait their turn. A deploy of the worker mid-setup fails that setup ("the worker stopped
-  while this ran"); the customer pastes the key again and *Clean up and try again* removes
-  what the first try left.
-- **The KEK has no rotation tool.** `CLOUD_KEK` seals stored Hetzner keys and setup sign-in
-  keys; changing it makes the stored ones unreadable (customers paste their key again).
-  The format carries a version prefix (`v1.`) for a rotation later.
-- **Project secrets reach both apps.** The Cloudflare token and the licence key are
-  secrets of the `website` project, so the Next.js app could read them too; only the worker
-  uses them.
+  So a box without a check-in that counts for 72 hours has its address parked (the owner
+  is emailed), however its IP answers HTTPS. A check-in counts only with the licence of
+  the box's current setup, sent from the box's own address (its IPv4, or its IPv6 /64);
+  the next one puts the address back. A box whose IP changed (a new primary IP) is parked
+  for good: write to support. The address check needs shiptiffin.com served directly
+  (DNS only, not through a proxy), as it is.
+- **A failed setup cleans up at once.** It removes its address and deletes what it made
+  in the customer's project (only resources labelled with its box id). If the worker stops
+  mid-setup, a clean-up job does the same while the customer's key lasts (two hours);
+  after that, what's left stays, labelled `shiptiffin-box=<id>`, until the next try (which
+  cleans up first) or the customer deletes it. A setup is never resumed half way.
+- **One worker, a few jobs at once.** Jobs run three at a time, one per box, oldest first;
+  more wait their turn. A worker that can't renew its lease (5 minutes) stops its job
+  within half of it, and the sweep then retries it (resize, delete, DNS) or fails it and
+  cleans up (setup).
+- **No key rotation tool.** `CLOUD_SEAL_KEY` opens stored Hetzner keys; changing it makes
+  the stored ones unreadable (customers paste their key again). The sealed format carries
+  a version prefix (`v2.`) for a rotation later. `CLOUD_LICENCE_KEY` signs licences;
+  changing it means every box needs a new licence (a re-setup).
+- **The website can still queue jobs.** It holds no secret of the worker's, but it
+  writes the job table: a compromised website could queue a resize with a stored key, or
+  undo the kill switch (an admin action). It can't open a Hetzner key, sign a licence,
+  or point an address anywhere the worker didn't record for that box (the worker's MAC
+  over the addresses).
+- **The worker holds the website's database password.** Projects can't share a database
+  role, so the worker reaches the `cloud_*` tables with the website's `DATABASE_URL`
+  (`CONTROL_DATABASE_URL`). The worker is the more trusted side; a scoped role would need
+  the box's superuser and is planned with per-project grants.
 - **Release downloads need a reachable release source.** The worker installs the newest
   `stable` release from `release.DefaultSource` (or `CLOUD_RELEASE_SOURCE`); while the
   repository's releases are private, set that to a URL the worker can read.
+- **Billing is cards only.** Checkout offers cards (and Link with `STRIPE_CHECKOUT_LINK=1`),
+  so a box is set up only after its first payment went through; bank debits and other
+  methods that confirm days later are off until the setup can wait for them.
+- **Refunds outside the guarantee are manual.** The admin page's *Refund and cancel* is
+  the 14-day money-back (the first payment, in full). Other refunds are made in Stripe;
+  a full refund of the first payment there ends the subscription too.
 - **Founding offer counter.** The first 100 paid boxes get the coupon. Our own count is
   checked when Checkout opens, so two people at the 100th can both be offered it; the
   coupon's own limit in Stripe (100 redemptions) is the hard stop.
