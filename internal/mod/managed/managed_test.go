@@ -15,6 +15,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/licence"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/tokens"
 )
 
 func testConfig(t *testing.T, url string) *platform.ManagedConfig {
@@ -62,7 +63,7 @@ func TestCheckInSendsOnlyVersionAndHealth(t *testing.T) {
 	}
 	for _, k := range keys {
 		switch k {
-		case "boxID", "version", "uptimeSeconds", "checks", "failedChecks", "failing":
+		case "boxID", "version", "uptimeSeconds", "checks", "failedChecks", "failing", "handoff", "signin":
 		default:
 			t.Errorf("the check-in sends %q; only version and health may go out", k)
 		}
@@ -145,3 +146,59 @@ func TestResized(t *testing.T) {
 }
 
 func toJSON(v any) string { raw, _ := json.Marshal(v); return string(raw) }
+
+type fakeHandoff struct {
+	done  bool
+	made  int
+	codes []string
+}
+
+func (f *fakeHandoff) HandoffDone(context.Context) (bool, error) { return f.done, nil }
+func (f *fakeHandoff) HandoffLink(_ context.Context, ttl time.Duration) (string, time.Time, error) {
+	if f.done {
+		return "", time.Time{}, tokens.ErrHandoffDone
+	}
+	f.made++
+	code := "tfl_fresh" + string(rune('a'+f.made))
+	f.codes = append(f.codes, code)
+	return code, time.Now().Add(ttl), nil
+}
+
+// The control plane asks for a fresh sign-in link (the dashboard became
+// ready, or the customer asked): the box makes it and sends it at once; and
+// once the owner has signed in, it makes none.
+func TestHandoffLinkOnRequest(t *testing.T) {
+	var got []Report
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rep Report
+		_ = json.NewDecoder(r.Body).Decode(&rep)
+		got = append(got, rep)
+		if rep.Handoff == "pending" && rep.Signin == nil {
+			io.WriteString(w, `{"managed":true,"active":true,"updates":true,"signin":true,"checkInSeconds":120}`)
+			return
+		}
+		io.WriteString(w, `{"managed":true,"active":true,"updates":true,"checkInSeconds":5}`)
+	}))
+	defer srv.Close()
+	cfg := testConfig(t, srv.URL)
+	links := &fakeHandoff{}
+	st, soon := CheckIn(context.Background(), srv.Client(), cfg, Report{BoxID: "box_1"}, links, platform.ManagedState{}, time.Now())
+	if !st.Answered || len(got) != 2 || got[1].Signin == nil || got[1].Signin.Code != links.codes[0] || time.Until(got[1].Signin.ExpiresAt) < 23*time.Hour {
+		t.Fatalf("reports %+v", got)
+	}
+	if soon != MinCheckIn {
+		t.Fatalf("next check-in in %s (asked 5 s: at least %s)", soon, MinCheckIn)
+	}
+	// Signed in: "done", and no link even if asked.
+	got, links.done = nil, true
+	_, soon = CheckIn(context.Background(), srv.Client(), cfg, Report{BoxID: "box_1"}, links, platform.ManagedState{}, time.Now())
+	if len(got) != 1 || got[0].Handoff != "done" || got[0].Signin != nil || links.made != 1 {
+		t.Fatalf("after the owner signed in: %+v", got)
+	}
+	// A box without the hand-off (or an older control plane): nothing changes.
+	got = nil
+	_, soon = CheckIn(context.Background(), srv.Client(), cfg, Report{BoxID: "box_1"}, nil, platform.ManagedState{}, time.Now())
+	if len(got) != 1 || got[0].Handoff != "" || soon != MinCheckIn {
+		t.Fatalf("no hand-off: %+v %s", got, soon)
+	}
+}

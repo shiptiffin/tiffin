@@ -47,3 +47,37 @@ func TestBootstrapLink(t *testing.T) {
 		t.Fatal("a bootstrap link worked twice")
 	}
 }
+
+// The control plane's hand-off: a fresh link on request (the newest one
+// only), until the owner first signs in; then never again.
+func TestHandoffLink(t *testing.T) {
+	m, owner, _ := setup(t)
+	ctx := context.Background()
+	if done, err := m.HandoffDone(ctx); err != nil || done {
+		t.Fatalf("done before any sign-in: %v %v", done, err)
+	}
+	first, _, err := m.BootstrapLink(ctx, owner, BootstrapTTL) // the one made at setup
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, _, _ := m.CreateLoginLink(ctx, owner) // the owner's own `tiffin login`: untouched
+	second, exp, err := m.HandoffLink(ctx, BootstrapTTL)
+	if err != nil || time.Until(exp) < 23*time.Hour {
+		t.Fatalf("handoff: %v %s", err, exp)
+	}
+	if _, _, _, err := m.RedeemLoginLink(ctx, first); err == nil {
+		t.Fatal("an older hand-off link still works")
+	}
+	if _, _, _, err := m.RedeemLoginLink(ctx, second); err != nil {
+		t.Fatalf("the newest hand-off link: %v", err)
+	}
+	if done, _ := m.HandoffDone(ctx); !done {
+		t.Fatal("the owner signed in: the hand-off is done")
+	}
+	if _, _, err := m.HandoffLink(ctx, BootstrapTTL); !errors.Is(err, ErrHandoffDone) {
+		t.Fatalf("a hand-off link after the owner signed in: %v", err)
+	}
+	if _, _, _, err := m.RedeemLoginLink(ctx, terminal); err != nil {
+		t.Fatalf("the owner's own login link: %v", err)
+	}
+}

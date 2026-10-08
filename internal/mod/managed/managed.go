@@ -3,9 +3,17 @@
 // every other box (no /etc/tiffin/managed.json).
 //
 // Every six hours (and once soon after it starts) the box checks in with
-// the control plane: its Tiffin version, how long it has run and the names
-// of any failing status checks. Nothing else: no project names, no data, no
-// addresses. The answer says whether the subscription is active, which
+// the control plane: its Tiffin version, how long it has run, the names of
+// any failing status checks, and whether its owner has signed in yet.
+// Nothing else: no project names, no data, no addresses.
+//
+// Until the owner first signs in, the control plane may ask in its answer
+// for a fresh one-time owner sign-in link (when the dashboard first answers
+// over HTTPS, or when the customer asks for a new one): the box makes it
+// itself (tokens.HandoffLink: the box enforces its 24 hours and its single
+// use) and sends it at once in a second check-in. After the first sign-in
+// the box refuses to make any more. While the hand-off is pending the
+// control plane may ask the box to check in sooner (a few minutes). The answer says whether the subscription is active, which
 // decides whether the box installs Tiffin updates by itself. Nothing here
 // ever stops or slows the customer's apps, whatever the answer.
 //
@@ -18,6 +26,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -29,6 +38,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/licence"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/tokens"
 )
 
 func init() { platform.Register(&Module{}) }
@@ -51,7 +61,17 @@ const (
 type Module struct {
 	client  *http.Client
 	started time.Time
+	links   Handoff
 }
+
+// Handoff is the box's side of handing it to its owner (tokens.Manager).
+type Handoff interface {
+	HandoffDone(ctx context.Context) (bool, error)
+	HandoffLink(ctx context.Context, ttl time.Duration) (string, time.Time, error)
+}
+
+// MinCheckIn is the soonest a control plane may ask for the next check-in.
+const MinCheckIn = time.Minute
 
 func (*Module) Name() string { return "managed" }
 
@@ -74,6 +94,9 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 		return nil
 	}
 	m.started = time.Now()
+	if p.Tokens != nil {
+		m.links = p.Tokens
+	}
 	go m.retune(ctx, p)
 	go func() {
 		for !p.Started() {
@@ -83,11 +106,14 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 		}
 		wait := rand.N(FirstWithin)
 		for sleep(ctx, wait) {
-			st := m.checkIn(ctx, p, cfg)
-			if st.Error != "" {
+			st, soon := m.checkIn(ctx, p, cfg)
+			switch {
+			case st.Error != "":
 				p.Log.Info("managed: check-in got no answer; trying again in an hour", "err", st.Error)
 				wait = Retry
-			} else {
+			case soon > 0:
+				wait = soon
+			default:
 				wait = Every - Jitter + rand.N(2*Jitter)
 			}
 		}
@@ -110,7 +136,9 @@ func checkLicence(cfg *platform.ManagedConfig) error {
 	return nil
 }
 
-// Report is what a check-in sends: version and health, nothing else.
+// Report is what a check-in sends: version and health, whether the owner
+// has signed in yet, and (only when the control plane asked) a fresh
+// one-time sign-in link. Nothing else.
 type Report struct {
 	BoxID         string   `json:"boxID"`
 	Version       string   `json:"version"`
@@ -118,6 +146,15 @@ type Report struct {
 	Checks        int      `json:"checks"`
 	FailedChecks  int      `json:"failedChecks"`
 	Failing       []string `json:"failing,omitempty"`
+	// Handoff: "pending" (the owner hasn't signed in yet) or "done".
+	Handoff string  `json:"handoff,omitempty"`
+	Signin  *Signin `json:"signin,omitempty"`
+}
+
+// Signin is a one-time owner sign-in link the box made for its hand-off.
+type Signin struct {
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // Answer is the control plane's reply.
@@ -126,9 +163,13 @@ type Answer struct {
 	Active  bool   `json:"active"`
 	Updates bool   `json:"updates"`
 	Message string `json:"message,omitempty"`
+	// Signin asks for a fresh hand-off link (refused once the owner signed in).
+	Signin bool `json:"signin,omitempty"`
+	// CheckInSeconds asks for the next check-in sooner (at least MinCheckIn).
+	CheckInSeconds int `json:"checkInSeconds,omitempty"`
 }
 
-func (m *Module) checkIn(ctx context.Context, p *platform.Platform, cfg *platform.ManagedConfig) platform.ManagedState {
+func (m *Module) checkIn(ctx context.Context, p *platform.Platform, cfg *platform.ManagedConfig) (platform.ManagedState, time.Duration) {
 	var checks []platform.Check
 	if p.BoxChecks != nil {
 		checks = p.BoxChecks(ctx)
@@ -136,11 +177,45 @@ func (m *Module) checkIn(ctx context.Context, p *platform.Platform, cfg *platfor
 		checks = p.Checks(ctx)
 	}
 	r := report(cfg.BoxID, p.Version, time.Since(m.started), checks)
-	st := Send(ctx, m.httpClient(), cfg, r, platform.LoadManagedState(), time.Now())
+	st, soon := CheckIn(ctx, m.httpClient(), cfg, r, m.links, platform.LoadManagedState(), time.Now())
 	if err := platform.SaveManagedState(st); err != nil {
 		p.Log.Warn("managed: saving the state", "err", err)
 	}
-	return st
+	return st, soon
+}
+
+// CheckIn sends one report with the hand-off's state and, when the answer
+// asks for a sign-in link (and the owner hasn't signed in), makes one and
+// sends it in a second report. soon is when the control plane wants the next
+// check-in (0: the usual time).
+func CheckIn(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, r Report, links Handoff, prev platform.ManagedState, now time.Time) (st platform.ManagedState, soon time.Duration) {
+	if links != nil {
+		if done, err := links.HandoffDone(ctx); err == nil {
+			r.Handoff = "pending"
+			if done {
+				r.Handoff = "done"
+			}
+		}
+	}
+	st, ans := exchange(ctx, c, cfg, r, prev, now)
+	if ans != nil && ans.Signin && r.Handoff == "pending" {
+		code, exp, err := links.HandoffLink(ctx, tokens.BootstrapTTL)
+		switch {
+		case err == nil:
+			r.Signin = &Signin{Code: code, ExpiresAt: exp.UTC()}
+			var again *Answer
+			if st, again = exchange(ctx, c, cfg, r, st, now); again != nil {
+				ans = again
+			}
+		case errors.Is(err, tokens.ErrHandoffDone):
+			r.Handoff = "done"
+			st, _ = exchange(ctx, c, cfg, r, st, now)
+		}
+	}
+	if ans != nil && ans.CheckInSeconds > 0 {
+		soon = min(max(time.Duration(ans.CheckInSeconds)*time.Second, MinCheckIn), Every)
+	}
+	return st, soon
 }
 
 func report(boxID, version string, up time.Duration, checks []platform.Check) Report {
@@ -161,12 +236,17 @@ func report(boxID, version string, up time.Duration, checks []platform.Check) Re
 // no answer the previous answer stands (an unreachable control plane never
 // changes what the box does).
 func Send(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, r Report, prev platform.ManagedState, now time.Time) platform.ManagedState {
+	st, _ := exchange(ctx, c, cfg, r, prev, now)
+	return st
+}
+
+func exchange(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, r Report, prev platform.ManagedState, now time.Time) (platform.ManagedState, *Answer) {
 	st := prev
 	st.CheckedAt, st.Answered, st.Error = now.UTC(), false, ""
 	ans, err := post(ctx, c, cfg, r)
 	if err != nil {
 		st.Error = err.Error()
-		return st
+		return st, nil
 	}
 	st.Answered, st.LastAnswerAt = true, now.UTC()
 	st.Active, st.Updates, st.Message = ans.Active, ans.Updates, ans.Message
@@ -175,7 +255,7 @@ func Send(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, r Re
 		// box made with tiffin up; it updates as it did before.
 		st.Active, st.Updates = false, true
 	}
-	return st
+	return st, ans
 }
 
 func post(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, r Report) (*Answer, error) {

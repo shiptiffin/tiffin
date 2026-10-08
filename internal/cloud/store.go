@@ -586,7 +586,9 @@ func (s *PG) Sweep(ctx context.Context, now time.Time) (string, error) {
 	if n := tag.RowsAffected(); n > 0 {
 		out = append(out, fmt.Sprintf("forgot %d job tokens", n))
 	}
-	tag, err = s.Pool.Exec(ctx, `update cloud_boxes set signin_code = null, signin_expires_at = null where signin_code is not null and signin_expires_at < $1`, now)
+	// An expired sign-in link goes; its expiry stays, so the website knows
+	// one was handed over (a new one is made only when the customer asks).
+	tag, err = s.Pool.Exec(ctx, `update cloud_boxes set signin_code = null where signin_code is not null and signin_expires_at < $1`, now)
 	if err != nil {
 		return "", err
 	}

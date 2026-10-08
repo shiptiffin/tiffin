@@ -49,6 +49,62 @@ func (m *Manager) BootstrapLink(ctx context.Context, by *Principal, ttl time.Dur
 	return m.insertLink(ctx, by.TokenID, OwnerPerson, ttl)
 }
 
+// HandoffDone reports whether the owner has ever signed in with a link
+// (a bootstrap link, their own `tiffin login`, an emailed one): the box is
+// in its owner's hands, and the control plane's one-time authority is over.
+func (m *Manager) HandoffDone(ctx context.Context) (bool, error) {
+	var n int
+	err := m.db.SQL().QueryRowContext(ctx, `SELECT count(*) FROM login_links WHERE used_at IS NOT NULL AND (person = ? OR person IS NULL)`, OwnerPerson).Scan(&n)
+	return n > 0, err
+}
+
+// ErrHandoffDone refuses a hand-off link once the owner has signed in.
+var ErrHandoffDone = fmt.Errorf("%w: the owner has signed in already; no more hand-off links", ErrForbidden)
+
+// HandoffLink makes a fresh bootstrap link (see BootstrapLink) with the
+// box's own owner token, for a managed box's control plane to hand to the
+// customer: when the dashboard first answers over HTTPS, or when they ask
+// for a new one. Only until the owner first signs in (HandoffDone); and the
+// earlier hand-off links that were never used stop working, so only the
+// newest one does.
+func (m *Manager) HandoffLink(ctx context.Context, ttl time.Duration) (string, time.Time, error) {
+	if done, err := m.HandoffDone(ctx); err != nil {
+		return "", time.Time{}, err
+	} else if done {
+		return "", time.Time{}, ErrHandoffDone
+	}
+	var ownerID string
+	if err := m.db.SQL().QueryRowContext(ctx, `SELECT id FROM tokens WHERE kind = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`, KindOwner).Scan(&ownerID); err != nil {
+		return "", time.Time{}, fmt.Errorf("the box has no owner token: %w", err)
+	}
+	now := m.now().UTC()
+	rows, err := m.db.SQL().QueryContext(ctx, `SELECT l.hash, l.created_at, l.expires_at FROM login_links l JOIN tokens t ON t.id = l.created_by
+		WHERE t.kind = ? AND l.used_at IS NULL AND (l.person = ? OR l.person IS NULL)`, KindOwner, OwnerPerson)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	var old [][]byte
+	for rows.Next() {
+		var h []byte
+		var created, expires string
+		if err := rows.Scan(&h, &created, &expires); err != nil {
+			rows.Close()
+			return "", time.Time{}, err
+		}
+		// Bootstrap links only (a day long), not a `tiffin login` link (minutes).
+		if e := parseTS(expires); e.After(now) && e.Sub(parseTS(created)) > LoginLinkTTL {
+			old = append(old, h)
+		}
+	}
+	rows.Close()
+	for _, h := range old {
+		if _, err := m.db.SQL().ExecContext(ctx, `UPDATE login_links SET expires_at = ? WHERE hash = ?`, ts(&now), h); err != nil {
+			return "", time.Time{}, err
+		}
+	}
+	return m.BootstrapLink(ctx, &Principal{TokenID: ownerID, Kind: KindOwner}, ttl)
+}
+
 // RedeemLoginLink spends a login code (once) and mints a dashboard session for
 // the person it was made for: their own role, SessionTTL, sponsored by nobody
 // (the session is theirs, not the sender's). It also says how the session
