@@ -3,7 +3,7 @@ import { Link, Navigate } from "@tanstack/react-router";
 import { ArrowUpRight, LayoutGrid, List, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { q } from "@/api/queries";
-import { BoxBar } from "@/components/box-bar";
+import type { BoxResources } from "@/api/client";
 import { useTitle } from "@/components/favicon";
 import { NameAsk } from "@/components/name-ask";
 import { Page, Skeleton } from "@/components/page";
@@ -11,9 +11,9 @@ import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem, Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
-import { words } from "@/lib/format";
+import { bytes, dec } from "@/lib/format";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
-import { fullWords, memWords, useBoxShares, type Shares } from "@/lib/usage";
+import { memWords, useBoxShares, type Shares } from "@/lib/usage";
 import { useRecentProjects } from "@/lib/recent";
 import { useProjectHome } from "@/lib/switch";
 import { PartGlyphs } from "@/components/part-glyph";
@@ -33,7 +33,7 @@ export function HomePage() {
   const changes = useQuery({ ...q.changes(), staleTime: 30_000 });
   const recent = useRecentProjects();
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
-  const { shares, pending } = useBoxShares();
+  const { res, shares } = useBoxShares();
   const [view, setView] = useStoredState<"grid" | "list">("tiffin.home-view", "grid");
   const [sort, setSort] = useStoredState<Sort>("tiffin.home-sort", "active");
   const [query, setQuery] = useState("");
@@ -66,7 +66,10 @@ export function HomePage() {
     <Page wide>
       <NameAsk />
       <header className="flex items-end justify-between gap-4">
-        <h1 className="title text-ink">Projects</h1>
+        <div className="min-w-0">
+          <h1 className="title text-ink">Projects</h1>
+          <BoxStats res={res} shares={shares} />
+        </div>
         <Button asChild variant="primary" size="lg">
           <Link to="/new">
             <Plus /> New project
@@ -74,11 +77,9 @@ export function HomePage() {
         </Button>
       </header>
 
-      <BoxLine shares={shares} names={names} pending={pending} />
 
       {names.length > 0 && (
         <div className="mt-9 flex flex-wrap items-center gap-2">
-          <p className="mr-2 text-[0.8125rem] text-ink-3">{names.length === 1 ? "One project" : `${words(names.length, true)} projects`}</p>
           {names.length > 6 && (
             <label className="relative min-w-0 flex-1 basis-56">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
@@ -135,7 +136,7 @@ export function HomePage() {
       {view === "list" ? (
         <ul className="mt-3 divide-y divide-rule border-y border-rule" aria-label="Projects">
           {list.map((p) => (
-            <ProjectRow key={p} project={p} shares={shares} />
+            <ProjectRow key={p} project={p} />
           ))}
         </ul>
       ) : (
@@ -146,7 +147,7 @@ export function HomePage() {
                   <Skeleton className="h-[176px] rounded-[12px]" />
                 </li>
               ))
-            : list.map((p) => <ProjectCard key={p} project={p} shares={shares} />)}
+            : list.map((p) => <ProjectCard key={p} project={p} />)}
         </ul>
       )}
       {query && list.length === 0 && <p className="mt-4 text-sm text-ink-3">No project called that.</p>}
@@ -179,20 +180,27 @@ function useStoredState<T extends string>(key: string, initial: T): [T, (v: T) =
 }
 
 /** "Your box is about two-fifths full. Room for about four more apps." and the bar. */
-function BoxLine({ shares, names, pending }: { shares?: Shares; names: string[]; pending: boolean }) {
-  // Hold the line's space while it loads (no jump); a box that can't measure itself shows nothing.
-  if (!shares) return pending ? <div className="mt-6 h-[52px]" aria-hidden /> : null;
+/**
+ * The box in three quiet numbers under the title, linking to Usage. They
+ * only take a colour when one is running short: the projects are the page.
+ */
+function BoxStats({ res, shares }: { res?: BoxResources; shares?: Shares }) {
+  if (!res || !shares) return <p className="mt-1 h-5" aria-hidden />;
+  const disk = res.disks.data;
+  const tone = (f: number) => (f >= 0.95 ? "text-danger" : f >= 0.85 ? "text-warn-ink" : "text-ink-2");
+  const stats = [
+    { label: "Memory", value: `${memWords(shares.usedMB)} of ${memWords(shares.totalMB)}`, f: shares.full },
+    { label: "CPU", value: `${dec(res.cpu.usedPercent, 0)}%`, f: res.cpu.usedPercent / 100 },
+    ...(disk?.totalBytes ? [{ label: "Disk", value: `${bytes(disk.usedBytes)} of ${bytes(disk.totalBytes, 0)}`, f: disk.usedBytes / disk.totalBytes }] : []),
+  ];
   return (
-    <section className="mt-5 max-w-[46rem]" aria-label="Your box">
-      <p className="text-[0.9375rem] text-ink-2">
-        <span className="text-ink">Your box is {fullWords(shares.full)}.</span>{" "}
-        {shares.full < 0.85 ? `${memWords(shares.freeMB)} free.` : "It’s getting full: limit a project, or move to a bigger machine."}{" "}
-        <Link to="/usage" className="text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
-          Details
-        </Link>
-      </p>
-      <BoxBar className="mt-3" shares={shares} order={names} legend />
-    </section>
+    <Link to="/usage" aria-label="Usage" className="group mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[0.8125rem] text-ink-3">
+      {stats.map((x) => (
+        <span key={x.label}>
+          {x.label} <span className={cn("tnum group-hover:text-ink", tone(x.f))}>{x.value}</span>
+        </span>
+      ))}
+    </Link>
   );
 }
 
@@ -261,13 +269,11 @@ function useOnScreen<T extends Element>() {
   return [ref, on] as const;
 }
 
-function ProjectCard({ project, shares }: { project: string; shares?: Shares }) {
+function ProjectCard({ project }: { project: string }) {
   const [ref, onScreen] = useOnScreen<HTMLLIElement>();
   const pulse = useProjectPulse(project, onScreen);
   const preview = usePreview(project, pulse.tone === "ok" && !!pulse.url);
   const home = useProjectHome(project);
-  const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
-  const cap = shares?.caps[project];
   return (
     <li
       ref={ref}
@@ -298,11 +304,6 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
         </div>
         <div className="mt-auto flex items-center justify-between gap-3 pt-5">
           <PartGlyphs apps={pulse.apps.length} services={pulse.services} />
-          {share !== undefined && (
-            <span className="shrink-0 text-xs text-ink-3" title={cap ? `Limited to ${Math.round(cap * 100)}% of the box` : undefined}>
-              {shareOfBox(share)}
-            </span>
-          )}
         </div>
       </div>
     </li>
@@ -310,15 +311,14 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
 }
 
 /** One project as a list row, for boxes with many projects. */
-function ProjectRow({ project, shares }: { project: string; shares?: Shares }) {
+function ProjectRow({ project }: { project: string }) {
   const [ref, onScreen] = useOnScreen<HTMLLIElement>();
   const pulse = useProjectPulse(project, onScreen);
   const home = useProjectHome(project);
-  const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   return (
     <li
       ref={ref}
-      className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2"
+      className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] sm:px-2"
     >
       <span className="flex min-w-0 items-center gap-2.5">
         <ProjectIcon project={project} size={20} />
@@ -330,14 +330,7 @@ function ProjectRow({ project, shares }: { project: string; shares?: Shares }) {
         <Status project={project} pulse={pulse} />
       </span>
       <PartGlyphs apps={pulse.apps.length} services={pulse.services} className="max-sm:hidden" />
-      <span className="text-right text-xs text-ink-3">{share !== undefined ? shareOfBox(share) : ""}</span>
     </li>
   );
 }
 
-/** 0.12 → "12% of your box"; under one percent says so. */
-function shareOfBox(f: number) {
-  if (f <= 0) return "nothing running";
-  if (f < 0.01) return "under 1% of your box";
-  return `${Math.round(f * 100)}% of your box`;
-}

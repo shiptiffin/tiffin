@@ -6,16 +6,17 @@ import { mod, mq, type OutsideCheck } from "@/api/modules";
 import { q } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
-import { Alarm, Facts, Group, Rows } from "@/components/health-kit";
+import { Alarm, Group, Rows } from "@/components/health-kit";
 import { Page, Skeleton } from "@/components/page";
 import { Code, ProblemNote, sentence } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { boxName, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
+import { versionLabel } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { countWords, dec, duration, int, plainWords, withUnit, words } from "@/lib/format";
 import { relative } from "@/lib/time";
+import { fullWords, memWords, useBoxShares } from "@/lib/usage";
 
 /** What each check is, in the words the rest of the dashboard uses. */
 const checkNames: Record<string, string> = {
@@ -67,6 +68,7 @@ export function StatusPage() {
   useTitle("Health");
   const s = useQuery(q.status(5_000));
   const res = useQuery(q.resources);
+  const { shares } = useBoxShares();
   const alerts = useQuery({ ...mq.alerts, retry: false });
   const issues = useQuery({ ...mq.issues(undefined, "unresolved"), retry: false });
   const backups = useQuery({ ...mq.backups, retry: false });
@@ -177,8 +179,9 @@ export function StatusPage() {
 
       <Group label="At a glance" id="areas" aside={versionLabel(d)}>
         <Rows>
+          <Area to="/usage" name="Usage" status={shares ? `${sentence(fullWords(shares.full))} ${memWords(shares.freeMB)} of memory free.` : res.isError ? "Measured on a running box." : "…"} />
           <Area to="/metrics" name="Metrics" status={res.data ? vitals(res.data) : res.isError ? "Measured on a running box." : "…"} />
-          <Area to="/logs" name="Logs" status="Everything the box and its apps write, searchable and live." />
+          <Area to="/logs" name="Logs" />
           <Area
             to="/errors"
             name="Errors"
@@ -193,7 +196,7 @@ export function StatusPage() {
             }
             amount={open.length > 0 ? int(open.length) : undefined}
           />
-          <Area to="/requests" name="Requests" status="Slow and failed requests, step by step, from apps that send traces." />
+          <Area to="/requests" name="Requests" />
           <Area
             to="/alerts"
             name="Alerts"
@@ -248,25 +251,10 @@ export function StatusPage() {
             <CheckGroup key={g.name} name={g.name} about={g.about} checks={g.checks} />
           ))}
         </Rows>
-        <p className="mt-3 text-[0.8125rem] text-ink-3">
-          This page keeps answering when apps and databases don’t. From a terminal, <code className="ident text-ink-2">tiffin doctor</code> runs the
-          same checks.
-        </p>
       </Group>
 
       <OutsideCheckBlock now={now} />
 
-      <Group label="This box" id="box">
-        <Facts
-          items={[
-            ["Name", boxName(d)],
-            ["Runs on", <>{whereItRuns(d)} <span className="ident ml-1.5 text-ink-3">{d.host.hostname}</span></>],
-            ["Version", versionLabel(d)],
-            res.data && ["Up for", duration(res.data.uptimeSeconds)],
-            ["Tiffin started", tiffinStarted(d.uptime)],
-          ]}
-        />
-      </Group>
     </Page>
   );
 }
@@ -350,6 +338,7 @@ function OutsideCheckBlock({ now }: { now: number }) {
   const m = useQuery({ ...mq.monitor, retry: false });
   const [url, setUrl] = useState("");
   const [leaving, setLeaving] = useState(false);
+  const [setting, setSetting] = useState(false);
   const show = (v: OutsideCheck) => qc.setQueryData(mq.monitor.queryKey, v);
   const set = useMutation({
     mutationFn: () => mod.monitorSet(url.trim()),
@@ -369,11 +358,15 @@ function OutsideCheckBlock({ now }: { now: number }) {
     <Group label="Outside check" id="outside" aside={v.on ? "on" : "off"}>
       {!v.on ? (
         <div className="border-y border-rule py-3.5">
-          <p className="text-[0.9375rem] font-[550] text-ink">Nobody outside is watching this box.</p>
-          <p className="mt-1 max-w-[44rem] text-[0.84375rem] text-ink-2">
-            If the machine stops, it can’t tell you. Paste a ping URL and the box pings it every minute; the service behind it tells you when the pings stop.
-            The free plan of healthchecks.io works, and so does an Uptime Kuma push monitor.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[0.875rem] text-ink-2">Nobody outside is watching this box. If the machine stops, it can’t tell you.</p>
+            {!setting && (
+              <Button size="sm" onClick={() => setSetting(true)}>
+                Set up
+              </Button>
+            )}
+          </div>
+          {setting && (
           <form
             className="mt-3 flex max-w-[40rem] flex-col gap-1"
             onSubmit={(e) => {
@@ -396,7 +389,9 @@ function OutsideCheckBlock({ now }: { now: number }) {
                 {set.isPending ? "Pinging…" : "Ping it and turn on"}
               </Button>
             </div>
+            <p className="text-[0.8125rem] text-ink-3">The box pings it every minute; the service behind it tells you when the pings stop. healthchecks.io (free) or an Uptime Kuma push monitor work.</p>
           </form>
+          )}
           {set.isError && <ProblemNote className="mt-3" error={set.error} />}
         </div>
       ) : (
@@ -451,7 +446,7 @@ function vitals(r: BoxResources) {
   return `CPU ${p(r.cpu.usedPercent)}, memory ${p(r.memory.usedPercent)}, data disk ${p(r.disks.data.usedPercent)}.`;
 }
 
-function Area({ to, name, status, amount }: { to: string; name: string; status: ReactNode; amount?: string }) {
+function Area({ to, name, status, amount }: { to: string; name: string; status?: ReactNode; amount?: string }) {
   return (
     <li>
       <Link
