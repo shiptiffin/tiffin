@@ -1,7 +1,7 @@
 // The box modules' API: storage, email, Postgres, Valkey, backups, observe.
 // Types come from the generated OpenAPI schema; hidden operations (browser
 // upload, mail stream, attachments) are typed by hand.
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { pagedQuery } from "@/lib/paged";
 import { ApiError, request } from "./client";
 import type { components, operations } from "./schema";
@@ -255,13 +255,17 @@ export const mod = {
   metrics: (query: string, since: string, step?: string) =>
     request<S["ObserveMetricsResult"]>("POST", "/v1/observe/metrics/query", { query, since, ...(step ? { step } : {}) }),
   logs: (body: S["ObserveLogsQueryBody"]) => request<LogsResult>("POST", "/v1/observe/logs/query", body),
-  issues: (o: { project?: string; status?: Issue["status"] }) => arr(request<Issue[] | null>("GET", `/v1/observe/issues${qs({ ...o, limit: 100 })}`)),
+  /** One page of error issues, most recently seen first, narrowed on the box. */
+  issues: (o: { project?: string; status?: Issue["status"]; cursor?: string; limit?: number }, signal?: AbortSignal) =>
+    request<S["PageObserveIssue"]>("GET", `/v1/observe/issues${qs({ ...o, limit: o.limit ?? 50 })}`, undefined, signal),
   issue: (id: string) => request<IssueDetail>("GET", `/v1/observe/issues/${e(id)}`),
-  traces: (project: string, o: { since?: string; errors?: boolean; sort?: "slowest" | "recent" }) =>
-    arr(request<TraceSummary[] | null>("GET", `/v1/observe/traces${qs({ project, ...o, limit: 100 })}`)),
+  /** One page of request traces, slowest (or newest) first, narrowed on the box. */
+  traces: (project: string, o: { since?: string; errors?: boolean; sort?: "slowest" | "recent"; cursor?: string; limit?: number }, signal?: AbortSignal) =>
+    request<S["PageObserveTraceSummary"]>("GET", `/v1/observe/traces${qs({ project, ...o, limit: o.limit ?? 50 })}`, undefined, signal),
   trace: (project: string, id: string) => request<TraceDetail>("GET", `/v1/observe/traces/${e(id)}${qs({ project })}`),
   resolveIssue: (id: string, status: Issue["status"]) => request<Issue>("POST", `/v1/observe/issues/${e(id)}/resolve`, { status }),
-  alerts: () => request<AlertsView>("GET", "/v1/observe/alerts?limit=100"),
+  /** What fires now, and one page of history (newest first). */
+  alerts: (cursor?: string, signal?: AbortSignal) => request<AlertsView>("GET", `/v1/observe/alerts${qs({ cursor, limit: 50 })}`, undefined, signal),
   rules: () => arr(request<AlertRule[] | null>("GET", "/v1/observe/alert-rules")),
   putRule: (name: string, body: S["ObserveRuleBody"]) => request<AlertRule>("PUT", `/v1/observe/alert-rules/${e(name)}`, body),
   deleteRule: (name: string) => request<void>("DELETE", `/v1/observe/alert-rules/${e(name)}`),
@@ -387,13 +391,31 @@ export const mq = {
   kvStats: (p: string) => queryOptions({ queryKey: ["kv-stats", p], queryFn: () => mod.kvStats(p), refetchInterval: 15_000 }),
   backups: queryOptions({ queryKey: ["backups"], queryFn: mod.backups, refetchInterval: 10_000 }),
   overview: queryOptions({ queryKey: ["overview"], queryFn: mod.overview, refetchInterval: 15_000 }),
+  /** The latest issues (one page of up to 200), for summaries and counts; lists page with issuePages. */
   issues: (project?: string, status?: Issue["status"]) =>
-    queryOptions({ queryKey: ["issues", project ?? "", status ?? ""], queryFn: () => mod.issues({ project, status }), refetchInterval: 30_000 }),
+    queryOptions({ queryKey: ["issues", project ?? "", status ?? ""], queryFn: async () => (await mod.issues({ project, status, limit: 200 })).items, refetchInterval: 30_000 }),
+  issuePages: (project?: string, status?: Issue["status"]) =>
+    pagedQuery(["issues", project ?? "", status ?? "", "pages"], (cursor, signal) => mod.issues({ project, status, cursor }, signal), { refetchInterval: 30_000 }),
   issue: (id: string) => queryOptions({ queryKey: ["issue", id], queryFn: () => mod.issue(id) }),
+  /** The slowest traces (one page), for summaries; lists page with tracePages. */
   traces: (project: string, since: string, errors: boolean) =>
-    queryOptions({ queryKey: ["traces", project, since, errors], queryFn: () => mod.traces(project, { since, errors: errors || undefined }), enabled: !!project, refetchInterval: 30_000 }),
+    queryOptions({ queryKey: ["traces", project, since, errors], queryFn: async () => (await mod.traces(project, { since, errors: errors || undefined })).items, enabled: !!project, refetchInterval: 30_000 }),
+  tracePages: (project: string, since: string, errors: boolean, sort: "slowest" | "recent" = "slowest") =>
+    pagedQuery(["traces", project, since, errors, sort, "pages"], (cursor, signal) => mod.traces(project, { since, errors: errors || undefined, sort, cursor }, signal), {
+      enabled: !!project,
+      refetchInterval: 30_000,
+    }),
   trace: (project: string, id: string) => queryOptions({ queryKey: ["trace", project, id], queryFn: () => mod.trace(project, id), staleTime: Infinity }),
-  alerts: queryOptions({ queryKey: ["alerts"], queryFn: mod.alerts, refetchInterval: 30_000 }),
+  /** What fires now and the latest history. */
+  alerts: queryOptions({ queryKey: ["alerts"], queryFn: () => mod.alerts(), refetchInterval: 30_000 }),
+  /** Alert history a page at a time (each page repeats what fires now). */
+  alertPages: infiniteQueryOptions({
+    queryKey: ["alerts", "pages"],
+    initialPageParam: "",
+    queryFn: ({ pageParam, signal }) => mod.alerts(pageParam || undefined, signal),
+    getNextPageParam: (last: AlertsView) => last.nextCursor || undefined,
+    refetchInterval: 30_000,
+  }),
   rules: queryOptions({ queryKey: ["rules"], queryFn: mod.rules }),
   monitor: queryOptions({ queryKey: ["monitor"], queryFn: mod.monitor, refetchInterval: 30_000 }),
   // Polled by the shell for the alarm state; stops when the box has no protection module.

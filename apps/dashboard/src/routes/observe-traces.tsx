@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
@@ -6,12 +6,14 @@ import { mq, type TraceSpan, type TraceSummary } from "@/api/modules";
 import { q as core } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
 import { Facts, Group, Segmented, StateLine } from "@/components/health-kit";
+import { ShowMore } from "@/components/more";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { ProjectIcon } from "@/components/project-icon";
 import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { countWords, ms } from "@/lib/format";
+import { pagedRows } from "@/lib/paged";
 import { full, relative } from "@/lib/time";
 
 const windows = [
@@ -35,17 +37,20 @@ export function TracesPage({ project, since = "24h", errors }: { project?: strin
   const projects = useQuery(core.projects);
   const p = project ?? projects.data?.[0]?.name ?? "";
   const win = (windows.some((w) => w.v === since) ? since : "24h") as (typeof windows)[number]["v"];
-  const list = useQuery(mq.traces(p, win, !!errors));
+  const list = useInfiniteQuery({ ...mq.tracePages(p, win, !!errors), placeholderData: keepPreviousData });
   const set = (o: { project?: string; since?: string; errors?: boolean }) =>
     navigate({ to: "/requests", search: { project: project, since: since === "24h" ? undefined : since, errors: errors || undefined, ...o } });
   if (list.isError && notOnBox(list.error)) return <NotOnBox what="Request traces" />;
-  const traces = list.data ?? [];
+  const traces = pagedRows(list.data, (t) => t.traceId);
   const slow = traces.filter((t) => t.kept === "slow").length;
   const failed = traces.filter((t) => t.error).length;
+  // Counts only while every request is loaded; with more to read, say how slow the slowest was.
   const line =
     traces.length === 0
       ? "No traced requests yet."
-      : `${countWords(traces.length, "request", "requests", true)} kept${slow || failed ? `: ${[failed && countWords(failed, "failed"), slow && countWords(slow, "slow")].filter(Boolean).join(", ")}` : ""}. The slowest took ${ms(traces[0].durationMs)}.`;
+      : list.hasNextPage
+        ? `More than ${countWords(traces.length, "request")} kept. The slowest took ${ms(traces[0].durationMs)}.`
+        : `${countWords(traces.length, "request", "requests", true)} kept${slow || failed ? `: ${[failed && countWords(failed, "failed"), slow && countWords(slow, "slow")].filter(Boolean).join(", ")}` : ""}. The slowest took ${ms(traces[0].durationMs)}.`;
 
   return (
     <Page wide>
@@ -123,6 +128,7 @@ export function TracesPage({ project, since = "24h", errors }: { project?: strin
             ))}
           </ul>
         )}
+        <ShowMore query={list} label="Show more requests" />
       </div>
     </Page>
   );

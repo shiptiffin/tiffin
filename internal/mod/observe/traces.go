@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/klauspost/compress/zstd"
@@ -426,8 +427,11 @@ var traceSchema = []string{
 		start_ns INTEGER NOT NULL, end_ns INTEGER NOT NULL, dur_ns INTEGER NOT NULL, spans INTEGER NOT NULL,
 		error INTEGER NOT NULL, why TEXT NOT NULL, bytes INTEGER NOT NULL,
 		PRIMARY KEY(project, trace_id))`,
-	`CREATE INDEX IF NOT EXISTS traces_start ON traces(project, start_ns)`,
-	`CREATE INDEX IF NOT EXISTS traces_dur ON traces(project, dur_ns)`,
+	// The two orders the list pages in, each with the trace ID to break ties.
+	`DROP INDEX IF EXISTS traces_start`,
+	`DROP INDEX IF EXISTS traces_dur`,
+	`CREATE INDEX IF NOT EXISTS traces_recent ON traces(project, start_ns, trace_id)`,
+	`CREATE INDEX IF NOT EXISTS traces_slowest ON traces(project, dur_ns, trace_id)`,
 	`CREATE TABLE IF NOT EXISTS trace_chunks (
 		id INTEGER PRIMARY KEY, project TEXT NOT NULL, trace_id TEXT NOT NULL, data BLOB NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS trace_chunks_trace ON trace_chunks(project, trace_id)`,
@@ -529,7 +533,9 @@ func (t *TraceStore) Add(ctx context.Context, project, traceID, why string, span
 
 // TraceSummary is one kept trace, as listed.
 type TraceSummary struct {
-	TraceID    string    `json:"traceId"`
+	TraceID    string `json:"traceId"`
+	startNS    int64  // the sort keys, exact, for the next page's cursor
+	durNS      int64
 	Project    string    `json:"project"`
 	App        string    `json:"app"`
 	Name       string    `json:"name" doc:"The root span's name, e.g. GET /api/orders"`
@@ -552,6 +558,10 @@ type TraceFilter struct {
 	Errors  bool
 	Sort    string // slowest | recent
 	Limit   int
+	// After is a page's position: the sort key (start or duration in ns) and
+	// trace ID of the last trace of the page before.
+	AfterKey int64
+	AfterID  string
 }
 
 const traceCols = `trace_id, project, app, name, method, route, status, start_ns, dur_ns, spans, error, why`
@@ -560,6 +570,7 @@ func scanTrace(sc interface{ Scan(...any) error }) (TraceSummary, error) {
 	var s TraceSummary
 	var start, dur int64
 	err := sc.Scan(&s.TraceID, &s.Project, &s.App, &s.Name, &s.Method, &s.Route, &s.Status, &start, &dur, &s.Spans, &s.Error, &s.Kept)
+	s.startNS, s.durNS = start, dur
 	s.Start = time.Unix(0, start).UTC()
 	s.DurationMS = math.Round(float64(dur)/1e3) / 1e3
 	return s, err
@@ -576,11 +587,15 @@ func (t *TraceStore) ListTraces(ctx context.Context, f TraceFilter) ([]TraceSumm
 	if f.Errors {
 		q += ` AND error = 1`
 	}
+	col := "dur_ns"
 	if f.Sort == "recent" {
-		q += ` ORDER BY start_ns DESC`
-	} else {
-		q += ` ORDER BY dur_ns DESC`
+		col = "start_ns"
 	}
+	if f.AfterID != "" {
+		q += ` AND (` + col + ` < ? OR (` + col + ` = ? AND trace_id < ?))`
+		args = append(args, f.AfterKey, f.AfterKey, f.AfterID)
+	}
+	q += ` ORDER BY ` + col + ` DESC, trace_id DESC`
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
@@ -885,7 +900,8 @@ var traceIDRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 func (m *Module) registerTraceAPI(a huma.API) {
 	huma.Register(a, api.Untrusted(api.Op("traces-list", http.MethodGet, "/v1/observe/traces", "traces list", api.RiskRead,
 		"List request traces",
-		"Traces your apps sent over OpenTelemetry (Next.js with instrumentation.ts, or any OTel SDK), slowest first. "+
+		"Traces your apps sent over OpenTelemetry (Next.js with instrumentation.ts, or any OTel SDK), slowest (or most recent) first, a page at a time: "+
+			"more follow when nextCursor is set; pass it as cursor with the same filters and sort. "+
 			"The box keeps every trace with an error or a span of a second or more, and a sample of the rest (10% by default), for 3 days."+untrusted, "observe")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `query:"project" required:"true" doc:"Project"`
@@ -894,8 +910,8 @@ func (m *Module) registerTraceAPI(a huma.API) {
 			MinMS   int    `query:"minMs" minimum:"0" doc:"Only traces at least this long, in milliseconds"`
 			Errors  bool   `query:"errors" doc:"Only traces with a failed span"`
 			Sort    string `query:"sort" enum:"slowest,recent" default:"slowest"`
-			Limit   int    `query:"limit" minimum:"1" maximum:"500" default:"50"`
-		}) (*struct{ Body []TraceSummary }, error) {
+			page.Params
+		}) (*struct{ Body page.Page[TraceSummary] }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
 			}
@@ -906,12 +922,33 @@ func (m *Module) registerTraceAPI(a huma.API) {
 			if err != nil {
 				return nil, err
 			}
-			out, err := m.traces.ListTraces(ctx, TraceFilter{Project: in.Project, App: in.App, From: from,
-				MinDur: time.Duration(in.MinMS) * time.Millisecond, Errors: in.Errors, Sort: in.Sort, Limit: in.Limit})
+			sort := in.Sort
+			if sort != "recent" {
+				sort = "slowest"
+			}
+			limit := page.Clamp(in.Limit)
+			f := TraceFilter{Project: in.Project, App: in.App, From: from, MinDur: time.Duration(in.MinMS) * time.Millisecond, Errors: in.Errors, Sort: sort, Limit: limit + 1}
+			if key, err := page.Decode(in.Cursor, 3); err != nil {
+				return nil, err
+			} else if key != nil {
+				// The cursor names its order: one made for slowest can't page recent.
+				n, err := strconv.ParseInt(key[1], 10, 64)
+				if key[0] != sort || err != nil {
+					return nil, page.ErrBadCursor
+				}
+				f.AfterKey, f.AfterID = n, key[2]
+			}
+			out, err := m.traces.ListTraces(ctx, f)
 			if err != nil {
 				return nil, err
 			}
-			return &struct{ Body []TraceSummary }{out}, nil
+			return &struct{ Body page.Page[TraceSummary] }{page.Make(out, limit, func(t TraceSummary) []string {
+				k := t.durNS
+				if sort == "recent" {
+					k = t.startNS
+				}
+				return []string{sort, strconv.FormatInt(k, 10), t.TraceID}
+			})}, nil
 		}))
 
 	g := api.Op("trace-get", http.MethodGet, "/v1/observe/traces/{id}", "traces get", api.RiskRead,

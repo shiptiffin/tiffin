@@ -98,7 +98,8 @@ func TestTraceIngestSamplingAndAPI(t *testing.T) {
 		t.Fatalf("bad key: %d", c)
 	}
 
-	code, _, list := h.call(h.owner, "GET", "/v1/observe/traces?project=shop", nil)
+	code, pg, _ := h.call(h.owner, "GET", "/v1/observe/traces?project=shop", nil)
+	list := items(pg)
 	if code != 200 || len(list) != 2 {
 		t.Fatalf("list: %d %v", code, list)
 	}
@@ -110,11 +111,11 @@ func TestTraceIngestSamplingAndAPI(t *testing.T) {
 	if second := list[1].(map[string]any); second["traceId"] != errID || second["kept"] != "error" || second["error"] != true {
 		t.Fatalf("error trace summary: %v", second)
 	}
-	if _, _, l := h.call(h.owner, "GET", "/v1/observe/traces?project=shop&errors=true", nil); len(l) != 1 {
-		t.Fatalf("errors only: %v", l)
+	if _, pg, _ := h.call(h.owner, "GET", "/v1/observe/traces?project=shop&errors=true", nil); len(items(pg)) != 1 {
+		t.Fatalf("errors only: %v", pg)
 	}
-	if _, _, l := h.call(h.owner, "GET", "/v1/observe/traces?project=shop&minMs=1000", nil); len(l) != 1 {
-		t.Fatalf("min duration: %v", l)
+	if _, pg, _ := h.call(h.owner, "GET", "/v1/observe/traces?project=shop&minMs=1000", nil); len(items(pg)) != 1 {
+		t.Fatalf("min duration: %v", pg)
 	}
 
 	// The request ID form (with dashes) finds the same trace.
@@ -179,8 +180,8 @@ func TestTraceIngestSamplingAndAPI(t *testing.T) {
 	if err := h.m.ProjectDeleted(ctx, h.m.p, "shop"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, l := h.call(h.owner, "GET", "/v1/observe/traces?project=shop", nil); len(l) != 0 {
-		t.Fatalf("after delete: %v", l)
+	if _, pg, _ := h.call(h.owner, "GET", "/v1/observe/traces?project=shop", nil); len(items(pg)) != 0 {
+		t.Fatalf("after delete: %v", pg)
 	}
 }
 
@@ -264,5 +265,54 @@ func TestTraceRetentionAndSizeCap(t *testing.T) {
 	st.db.QueryRow(`SELECT COUNT(*) FROM trace_chunks`).Scan(&chunks)
 	if chunks != int(u["shop"][0]+u["other"][0]) {
 		t.Fatalf("chunks of deleted traces remain: %d", chunks)
+	}
+}
+
+// Traces page in either order by (key, trace ID): traces that started in the
+// same nanosecond, or took exactly as long, are neither skipped nor repeated.
+func TestTracesPage(t *testing.T) {
+	ctx := t.Context()
+	st, err := OpenTraceStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	at := time.Now().Add(-time.Minute)
+	for i := range 7 {
+		start := at.Add(time.Duration(i/3) * time.Second) // three share a start, and so on
+		dur := time.Duration(1+i%2) * time.Millisecond    // two durations, many ties
+		s := span{ID: "0000000000000001", Name: "GET /", Kind: 2, App: "web", Start: start.UnixNano(), End: start.Add(dur).UnixNano()}
+		if err := st.Add(ctx, "shop", fmt.Sprintf("%032x", i), "sampled", []span{s}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, sort := range []string{"recent", "slowest"} {
+		all, _ := st.ListTraces(ctx, TraceFilter{Project: "shop", From: at.Add(-time.Hour), Sort: sort, Limit: 100})
+		var got []string
+		f := TraceFilter{Project: "shop", From: at.Add(-time.Hour), Sort: sort, Limit: 2}
+		for range 10 {
+			l, err := st.ListTraces(ctx, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, x := range l {
+				got = append(got, x.TraceID)
+			}
+			if len(l) < f.Limit {
+				break
+			}
+			last := l[len(l)-1]
+			f.AfterKey, f.AfterID = last.durNS, last.TraceID
+			if sort == "recent" {
+				f.AfterKey = last.startNS
+			}
+		}
+		var want []string
+		for _, x := range all {
+			want = append(want, x.TraceID)
+		}
+		if len(want) != 7 || strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("%s in pages of 2: %v, want %v", sort, got, want)
+		}
 	}
 }

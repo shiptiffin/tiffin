@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -147,8 +148,9 @@ type issuePath struct {
 
 // AlertsView is the alert state and history.
 type AlertsView struct {
-	Firing  []Alert        `json:"firing"`
-	History []HistoryEntry `json:"history" doc:"Recent transitions (newest first) and where each notification went"`
+	Firing     []Alert        `json:"firing"`
+	History    []HistoryEntry `json:"history" doc:"Recent transitions (newest first), a page at a time, and where each notification went"`
+	NextCursor string         `json:"nextCursor,omitempty" doc:"Set when older history follows: pass it as cursor for the next page (firing comes again)"`
 }
 
 // Settings are box-wide observe settings.
@@ -392,13 +394,14 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 
 	huma.Register(a, api.Untrusted(api.Op("issues-list", http.MethodGet, "/v1/observe/issues", "issues list", api.RiskRead,
 		"List error issues",
-		"Errors your apps reported (Sentry SDKs or SENTRY_DSN), grouped into issues by fingerprint, most recently seen first."+untrusted, "observe")),
+		"Errors your apps reported (Sentry SDKs or SENTRY_DSN), grouped into issues by fingerprint, most recently seen first, a page at a time: "+
+			"more follow when nextCursor is set; pass it as cursor with the same filters."+untrusted, "observe")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `query:"project" doc:"Only this project"`
 			App     string `query:"app" doc:"Only this app"`
 			Status  string `query:"status" enum:"unresolved,resolved,ignored" doc:"Only this status"`
-			Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
-		}) (*struct{ Body []Issue }, error) {
+			page.Params
+		}) (*struct{ Body page.Page[Issue] }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
 			}
@@ -406,17 +409,25 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			if err := pr.Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
-			f := IssueFilter{App: in.App, Status: in.Status, Limit: in.Limit}
+			limit := page.Clamp(in.Limit)
+			f := IssueFilter{App: in.App, Status: in.Status, Limit: limit + 1}
 			if in.Project != "" {
 				f.Projects = []string{in.Project}
 			} else if !pr.CanProject("*") {
 				f.Projects = append([]string{}, pr.Projects...)
 			}
+			if key, err := page.Decode(in.Cursor, 2); err != nil {
+				return nil, err
+			} else if key != nil {
+				f.AfterSeen, f.AfterID = key[0], key[1]
+			}
 			is, err := m.store.ListIssues(ctx, f)
 			if err != nil {
 				return nil, err
 			}
-			return &struct{ Body []Issue }{is}, nil
+			return &struct{ Body page.Page[Issue] }{page.Make(is, limit, func(i Issue) []string {
+				return []string{i.LastSeen.UTC().Format(time.RFC3339Nano), i.ID}
+			})}, nil
 		}))
 
 	g := api.Op("issue-get", http.MethodGet, "/v1/observe/issues/{id}", "issues get", api.RiskRead,
@@ -471,9 +482,10 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	m.registerTraceAPI(a)
 
 	huma.Register(a, api.Op("alerts-list", http.MethodGet, "/v1/observe/alerts", "alerts list", api.RiskRead,
-		"List alerts", "Alerts firing now and recent transitions with where each notification went. A key limited to some projects sees only those projects' alerts.", "observe"),
+		"List alerts", "Alerts firing now and recent transitions with where each notification went, a page of history at a time (the box keeps the last 1,000). "+
+			"A key limited to some projects sees only those projects' alerts.", "observe"),
 		api.Wrap(func(ctx context.Context, in *struct {
-			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50" doc:"History entries"`
+			page.Params
 		}) (*struct{ Body AlertsView }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
@@ -482,21 +494,31 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			if err := pr.Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
 			}
+			var before int64
+			if key, err := page.Decode(in.Cursor, 1); err != nil {
+				return nil, err
+			} else if key != nil {
+				if before, err = strconv.ParseInt(key[0], 10, 64); err != nil {
+					return nil, page.ErrBadCursor
+				}
+			}
 			fi, err := m.store.Firing(ctx)
 			if err != nil {
 				return nil, err
 			}
-			hi, err := m.store.History(ctx, in.Limit)
+			limit := page.Clamp(in.Limit)
+			hi, err := m.store.History(ctx, limit+1, before)
 			if err != nil {
 				return nil, err
 			}
-			v := AlertsView{Firing: []Alert{}, History: []HistoryEntry{}}
+			hp := page.Make(hi, limit, func(h HistoryEntry) []string { return []string{strconv.FormatInt(h.ID, 10)} })
+			v := AlertsView{Firing: []Alert{}, History: []HistoryEntry{}, NextCursor: hp.NextCursor}
 			for _, x := range fi {
 				if canSeeAlert(pr, x.Subject) {
 					v.Firing = append(v.Firing, x)
 				}
 			}
-			for _, x := range hi {
+			for _, x := range hp.Items {
 				if canSeeAlert(pr, x.Subject) {
 					v.History = append(v.History, x)
 				}

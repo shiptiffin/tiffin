@@ -238,8 +238,11 @@ func (s *Store) Firing(ctx context.Context) ([]Alert, error) {
 }
 
 // History returns recent transitions, newest first.
-func (s *Store) History(ctx context.Context, limit int) ([]HistoryEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, at, rule, subject, state, value, summary, delivery FROM alert_history ORDER BY id DESC LIMIT ?`, limit)
+func (s *Store) History(ctx context.Context, limit int, before int64) ([]HistoryEntry, error) {
+	if before <= 0 {
+		before = math.MaxInt64
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, at, rule, subject, state, value, summary, delivery FROM alert_history WHERE id < ? ORDER BY id DESC LIMIT ?`, before, limit)
 	if err != nil {
 		return nil, err
 	}

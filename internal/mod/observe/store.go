@@ -45,7 +45,9 @@ var schema = []string{
 		status TEXT NOT NULL, count INTEGER NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
 		resolved_at TEXT, last_release TEXT NOT NULL DEFAULT '',
 		UNIQUE(project, app, fingerprint))`,
-	`CREATE INDEX IF NOT EXISTS issues_project_seen ON issues(project, last_seen DESC)`,
+	`DROP INDEX IF EXISTS issues_project_seen`,
+	// The list's order, with the ID to break ties between pages.
+	`CREATE INDEX IF NOT EXISTS issues_project_recent ON issues(project, last_seen DESC, id DESC)`,
 	`CREATE TABLE IF NOT EXISTS issue_events (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id TEXT NOT NULL, event_id TEXT NOT NULL,
 		at TEXT NOT NULL, body TEXT NOT NULL)`,
@@ -364,9 +366,13 @@ type IssueFilter struct {
 	App      string
 	Status   string
 	Limit    int
+	// After is a page's position: the last issue of the page before.
+	AfterSeen string // its last_seen, as stored
+	AfterID   string
 }
 
-// ListIssues lists issues, most recently seen first.
+// ListIssues lists issues, most recently seen first (ties by ID). An issue
+// seen again while you page moves to the top: it may show twice, never not at all.
 func (s *Store) ListIssues(ctx context.Context, f IssueFilter) ([]Issue, error) {
 	q := `SELECT ` + issueCols + ` FROM issues WHERE 1 = 1`
 	var args []any
@@ -387,10 +393,14 @@ func (s *Store) ListIssues(ctx context.Context, f IssueFilter) ([]Issue, error) 
 		q += ` AND status = ?`
 		args = append(args, f.Status)
 	}
+	if f.AfterID != "" {
+		q += ` AND (last_seen < ? OR (last_seen = ? AND id < ?))`
+		args = append(args, f.AfterSeen, f.AfterSeen, f.AfterID)
+	}
 	if f.Limit <= 0 {
 		f.Limit = 50
 	}
-	q += ` ORDER BY last_seen DESC LIMIT ?`
+	q += ` ORDER BY last_seen DESC, id DESC LIMIT ?`
 	args = append(args, f.Limit)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {

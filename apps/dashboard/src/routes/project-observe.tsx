@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
@@ -11,6 +11,7 @@ import { historyQuery, useWindowTotals, type WindowTotals } from "@/components/o
 import { IssueRows, TraceRows } from "@/components/observe-lists";
 import { TopPaths } from "@/components/observe-paths";
 import type { ObserveSearch, ObserveTab } from "@/components/observe-search";
+import { ShowMore } from "@/components/more";
 import { Crumbs, Empty, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Segmented as RangePicker } from "@/components/segmented";
@@ -19,6 +20,7 @@ import { Select } from "@/components/ui/choice";
 import { ranges, UsageCharts, ViewToggle, type Range } from "@/components/usage-charts";
 import { cn } from "@/lib/cn";
 import { countWords, int, ms, num, pct } from "@/lib/format";
+import { pagedRows } from "@/lib/paged";
 import { useProjectPulse } from "@/lib/pulse";
 import { rememberProject } from "@/lib/recent";
 import { relative } from "@/lib/time";
@@ -386,17 +388,17 @@ const states = [
 /** The project's error issues: open first; resolved and ignored a click away. Each opens its issue page. */
 function Errors({ project, hasApps }: { project: string; hasApps?: boolean }) {
   const [st, setSt] = useState<Issue["status"]>("unresolved");
-  const list = useQuery({ ...mq.issues(project, st), retry: false });
+  const list = useInfiniteQuery({ ...mq.issuePages(project, st), retry: false, placeholderData: keepPreviousData });
   const open = useQuery({ ...mq.issues(project, "unresolved"), retry: false });
-  if (hasApps === false && !list.data?.length) return <NoApps project={project} what="its errors" />;
-  const issues = list.data ?? [];
+  const issues = pagedRows(list.data, (i) => i.id);
+  if (hasApps === false && !issues.length) return <NoApps project={project} what="its errors" />;
   const o = open.data ?? [];
   const worst = [...o].sort((a, b) => b.count - a.count)[0];
   const appsWith = new Set(o.map((i) => i.app));
   const line =
     o.length === 0
       ? "Nothing is going wrong."
-      : `${countWords(o.length, "open issue", "open issues", true)}${appsWith.size === 1 ? `, ${o.length > 1 ? "all " : ""}in ${[...appsWith][0]}` : ` across ${countWords(appsWith.size, "app")}`}. ${
+      : `${o.length >= 200 ? "200+ open issues" : countWords(o.length, "open issue", "open issues", true)}${appsWith.size === 1 ? `, ${o.length > 1 ? "all " : ""}in ${[...appsWith][0]}` : ` across ${countWords(appsWith.size, "app")}`}. ${
           o.length > 1 ? "The worst has" : "It has"
         } happened ${countWords(worst.count, "time")}, last seen ${relative(worst.lastSeen)}.`;
   // With nothing open, the empty state below carries the setup itself.
@@ -438,6 +440,7 @@ function Errors({ project, hasApps }: { project: string; hasApps?: boolean }) {
             <p className="border-y border-rule py-8 text-center text-[0.875rem] text-ink-3">{st === "resolved" ? "Nothing resolved yet." : "Nothing ignored."}</p>
           ))}
         {issues.length > 0 && <IssueRows issues={issues} resolved={st === "resolved"} />}
+        <ShowMore query={list} label="Show more issues" />
       </div>
     </>
   );
@@ -457,20 +460,23 @@ type Which = "slowest" | "recent" | "failed";
 function Requests({ project, hasApps }: { project: string; hasApps?: boolean }) {
   const [since, setSince] = useState<Window>("24h");
   const [which, setWhich] = useState<Which>("slowest");
-  const list = useQuery(
-    which === "recent"
-      ? { queryKey: ["traces", project, since, "recent"], queryFn: () => mod.traces(project, { since, sort: "recent" }), refetchInterval: 30_000, retry: false }
-      : { ...mq.traces(project, since, which === "failed"), retry: false },
-  );
-  if (hasApps === false && !list.data?.length) return <NoApps project={project} what="requests" />;
-  const traces = list.data ?? [];
+  const list = useInfiniteQuery({
+    ...mq.tracePages(project, since, which === "failed", which === "recent" ? "recent" : "slowest"),
+    retry: false,
+    placeholderData: keepPreviousData,
+  });
+  const traces = pagedRows(list.data, (t) => t.traceId);
+  if (hasApps === false && !traces.length) return <NoApps project={project} what="requests" />;
   const slow = traces.filter((t) => t.kept === "slow").length;
   const failed = traces.filter((t) => t.error).length;
   const slowest = traces.reduce((m, t) => Math.max(m, t.durationMs), 0);
+  // Counts only while every request is loaded; sorted by time, the slowest of a partial list says little.
   const line =
     traces.length === 0
       ? "No traced requests in this window."
-      : `${countWords(traces.length, "request", "requests", true)} kept${slow || failed ? `: ${[failed && countWords(failed, "failed", "failed"), slow && countWords(slow, "slow", "slow")].filter(Boolean).join(", ")}` : ""}. The slowest took ${ms(slowest)}.`;
+      : list.hasNextPage
+        ? `More than ${countWords(traces.length, "request")} kept.${which === "slowest" ? ` The slowest took ${ms(slowest)}.` : ""}`
+        : `${countWords(traces.length, "request", "requests", true)} kept${slow || failed ? `: ${[failed && countWords(failed, "failed", "failed"), slow && countWords(slow, "slow", "slow")].filter(Boolean).join(", ")}` : ""}. The slowest took ${ms(slowest)}.`;
 
   return (
     <>
@@ -511,6 +517,7 @@ function Requests({ project, hasApps }: { project: string; hasApps?: boolean }) 
           </div>
         )}
         {traces.length > 0 && <TraceRows traces={traces} />}
+        <ShowMore query={list} label="Show more requests" />
       </div>
     </>
   );

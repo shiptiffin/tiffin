@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { notOnBox } from "@/api/client";
@@ -8,6 +8,7 @@ import { Breaker } from "@/components/breaker";
 import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
 import { Alarm, Group, healthCrumbs, Rows, StateLine } from "@/components/health-kit";
+import { ShowMore } from "@/components/more";
 import { NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote, sentence } from "@/components/problem";
 import { toast } from "@/components/toast";
@@ -67,7 +68,7 @@ function condition(r: Pick<AlertRule, "kind" | "threshold" | "forSeconds" | "pro
 export function AlertsPage() {
   useTitle("Alerts");
   const qc = useQueryClient();
-  const alerts = useQuery(mq.alerts);
+  const alerts = useInfiniteQuery(mq.alertPages);
   const rules = useQuery(mq.rules);
   const settings = useQuery({ queryKey: ["observe-settings"], queryFn: mod.observeSettings });
   const { admin } = useMe();
@@ -92,8 +93,9 @@ export function AlertsPage() {
     },
   });
   if (alerts.isError && notOnBox(alerts.error)) return <NotOnBox what="Alerts" />;
-  const firing = alerts.data?.firing ?? [];
-  const history = alerts.data?.history ?? [];
+  const firing = alerts.data?.pages[0]?.firing ?? [];
+  const seen = new Set<number>();
+  const history = (alerts.data?.pages ?? []).flatMap((p) => p.history ?? []).filter((h) => !seen.has(h.id) && seen.add(h.id));
   const list = rules.data ?? [];
   const on = list.filter((r) => r.enabled).length;
   const s = settings.data;
@@ -206,7 +208,7 @@ export function AlertsPage() {
         </p>
       </Group>
 
-      <Group label="History" id="history" aside={history.length > 1 ? `the latest ${words(history.length)}` : undefined}>
+      <Group label="History" id="history" aside={history.length > 1 && alerts.hasNextPage ? `the latest ${words(history.length)}` : undefined}>
         {history.length === 0 ? (
           <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">Nothing has fired yet.</p>
         ) : (
@@ -235,6 +237,7 @@ export function AlertsPage() {
             </div>
           ))
         )}
+        <ShowMore query={alerts} label="Show earlier alerts" />
       </Group>
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>

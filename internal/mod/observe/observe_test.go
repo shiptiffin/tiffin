@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -136,6 +137,9 @@ func newHarness(t *testing.T, vic *Victoria) *harness {
 	return h
 }
 
+// items is a page's rows.
+func items(pg map[string]any) []any { l, _ := pg["items"].([]any); return l }
+
 func (h *harness) call(token, method, path string, body any) (int, map[string]any, []any) {
 	h.t.Helper()
 	var rd io.Reader
@@ -218,7 +222,8 @@ func TestSentryIngestAndIssuesAPI(t *testing.T) {
 		t.Fatalf("key for another id: %d", c)
 	}
 
-	code, _, issues := h.call(h.owner, "GET", "/v1/observe/issues?project=shop", nil)
+	code, pg, _ := h.call(h.owner, "GET", "/v1/observe/issues?project=shop", nil)
+	issues := items(pg)
 	if code != 200 || len(issues) != 2 {
 		t.Fatalf("issues: %d %v", code, issues)
 	}
@@ -237,8 +242,8 @@ func TestSentryIngestAndIssuesAPI(t *testing.T) {
 	if code, _, _ := h.call(other, "GET", "/v1/observe/issues/"+iid, nil); code != 404 {
 		t.Fatalf("other project's agent got %d", code)
 	}
-	if _, _, l := h.call(other, "GET", "/v1/observe/issues", nil); len(l) != 0 {
-		t.Fatalf("other agent lists %v", l)
+	if _, pg, _ := h.call(other, "GET", "/v1/observe/issues", nil); len(items(pg)) != 0 {
+		t.Fatalf("other agent lists %v", pg)
 	}
 	shopAgent := h.agent("shop")
 	if code, out, _ := h.call(shopAgent, "POST", "/v1/observe/issues/"+iid+"/resolve", map[string]any{}); code != 200 || out["status"] != "resolved" {
@@ -483,5 +488,58 @@ func TestLaterDefaultRules(t *testing.T) {
 	_ = st.EnsureDefaultRules(ctx)
 	if got := names(); strings.Contains(got, "offsite-stale") || strings.Contains(got, "disk-full") {
 		t.Fatalf("deleted rules came back: %s", got)
+	}
+}
+
+// Issues page by (last seen, ID), filters holding with the cursor; alert
+// history by ID.
+func TestIssuesAndHistoryPage(t *testing.T) {
+	ctx := t.Context()
+	s, err := OpenStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := "2026-10-08T12:00:00Z"
+	for i, id := range []string{"iss_a", "iss_b", "iss_c", "iss_d", "iss_e"} {
+		status := "unresolved"
+		if i%2 == 1 {
+			status = "resolved"
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO issues(id, project, app, fingerprint, title, culprit, level, platform, status, count, first_seen, last_seen)
+			VALUES (?, 'shop', 'web', ?, 't', 'c', 'error', 'node', ?, 1, ?, ?)`, id, id, status, seen, seen); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(f IssueFilter) (ids []string) {
+		for range 10 {
+			l, err := s.ListIssues(ctx, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, x := range l {
+				ids = append(ids, x.ID)
+			}
+			if len(l) < f.Limit {
+				return ids
+			}
+			f.AfterSeen, f.AfterID = l[len(l)-1].LastSeen.UTC().Format(time.RFC3339Nano), l[len(l)-1].ID
+		}
+		t.Fatal("paging never ended")
+		return nil
+	}
+	if got := strings.Join(read(IssueFilter{Projects: []string{"shop"}, Limit: 2}), " "); got != "iss_e iss_d iss_c iss_b iss_a" {
+		t.Errorf("same last seen, pages of 2: %s", got)
+	}
+	if got := strings.Join(read(IssueFilter{Status: "unresolved", Limit: 1}), " "); got != "iss_e iss_c iss_a" {
+		t.Errorf("unresolved, pages of 1: %s", got)
+	}
+
+	for i := range 5 {
+		s.addHistory(ctx, HistoryEntry{At: time.Now(), Rule: "r", Subject: "project:shop", State: "firing", Summary: strconv.Itoa(i)})
+	}
+	first, _ := s.History(ctx, 3, 0)
+	rest, _ := s.History(ctx, 3, first[len(first)-1].ID)
+	if len(first) != 3 || len(rest) != 2 || first[0].Summary != "4" || rest[1].Summary != "0" {
+		t.Errorf("history pages: %v %v", first, rest)
 	}
 }

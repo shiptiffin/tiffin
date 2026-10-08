@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
@@ -8,6 +8,7 @@ import type { components } from "@/api/schema";
 import { useTitle } from "@/components/favicon";
 import { BarStrip } from "@/components/health-chart";
 import { Calm, Facts, Group, LevelWord, StateLine } from "@/components/health-kit";
+import { ShowMore } from "@/components/more";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { countWords, int, num, words } from "@/lib/format";
+import { pagedRows } from "@/lib/paged";
 import { useMe } from "@/lib/me";
 import { full, relative } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
@@ -37,12 +39,13 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
   useTitle("Errors");
   const navigate = useNavigate();
   const st = (states.some((s) => s.v === status) ? status : "unresolved") as Issue["status"];
-  const list = useQuery(mq.issues(project, st));
-  const openCount = useQuery({ ...mq.issues(project, "unresolved"), enabled: st !== "unresolved" });
+  const list = useInfiniteQuery({ ...mq.issuePages(project, st), placeholderData: keepPreviousData });
+  // The sentence counts open issues from the latest 200.
+  const openCount = useQuery(mq.issues(project, "unresolved"));
   const projects = useQuery(core.projects);
   if (list.isError && notOnBox(list.error)) return <NotOnBox what="Error tracking" />;
-  const issues = list.data ?? [];
-  const open = st === "unresolved" ? issues : (openCount.data ?? []);
+  const issues = pagedRows(list.data, (i) => i.id);
+  const open = openCount.data ?? [];
   const set = (o: { project?: string; status?: string }) => navigate({ to: "/errors", search: { project, status: st === "unresolved" ? undefined : st, ...o } });
 
   const apps = new Set(open.map((i) => `${i.project}’s ${i.app}`));
@@ -50,7 +53,7 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
   const line =
     open.length === 0
       ? "Nothing is going wrong."
-      : `${countWords(open.length, "open issue", "open issues", true)}${apps.size === 1 ? `, ${open.length > 1 ? "all " : ""}in ${[...apps][0]}` : ` across ${words(apps.size)} apps`}. ${
+      : `${open.length >= 200 ? "200+ open issues" : countWords(open.length, "open issue", "open issues", true)}${apps.size === 1 ? `, ${open.length > 1 ? "all " : ""}in ${[...apps][0]}` : ` across ${words(apps.size)} apps`}. ${
           open.length > 1 ? `The worst has happened ${countWords(worst.count, "time")}, last seen ${relative(worst.lastSeen)}.` : `It has happened ${countWords(worst.count, "time")}, last seen ${relative(worst.lastSeen)}.`
         }`;
 
@@ -143,6 +146,7 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
             })}
           </ul>
         )}
+        <ShowMore query={list} label="Show more issues" />
       </div>
     </Page>
   );
