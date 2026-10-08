@@ -233,7 +233,7 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
                 </b>
                 <span className="cp-price">{money(o.monthlyNet, r.currency)}/mo</span>
                 <small>
-                  {o.cores} vCPU {o.arch === "arm64" ? "(ARM)" : ""}, {o.memoryGB} GB RAM, {o.diskGB} GB disk + 40 GB data volume
+                  {o.cores} vCPU{o.arch === "arm64" ? " (ARM)" : ""}, {o.memoryGB} GB RAM, {o.diskGB} GB disk + 40 GB data volume
                   {o.available ? "" : " · sold out here right now"}
                 </small>
               </label>

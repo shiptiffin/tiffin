@@ -43,7 +43,7 @@ export function Header() {
           <Link href="/#faq" className="nav-link hide-md">
             Questions
           </Link>
-          <a href={DASHBOARD} className="nav-link">
+          <a href="/account" className="nav-link">
             Sign in
           </a>
           <Link href="/start" className="btn btn-primary btn-sm">
@@ -70,7 +70,7 @@ export function Footer() {
             Privacy policy
           </Link>
           <Link href="/terms">Terms of service</Link>
-          <a href={DASHBOARD}>Sign in</a>
+          <a href="/account">Sign in</a>
         </nav>
       </div>
     </footer>
