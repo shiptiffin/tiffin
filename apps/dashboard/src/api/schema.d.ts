@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * List audit events
-         * @description Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).
+         * @description Security events that are not changes, newest first, a page at a time: keys created and revoked, sign-ins, people invited. Kept a year. More follow when nextCursor is set: pass it as cursor. Box admins only (a key with full access to all projects, or an owner or admin person).
          */
         get: operations["audit-list"];
         put?: never;
@@ -9327,6 +9327,12 @@ export interface components {
             reason: string;
             risk: string;
         };
+        PageAuditEvent: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["AuditEvent"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
+        };
         PageAuthOrg: {
             /** @description This page, in the list's order */
             items: components["schemas"]["AuthOrg"][];
@@ -13485,7 +13491,10 @@ export interface operations {
     "audit-list": {
         parameters: {
             query?: {
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -13499,7 +13508,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuditEvent"][] | null;
+                    "application/json": components["schemas"]["PageAuditEvent"];
                 };
             };
             /** @description Bad Request */
