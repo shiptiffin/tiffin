@@ -28,6 +28,10 @@ type Licence struct {
 	Domain string `json:"domain"`
 	// Issued is when the control plane made it (Unix seconds).
 	Issued int64 `json:"iat"`
+	// Gen is the installation generation: each setup of the box gets the
+	// next one, and the control plane only believes the current one, so a
+	// licence from an earlier install (a restored backup, a copy) is revoked.
+	Gen int64 `json:"gen,omitempty"`
 }
 
 var b64 = base64.RawURLEncoding

@@ -2,9 +2,9 @@
 // shiptiffin.com installed in the customer's own cloud account. It is off on
 // every other box (no /etc/tiffin/managed.json).
 //
-// Once a day (and once soon after it starts) the box checks in with the
-// control plane: its Tiffin version, how long it has run and the names of
-// any failing status checks. Nothing else: no project names, no data, no
+// Every six hours (and once soon after it starts) the box checks in with
+// the control plane: its Tiffin version, how long it has run and the names
+// of any failing status checks. Nothing else: no project names, no data, no
 // addresses. The answer says whether the subscription is active, which
 // decides whether the box installs Tiffin updates by itself. Nothing here
 // ever stops or slows the customer's apps, whatever the answer.
@@ -34,9 +34,12 @@ import (
 func init() { platform.Register(&Module{}) }
 
 const (
-	// Every is how often a box checks in, give or take Jitter.
-	Every  = 24 * time.Hour
-	Jitter = time.Hour
+	// Every is how often a box checks in, give or take Jitter. The control
+	// plane parks a box's shiptiffin.app address after 72 hours without a
+	// check-in, and puts it back at the next one: often enough that a
+	// renewal or a restart brings the address back within hours.
+	Every  = 6 * time.Hour
+	Jitter = 30 * time.Minute
 	// Retry is the wait after a check-in that got no answer.
 	Retry = time.Hour
 	// FirstWithin: the first check-in comes within this after start.

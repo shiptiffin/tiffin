@@ -19,6 +19,7 @@ import (
 	"github.com/btahir/tiffin/internal/install"
 	"github.com/btahir/tiffin/internal/provider"
 	"github.com/btahir/tiffin/internal/provider/lima"
+	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/spf13/cobra"
 )
 
@@ -511,6 +512,39 @@ func (a *app) loginCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&open, "open", false, "open the link in your browser")
+	return cmd
+}
+
+// bootstrapLinkCmd runs on a box as root: it makes the one-time owner
+// sign-in link a control plane hands to the person it set the box up for
+// (see tokens.BootstrapLink). The owner token stays on the box.
+func (a *app) bootstrapLinkCmd() *cobra.Command {
+	var valid time.Duration
+	cmd := &cobra.Command{
+		Use:    "bootstrap-link",
+		Short:  "Make a one-time owner sign-in link that expires on the box (control plane setup)",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			b, _, err := openBox(ctx, a.home)
+			if err != nil {
+				return err
+			}
+			defer b.Close()
+			owner, err := b.tokens.Authenticate(ctx, readOwnerToken(a.home))
+			if err != nil {
+				return &exitError{ExitAuth, "the owner token on this box does not work: " + err.Error()}
+			}
+			code, exp, err := b.tokens.BootstrapLink(ctx, owner, valid)
+			if err != nil {
+				return &exitError{ExitInvalid, err.Error()}
+			}
+			writeJSON(a.io.Out, map[string]any{"code": code, "expiresAt": exp.UTC()})
+			return nil
+		},
+	}
+	cmd.Flags().DurationVar(&valid, "valid", tokens.BootstrapTTL, "how long the link works (at most 24h)")
 	return cmd
 }
 

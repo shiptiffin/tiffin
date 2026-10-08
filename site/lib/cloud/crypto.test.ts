@@ -9,7 +9,7 @@ const GO_SEALED =
   "v1.b39NKLEi4QBWggGeqppbcynpdUfBeoz4-cJnwBCKbtWEEkE_gWbPG7jCp2onEuFgxjG8hm_vE5OecKlo.evbBQIV0U4M6J1vf7VLIj_fF3kBqnqBfKu0xczRhoMGgYt4UiJuShHIKJ4TgNDM";
 const SEED = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const GO_LICENCE =
-  "tl1.eyJ2IjoxLCJib3giOiJib3hfdGVzdDEiLCJuYW1lIjoic2hvcCIsImRvbWFpbiI6InNob3Auc2hpcHRpZmZpbi5hcHAiLCJpYXQiOjE3OTE0MjQwMDB9.2mTyCQpuWP66FZq723Ql6u5Nar4pWzJCCUGgf80JW2ZMDXw288-RGYaRLVqcFbAO72mOeh1pJPOpaL-QPz26CQ";
+  "tl1.eyJ2IjoxLCJib3giOiJib3hfdGVzdDEiLCJuYW1lIjoic2hvcCIsImRvbWFpbiI6InNob3Auc2hpcHRpZmZpbi5hcHAiLCJpYXQiOjE3OTE0MjQwMDAsImdlbiI6M30.d1O3mppmVMiRh37mPtUUV_-4G8yRYmQTvrGbryTHHmNCLDrVPg2Ezrf8sXpr9Po0VMIYm9UiPbMcteiBtKh8DA";
 
 describe("seal", () => {
   const kek = kekFrom(KEK)!;
@@ -55,7 +55,7 @@ describe("licence", () => {
 
   test("verifies the Go-signed vector", () => {
     const l = verifyLicence(pub, GO_LICENCE);
-    expect(l).toEqual({ v: 1, box: "box_test1", name: "shop", domain: "shop.shiptiffin.app", iat: 1791424000 });
+    expect(l).toEqual({ v: 1, box: "box_test1", name: "shop", domain: "shop.shiptiffin.app", iat: 1791424000, gen: 3 });
   });
 
   test("refuses changed, foreign and malformed tokens", () => {

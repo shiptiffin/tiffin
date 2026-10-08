@@ -12,7 +12,7 @@ import (
 // verifies too: a fixed seed and payload give one exact token.
 const (
 	vectorSeed  = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
-	vectorToken = "tl1.eyJ2IjoxLCJib3giOiJib3hfdGVzdDEiLCJuYW1lIjoic2hvcCIsImRvbWFpbiI6InNob3Auc2hpcHRpZmZpbi5hcHAiLCJpYXQiOjE3OTE0MjQwMDB9.2mTyCQpuWP66FZq723Ql6u5Nar4pWzJCCUGgf80JW2ZMDXw288-RGYaRLVqcFbAO72mOeh1pJPOpaL-QPz26CQ"
+	vectorToken = "tl1.eyJ2IjoxLCJib3giOiJib3hfdGVzdDEiLCJuYW1lIjoic2hvcCIsImRvbWFpbiI6InNob3Auc2hpcHRpZmZpbi5hcHAiLCJpYXQiOjE3OTE0MjQwMDAsImdlbiI6M30.d1O3mppmVMiRh37mPtUUV_-4G8yRYmQTvrGbryTHHmNCLDrVPg2Ezrf8sXpr9Po0VMIYm9UiPbMcteiBtKh8DA"
 )
 
 func TestSignVerify(t *testing.T) {
@@ -21,7 +21,7 @@ func TestSignVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub := key.Public().(ed25519.PublicKey)
-	tok, err := Sign(key, Licence{BoxID: "box_test1", Name: "shop", Domain: "shop.shiptiffin.app", Issued: 1791424000})
+	tok, err := Sign(key, Licence{BoxID: "box_test1", Name: "shop", Domain: "shop.shiptiffin.app", Issued: 1791424000, Gen: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestSignVerify(t *testing.T) {
 		t.Fatalf("token changed (update site/lib/cloud/licence.test.ts too):\n%s", tok)
 	}
 	l, err := Verify(pub, tok)
-	if err != nil || l.BoxID != "box_test1" || l.Name != "shop" || l.Domain != "shop.shiptiffin.app" || l.Issued != 1791424000 {
+	if err != nil || l.BoxID != "box_test1" || l.Name != "shop" || l.Domain != "shop.shiptiffin.app" || l.Issued != 1791424000 || l.Gen != 3 {
 		t.Fatalf("verify: %+v %v", l, err)
 	}
 	pk, err := ParsePublicKey(PublicKeyText(pub))

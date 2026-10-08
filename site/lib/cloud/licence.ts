@@ -4,7 +4,7 @@
 // (a 32-byte ed25519 seed); the public half is derived here.
 import { createPrivateKey, createPublicKey, verify, type KeyObject } from "node:crypto";
 
-export type Licence = { v: number; box: string; name: string; domain: string; iat: number };
+export type Licence = { v: number; box: string; name: string; domain: string; iat: number; gen?: number };
 
 const PKCS8_ED25519 = Buffer.from("302e020100300506032b657004220420", "hex");
 

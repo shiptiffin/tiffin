@@ -30,6 +30,25 @@ func (m *Manager) CreateLoginLink(ctx context.Context, by *Principal) (string, t
 	return m.LoginLinkFor(ctx, by, by.Person)
 }
 
+// BootstrapTTL is the longest a bootstrap sign-in link lives.
+const BootstrapTTL = 24 * time.Hour
+
+// BootstrapLink makes the one sign-in link a box hands to whoever set it up
+// for someone else (ShipTiffin's control plane, for a managed box): a
+// one-time link that signs the owner in, made by the owner token, valid for
+// ttl (at most BootstrapTTL). The box enforces both: the link works once and
+// never after it expires, even if a copy of it leaks later. The owner token
+// itself never leaves the box. Only the owner token may make one.
+func (m *Manager) BootstrapLink(ctx context.Context, by *Principal, ttl time.Duration) (string, time.Time, error) {
+	if by == nil || by.Kind != KindOwner {
+		return "", time.Time{}, fmt.Errorf("%w: only the owner token makes a bootstrap sign-in link", ErrForbidden)
+	}
+	if ttl <= 0 || ttl > BootstrapTTL {
+		return "", time.Time{}, fmt.Errorf("%w: a bootstrap link lasts at most %s", ErrInvalid, BootstrapTTL)
+	}
+	return m.insertLink(ctx, by.TokenID, OwnerPerson, ttl)
+}
+
 // RedeemLoginLink spends a login code (once) and mints a dashboard session for
 // the person it was made for: their own role, SessionTTL, sponsored by nobody
 // (the session is theirs, not the sender's). It also says how the session

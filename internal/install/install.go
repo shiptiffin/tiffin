@@ -68,6 +68,10 @@ type Options struct {
 	// /etc/tiffin/managed.json, it turns on the daily check-in. Nil for a
 	// box installed with tiffin up.
 	Managed *platform.ManagedConfig
+	// NoOwnerToken: don't read the owner token back (Result.OwnerToken
+	// stays empty). A control plane setting a box up for someone else
+	// leaves it on the box and takes a bootstrap sign-in link instead.
+	NoOwnerToken bool
 }
 
 // PublicURL is the dashboard URL for these options.
@@ -269,9 +273,12 @@ exit $rc`
 		}
 		return nil, fmt.Errorf("%s\n%s", strings.TrimSpace(out), strings.TrimSpace(stderr))
 	}
-	tok, stderr, err := m.Exec(ctx, "sudo cat "+Home+"/owner-token")
-	if err != nil {
-		return nil, fmt.Errorf("read owner token: %w\n%s", err, stderr)
+	var tok string
+	if !o.NoOwnerToken {
+		var stderr string
+		if tok, stderr, err = m.Exec(ctx, "sudo cat "+Home+"/owner-token"); err != nil {
+			return nil, fmt.Errorf("read owner token: %w\n%s", err, stderr)
+		}
 	}
 	ca, stderr, err := m.Exec(ctx, caScript(Home))
 	if err != nil {
