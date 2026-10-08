@@ -33,7 +33,9 @@ export function RestoreChooser({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">{open && <Choose sets={sets} range={range} onPick={onPick} onCancel={() => onOpenChange(false)} />}</DialogContent>
+      <DialogContent className="max-w-lg">
+        {open && <Choose sets={sets} range={range} onPick={onPick} onCancel={() => onOpenChange(false)} />}
+      </DialogContent>
     </Dialog>
   );
 }
@@ -53,7 +55,12 @@ function Choose({ sets, range, onPick, onCancel }: { sets: Backup[]; range: Rang
         <DialogDescription>Choose where to go back to. Nothing changes until you confirm on the next step.</DialogDescription>
       </DialogHeader>
       <DialogBody>
-        <RadioGroup value={kind} onValueChange={(v) => setKind(v as typeof kind)} aria-label="Restore to" className="flex flex-col divide-y divide-rule border-y border-rule">
+        <RadioGroup
+          value={kind}
+          onValueChange={(v) => setKind(v as typeof kind)}
+          aria-label="Restore to"
+          className="flex flex-col divide-y divide-rule border-y border-rule"
+        >
           <Choice value="latest" label="Latest" hint={sets[0] ? `The newest backup, from ${relative(sets[0].startedAt)}.` : "No backup yet."} />
           <Choice value="set" label="A backup" hint="One of the backups in the history.">
             {kind === "set" && (
@@ -110,7 +117,19 @@ function Choose({ sets, range, onPick, onCancel }: { sets: Backup[]; range: Rang
   );
 }
 
-function Choice({ value, label, hint, disabled, children }: { value: string; label: string; hint: string; disabled?: boolean; children?: ReactNode }) {
+function Choice({
+  value,
+  label,
+  hint,
+  disabled,
+  children,
+}: {
+  value: string;
+  label: string;
+  hint: string;
+  disabled?: boolean;
+  children?: ReactNode;
+}) {
   const id = `restore-${value}`;
   return (
     <div className="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-3 py-3">

@@ -5,7 +5,17 @@ import { dayName, fromLocalInput, groupByDay, inRange, minInput, shortDate, toLo
 // Times are built in local time, so the tests hold in any time zone.
 const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).toISOString();
 const set = (id: string, startedAt: string, status = "ok", kind = "incremental", repo = 100): Backup =>
-  ({ id, kind, trigger: "schedule", status, startedAt, durationMs: 1000, postgres: { label: id, type: kind, sizeBytes: 5000, repoBytes: repo }, valkey: { sizeBytes: 10 }, platform: { sizeBytes: 1 } }) as unknown as Backup;
+  ({
+    id,
+    kind,
+    trigger: "schedule",
+    status,
+    startedAt,
+    durationMs: 1000,
+    postgres: { label: id, type: kind, sizeBytes: 5000, repoBytes: repo },
+    valkey: { sizeBytes: 10 },
+    platform: { sizeBytes: 1 },
+  }) as unknown as Backup;
 
 test("groups a newest-first history by local day", () => {
   const now = new Date(2026, 9, 7, 20, 0);

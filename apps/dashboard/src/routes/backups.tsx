@@ -145,8 +145,10 @@ export function BackupsPage() {
       {run.isError && <ProblemNote className="mt-6" error={run.error} />}
       {done && (
         <p className="mt-6 max-w-[48rem] text-[0.875rem] text-ink">
-          Restored {done.targets?.map((t) => targetCopy[t] ?? t).join(" and ")} {done.time ? `to ${full(done.time)} (from ${done.backup})` : `from ${done.backup}`} in {ms(done.durationMs)}. If that was
-          a mistake, restore{" "}
+          {done.time
+            ? `Restored the database to ${full(done.time)}, and the rest to backup ${done.backup}, the newest before it,`
+            : `Restored ${done.targets?.map((t) => targetCopy[t] ?? t).join(" and ")} from ${done.backup}`}{" "}
+          in {ms(done.durationMs)}. If that was a mistake, restore{" "}
           <code className="ident">{done.safetyBackup}</code>: it’s what was there a moment ago.
         </p>
       )}
