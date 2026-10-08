@@ -20,7 +20,7 @@ const sections: Section[] = [
     body: (
       <>
         <p>
-          These terms are between you and ShipTiffin, the operator of the hosted Tiffin service at shiptiffin.com,
+          These terms are between you and ShipTiffin, the operator of the ShipTiffin service at shiptiffin.com,
           dashboard.shiptiffin.com and shiptiffin.app (&ldquo;the service&rdquo;). By using the service, you agree
           to them. If you use it for an organisation, you agree for that organisation and confirm you may.
         </p>
@@ -37,17 +37,28 @@ const sections: Section[] = [
     body: (
       <>
         <p>
-          We run a server (&ldquo;your box&rdquo;) for you with Tiffin installed, and keep it updated. You use it to
-          run your own projects: apps, databases, files, email, jobs and the rest.
+          ShipTiffin sets up a server (&ldquo;your box&rdquo;) in your own Hetzner Cloud account, installs Tiffin on
+          it, and then keeps it updated, watches it from outside and helps when you ask. You use it to run your own
+          projects: apps, databases, files, email, jobs and the rest. The service includes a free address under
+          shiptiffin.app.
+        </p>
+        <p>
+          The server is yours. Hetzner bills you for it under your own agreement with them, at their prices, and
+          their terms apply to it as well as these. We are not responsible for Hetzner&rsquo;s service, prices or
+          availability.
         </p>
         <p>
           ShipTiffin is in early access and Tiffin is before version 1.0. Features may change, and we may add,
           change or remove parts of the service. When a change takes something away that you rely on, we tell you
           ahead of time where we can.
         </p>
+        <h3 id="key">Your Hetzner API key</h3>
         <p>
-          For now, ShipTiffin is by invitation only. Anyone can <Link href="/#invite">request an invite</Link>; we
-          send invites in small groups, and an invite is needed to open an account.
+          To create your box you give us an API key for a Hetzner Cloud project. We use it only to create and
+          change the server, its disk and its firewall that ShipTiffin needs, and only when you ask. By default we
+          do not keep it after setup; resizing later asks you for a key again. You can revoke the key in Hetzner at
+          any time. After setup we do not keep a way to sign in to your server; updates are fetched by the box
+          itself.
         </p>
       </>
     ),
@@ -59,16 +70,15 @@ const sections: Section[] = [
       <>
         <p>
           You own your code, your apps and the data in them. We claim no rights to them beyond what we need to run
-          the service for you: storing them, running them, backing them up on your box and serving them to your
-          visitors.
+          the service for you. They live on your server, and do not pass through ours.
         </p>
         <p>
           You are responsible for your apps and their content, for having the rights to what you put on your box,
           and for treating your own users&rsquo; data lawfully, including telling them how you use it.
         </p>
         <p>
-          We keep restore points on your box and backup copies off it for 30 days. No backup is a guarantee, so for
-          anything that matters, keep your own copies too: export your projects regularly.
+          Your box keeps restore points on it, and copies elsewhere if you set a destination. No backup is a
+          guarantee, so for anything that matters, keep your own copies too: export your projects regularly.
         </p>
       </>
     ),
@@ -105,9 +115,9 @@ const sections: Section[] = [
         <h3>Email</h3>
         <p>
           Your apps send mail through the mail provider you connect to your box, under that provider&rsquo;s
-          terms as well as these. Abusive mail from a box still harms our servers&rsquo; reputation and other
-          customers. If your box sends spam, phishing or other abusive mail, we may stop its mail or suspend the
-          box right away, and tell you why.
+          terms as well as these. Abusive mail from a box harms the shiptiffin.app name and other customers. If
+          your box sends spam, phishing or other abusive mail, we may stop the service for it right away, and tell
+          you why.
         </p>
       </>
     ),
@@ -117,10 +127,12 @@ const sections: Section[] = [
     title: "Suspension",
     body: (
       <p>
-        We may suspend a box or account that breaks these terms, puts the service or other people at risk, or that
-        we are legally required to stop. Where we can, we warn you first and give you a chance to fix the problem.
-        When it can&rsquo;t wait (abusive mail, malware, non-consensual intimate imagery, an active attack), we
-        act first and tell you straight after. A suspended box keeps its data while we sort it out.
+        We may suspend the service for a box or account that breaks these terms, puts the service or other people
+        at risk, or that we are legally required to stop: its updates, its shiptiffin.app address and the rest of
+        what we provide. Where we can, we warn you first and give you a chance to fix the problem. When it
+        can&rsquo;t wait (abusive mail, malware, non-consensual intimate imagery, an active attack), we act first
+        and tell you straight after. We may also report abuse to Hetzner. Your server and its data stay in your
+        Hetzner account.
       </p>
     ),
   },
@@ -130,25 +142,24 @@ const sections: Section[] = [
     body: (
       <>
         <p>
-          You pay a flat price for each box, monthly or yearly: Starter $29 a month, Plus $59 and Pro
-          $119, or 11 times the monthly price for a year; a dedicated box from $249 a month, as agreed with you.
-          The current prices are in the <Link href="/#pricing">pricing section</Link>, and the price of your box is
-          shown before you subscribe. Prices are for the box, not for usage: there are no charges per request, per
-          project or per person.
+          You pay ShipTiffin $19 a month for each box, monthly. The founding price, for our first 100 customers, is
+          $12 a month, and it does not go up for 24 months from when you subscribe. The current prices are in the{" "}
+          <Link href="/#pricing">pricing section</Link>, and the price is shown before you subscribe. There are no
+          charges per request, per project or per person.
         </p>
-        <p>
-          Founding members, people invited from the request list, get 25% off their first year, and their price
-          does not go up for 24 months from when they subscribe.
-        </p>
+        <p>Your server is billed separately, by Hetzner, to you.</p>
         <h3 id="refunds">Money-back guarantee</h3>
         <p>
-          If ShipTiffin isn&rsquo;t for you, ask within 14 days of your first payment and we refund it in full. Write
-          to {mail} from your account&rsquo;s address.
+          If ShipTiffin isn&rsquo;t for you, ask within 14 days of your first payment to us and we refund it in full.
+          Write to {mail} from your account&rsquo;s address. Hetzner&rsquo;s charges for your server are between you
+          and Hetzner.
         </p>
         <h3 id="cancel">Cancelling</h3>
         <p>
-          You can cancel at any time by writing to {mail}. A monthly box keeps running to the
-          end of the month you have paid for, and is not charged again.
+          You can cancel at any time by writing to {mail}. The service runs to the end of the month you have paid
+          for, and is not charged again. Your server and your apps keep running in your Hetzner account; updates,
+          monitoring, the shiptiffin.app address and support stop. To stop paying Hetzner too, delete the server
+          there.
         </p>
       </>
     ),
@@ -164,9 +175,10 @@ const sections: Section[] = [
           Tiffin box, and whose contents are ordinary files you can use without Tiffin.
         </p>
         <p>
-          When you close your account, or we end the service for you, we give you at least 30 days to export,
-          except when we suspended you for abuse that makes that unsafe. After that we delete your box and
-          everything on it.
+          When you close your account, or we end the service for you, your server stays in your Hetzner account
+          with everything on it. We give you at least 30 days&rsquo; notice before its shiptiffin.app address
+          stops, except when we suspended you for abuse, and delete what we hold about your account as the{" "}
+          <Link href="/privacy">privacy policy</Link> says.
         </p>
         <p>
           We may end these terms with 30 days&rsquo; notice for any reason, or straight away for a serious breach.
@@ -180,10 +192,10 @@ const sections: Section[] = [
     title: "No warranty",
     body: (
       <p>
-        We work hard to keep your box running, secure and backed up. But the service is provided{" "}
+        We work hard to keep your box updated, secure and backed up. But the service is provided{" "}
         <strong>&ldquo;as is&rdquo; and &ldquo;as available&rdquo;</strong>, without warranties of any kind, express
         or implied, including that it will be uninterrupted, error-free or fit for a particular purpose. Each box is
-        one server: if it goes down, your apps go down with it. Don&rsquo;t rely on ShipTiffin alone for anything
+        one server in your Hetzner account: if it goes down, your apps go down with it. Don&rsquo;t rely on ShipTiffin alone for anything
         where downtime or data loss would cause serious harm.
       </p>
     ),

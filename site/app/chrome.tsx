@@ -46,8 +46,8 @@ export function Header() {
           <a href={DASHBOARD} className="nav-link">
             Sign in
           </a>
-          <Link href="/#invite" className="btn btn-primary btn-sm">
-            Request an invite
+          <Link href="/start" className="btn btn-primary btn-sm">
+            Get started
           </Link>
         </nav>
       </div>

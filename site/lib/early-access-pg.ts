@@ -43,15 +43,15 @@ create table if not exists invite_requests (
 );
 create index if not exists invite_requests_status on invite_requests (status, created_at);
 
-comment on table invite_requests is ${q("Requests for a ShipTiffin invite from shiptiffin.com, one row per email address. To invite someone: send the invite, then set status to invited and invited_at to now(). Unconfirmed requests are deleted after 30 days, joined and declined ones 12 months after their last change. To remove someone completely, delete the row.")};
+comment on table invite_requests is ${q("The sign-up list from shiptiffin.com/start (people waiting for their sign-up link), one row per email address. When you send someone their link, set status to invited and invited_at to now(). Unconfirmed requests are deleted after 30 days, joined and declined ones 12 months after their last change. To remove someone completely, delete the row.")};
 comment on column invite_requests.id is 'Row number, in the order requests arrived.';
 comment on column invite_requests.email is 'Email address, lower-cased. Unique.';
 comment on column invite_requests.name is 'Their name, if given.';
 comment on column invite_requests.role is ${q(`What do you build? ${values(ROLE_CHOICES)}`)};
-comment on column invite_requests.status is 'Yours to set: requested (waiting), invited (invite sent), joined (opened an account) or declined (not inviting them).';
-comment on column invite_requests.invited_at is 'When you sent their invite. Set it with status = invited.';
+comment on column invite_requests.status is 'Yours to set: requested (waiting), invited (sign-up link sent), joined (signed up) or declined (not sending one).';
+comment on column invite_requests.invited_at is 'When you sent their sign-up link. Set it with status = invited.';
 comment on column invite_requests.notes is 'Your own notes about them. Never shown to them.';
-comment on column invite_requests.email_confirmed_at is 'When they clicked the link in the confirmation email. Empty: not confirmed yet, so do not invite.';
+comment on column invite_requests.email_confirmed_at is 'When they clicked the link in the confirmation email. Empty: not confirmed yet, so do not send a link.';
 comment on column invite_requests.host_first is 'What would you host first?';
 comment on column invite_requests.projects is ${q(`How many projects? ${values(PROJECT_CHOICES)}`)};
 comment on column invite_requests.current_tools is ${q(`What do you use today? Any of: ${values(TOOL_CHOICES)}`)};

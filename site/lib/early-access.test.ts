@@ -216,7 +216,7 @@ describe("signUp", () => {
     expect(m.headers!["List-Unsubscribe"]).toBe(`<https://shiptiffin.com/api/early-access/remove?t=${t}>`);
     expect(m.headers!["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
     expect(m.text).toStartWith("Hello Ada,");
-    expect(m.text).toContain("25% off your first year");
+    expect(m.text).toContain("$12 a month instead of $19");
   });
 
   test("the same address again: quiet for 10 minutes, then a fresh link; the old one stops working", async () => {
@@ -278,7 +278,7 @@ describe("confirm and remove", () => {
     expect(owner.text).toContain("Uses today: Fly, A VPS");
     expect(owner.text).toContain("Builds: Agency or freelancer");
     expect(owner.text).toContain("GitHub: https://github.com/ada");
-    expect(owner.subject).toBe("Invite request: Ada");
+    expect(owner.subject).toBe("Sign-up list: Ada");
     expect(owner.html).toBeUndefined();
   });
 

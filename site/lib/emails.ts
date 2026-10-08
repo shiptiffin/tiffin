@@ -1,4 +1,4 @@
-// The two emails invite requests send: the confirmation (with a
+// The two emails the sign-up list sends: the confirmation (with a
 // remove link) and the owner's note. Plain text first, and simple HTML in the
 // box's own paper, ink and brass (packages/emails/src/ui/brand.ts). No images,
 // no tracking.
@@ -58,16 +58,16 @@ export function confirmEmail(
   name: string | null,
   l: { confirm: string; remove: string; unsubscribe: string },
 ): Mail {
-  const subject = "Confirm your ShipTiffin invite request";
+  const subject = "Confirm your email for ShipTiffin";
   const hello = name ? `Hello ${name.split(" ")[0]},` : "Hello,";
   const text = [
     hello,
     "",
-    "Thanks for asking for a ShipTiffin invite. Confirm this is your address and your request is in:",
+    "Thanks for joining the ShipTiffin sign-up list. Confirm this is your address:",
     "",
     l.confirm,
     "",
-    "We let people in in small groups, so every box gets attention. Invites go out weekly. Yours will come with the founding price: 25% off your first year, and your price locked for 24 months. Until then, we won't write.",
+    "Sign-up opens this week, and we'll send you the link as soon as it does. The first 100 customers pay $12 a month instead of $19, locked for 24 months. Until then, we won't write.",
     "",
     "Didn't ask for this? Ignore this email and you won't hear from us again. Or remove your address now:",
     l.remove,
@@ -75,12 +75,12 @@ export function confirmEmail(
     "ShipTiffin · hello@shiptiffin.com · https://shiptiffin.com",
   ].join("\n");
   const html = page(
-    "One click and your request is in.",
+    "One click and you're on the list.",
     p(esc(hello)) +
-      p("Thanks for asking for a ShipTiffin invite. Confirm this is your address and your request is in.") +
+      p("Thanks for joining the ShipTiffin sign-up list. Confirm this is your address.") +
       button(l.confirm, "Confirm my email") +
       p(
-        "We let people in in small groups, so every box gets attention. Invites go out weekly. Yours will come with the founding price: 25% off your first year, and your price locked for 24 months. Until then, we won&rsquo;t write.",
+        "Sign-up opens this week, and we&rsquo;ll send you the link as soon as it does. The first 100 customers pay $12 a month instead of $19, locked for 24 months. Until then, we won&rsquo;t write.",
       ),
     `Didn&rsquo;t ask for this? Ignore this email and you won&rsquo;t hear from us again, or ${a(l.remove, "remove your address")}.<br>ShipTiffin · ${a("mailto:hello@shiptiffin.com", "hello@shiptiffin.com")}`,
   );
@@ -103,7 +103,7 @@ const list = (choices: readonly { value: string; label: string }[], vs: string[]
 export function ownerEmail(to: string, r: InviteRequest): Mail {
   const said = (v: string | null | undefined) => v ?? "(not said)";
   const lines = [
-    `${r.name ? `${r.name} <${r.email}>` : r.email} confirmed their invite request.`,
+    `${r.name ? `${r.name} <${r.email}>` : r.email} confirmed their place on the sign-up list.`,
     "",
     `Builds: ${said(label(ROLE_CHOICES, r.role))}`,
     `Would host first: ${said(r.hostFirst)}`,
@@ -114,7 +114,7 @@ export function ownerEmail(to: string, r: InviteRequest): Mail {
     ...(["github", "x", "linkedin", "site"] as const).filter((k) => r[k]).map((k) => `${k === "site" ? "Website" : k === "x" ? "X" : k === "github" ? "GitHub" : "LinkedIn"}: ${r[k]}`),
     `Note: ${r.note ?? "(none)"}`,
     "",
-    `Asked ${r.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Row ${r.id} of the invite_requests table in the website project (Database in the dashboard): set status and invited_at there when you invite them.`,
+    `Asked ${r.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Row ${r.id} of the invite_requests table in the website project (Database in the dashboard): set status to invited and invited_at when you send their sign-up link.`,
   ];
-  return { to, subject: `Invite request: ${r.name ?? r.email}`, text: lines.join("\n"), replyTo: r.email };
+  return { to, subject: `Sign-up list: ${r.name ?? r.email}`, text: lines.join("\n"), replyTo: r.email };
 }

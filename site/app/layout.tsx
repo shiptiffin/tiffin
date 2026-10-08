@@ -4,7 +4,7 @@ import { mono, sans, serif } from "./fonts";
 import "./globals.css";
 
 const description =
-  "A server of your own with Postgres, sign-in, file storage, jobs, analytics, error tracking and backups already on it. Run all your apps on it for one flat monthly price, each with a hard limit. Invite only.";
+  "ShipTiffin sets up a server in your own Hetzner account with Postgres, sign-in, file storage, jobs, analytics, error tracking and backups already on it. Run all your apps on it, each with a hard limit, for $19 a month plus the server.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://shiptiffin.com"),
@@ -34,11 +34,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable}`} suppressHydrationWarning>
-      <head>
-        {/* Marks that the script will run, so the invite form hides its second step before it hydrates. */}
-        <script dangerouslySetInnerHTML={{ __html: `document.documentElement.classList.add("js")` }} />
-      </head>
+    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
       <body>
         <a href="#main" className="skip">
           Skip to content

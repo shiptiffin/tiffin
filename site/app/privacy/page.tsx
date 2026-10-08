@@ -8,7 +8,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = {
   title: "Privacy policy",
   description:
-    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, invite requests, who helps us run it, and how to have it deleted.",
+    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, the sign-up list, who helps us run it, and how to have it deleted.",
   alternates: { canonical: "/privacy" },
 };
 
@@ -21,9 +21,9 @@ const sections: Section[] = [
     body: (
       <>
         <p>
-          ShipTiffin runs Tiffin servers (&ldquo;boxes&rdquo;) for customers: one server per customer, with a
-          dashboard at dashboard.shiptiffin.com and apps at addresses under shiptiffin.app or the customer&rsquo;s
-          own domains. In this policy &ldquo;ShipTiffin&rdquo;, &ldquo;we&rdquo; and &ldquo;us&rdquo; mean the
+          ShipTiffin sets up Tiffin servers (&ldquo;boxes&rdquo;) in our customers&rsquo; own Hetzner Cloud
+          accounts and keeps them updated: one server per customer, with a dashboard on the box and apps at
+          addresses under shiptiffin.app or the customer&rsquo;s own domains. In this policy &ldquo;ShipTiffin&rdquo;, &ldquo;we&rdquo; and &ldquo;us&rdquo; mean the
           operator of this service, and &ldquo;you&rdquo; means anyone who uses it or visits this website.
         </p>
         <p>Questions about privacy go to {mail}. A person reads that inbox.</p>
@@ -39,6 +39,13 @@ const sections: Section[] = [
         <p>
           Your email address and your name, so you can sign in and we can reach you about your box. If you sign
           in with a passkey, your device keeps the private key; we store only the public key and a counter.
+        </p>
+        <h3 id="hetzner-key">Your Hetzner API key</h3>
+        <p>
+          To create your box, you give us an API key for a Hetzner Cloud project. We use it to create the server,
+          its disk and its firewall, and by default we forget it once setup is done; resizing later asks you for a
+          key again, for a minute. We keep a list of each call we made to Hetzner with your key, which you can see
+          in your account. Revoke the key in Hetzner whenever you like.
         </p>
         <h3>How your box is used</h3>
         <p>
@@ -76,38 +83,34 @@ const sections: Section[] = [
     ),
   },
   {
-    id: "invites",
-    title: "Invite requests",
+    id: "signup-list",
+    title: "The sign-up list",
     body: (
       <>
         <p>
-          If you request an invite on this website, we keep what you give us: your email address, and any of your
-          name, what you build, links to your profiles (GitHub, X, LinkedIn, your website), what you would host
-          first, how many projects you have, what you use and spend on hosting today, which AI coding agents you
-          use, and your note. We also keep whether you have confirmed your address, when you asked and confirmed,
-          where your request stands (waiting, invited, joined or declined) and our own notes about it. It is stored
-          in the database of the box that runs this website, in the EU, and nowhere else.
+          If you leave your email on this website to hear when sign-up opens, we keep what you give us: your email
+          address, and your name and note if you add them, whether you have confirmed your address, when you
+          signed up and confirmed, whether we have sent you the sign-up link, and our own notes. It is stored in
+          the database of the server that runs this website, in the EU, and nowhere else.
         </p>
         <p>
-          We use it to understand who we&rsquo;re building for and to send invites: to decide who to invite next,
-          to size your box, and to offer you the founding price. We may look at the public profiles you link to. Not
-          for a newsletter, not for anything else, and we don&rsquo;t share it with anyone. We send you one email to
-          confirm your address, then an invite; nothing else.
+          We use it to send you the sign-up link and to understand who we&rsquo;re building for. Not for a
+          newsletter, not for anything else, and we don&rsquo;t share it with anyone. We send you one email to
+          confirm your address, then the link; nothing else.
         </p>
         <p>
-          To stop people sending requests in bulk, your IP address is held in memory for up to 10 minutes; it is not
+          To stop people signing up in bulk, your IP address is held in memory for up to 10 minutes; it is not
           stored with your answers. Like every visit, the request appears in the website&rsquo;s request log (kept
-          30 days), which does not contain what you typed. Requests are counted as events in our cookieless visit
-          counts, without your email address or answers. A copy of each email we send you is kept for 7 days and a
-          log entry for 30 days, as for all mail sent from a box.
+          30 days), which does not contain what you typed. Sign-ups are counted as events in our cookieless visit
+          counts, without your email address. A copy of each email we send you is kept for 7 days and a log entry
+          for 30 days, as for all mail sent from a box.
         </p>
-        <h3>Removing your request</h3>
+        <h3>Leaving the list</h3>
         <p>
-          Every email about your request has a link to remove it, and your mail app&rsquo;s unsubscribe button works
-          too. Either deletes your address, your answers and our notes at once. You can also email {mail} from that
-          address. Requests that are never confirmed are deleted after 30 days. Once you have joined, or if we
-          decline a request, it is deleted 12 months after its last change; if we stop taking requests, we delete
-          them all.
+          Every email from the list has a link to remove yourself, and your mail app&rsquo;s unsubscribe button
+          works too. Either deletes your address, your answers and our notes at once. You can also email {mail}{" "}
+          from that address. Addresses that are never confirmed are deleted after 30 days, and the rest 12 months
+          after their last change once you have signed up.
         </p>
       </>
     ),
@@ -175,8 +178,8 @@ const sections: Section[] = [
         <h3 id="google-store">How we store and protect it</h3>
         <ul>
           <li>
-            <strong>Where it lives:</strong> on the customer&rsquo;s own box, a server that runs for that one
-            customer only, in the EU. It is not copied to a central ShipTiffin database.
+            <strong>Where it lives:</strong> on the customer&rsquo;s own box, a server in their own Hetzner account
+            that runs for that one customer only. It is not copied to a central ShipTiffin database.
           </li>
           <li>
             <strong>Dashboard sign-in keeps nothing new.</strong> The token Google returns is used once to read
@@ -198,8 +201,8 @@ const sections: Section[] = [
             <strong>Access controls:</strong> databases are not reachable from the internet. On a box, an
             app&rsquo;s data can be reached only by that app&rsquo;s code and by the people the box&rsquo;s owner
             gives access to. The dashboard needs a signed-in session, and API keys are limited in what they can do
-            and stored only as hashes. At ShipTiffin, only the people who run the service can reach a box, and
-            only for the reasons in <a href="#google-share">Who we share it with</a>.
+            and stored only as hashes. After setup, ShipTiffin keeps no way to sign in to a box: the
+            box fetches its own updates, and we see its data only if its owner gives us access to help them.
           </li>
           <li>
             <strong>Separation:</strong> every customer has their own server, so one customer&rsquo;s data never
@@ -216,8 +219,8 @@ const sections: Section[] = [
             rules for it.
           </li>
           <li>
-            The companies that process data for us only as needed to run the service: Hetzner (hosting the servers
-            the data is stored on), Cloudflare (DNS) and SendGrid (delivering ShipTiffin&rsquo;s own email, such as
+            The companies that process data for us only as needed to run the service: Hetzner (hosting this website;
+            customers&rsquo; boxes run in their own Hetzner accounts), Cloudflare (DNS) and SendGrid (delivering ShipTiffin&rsquo;s own email, such as
             notices to your email address). See <a href="#providers">Who helps us run it</a>.
           </li>
           <li>When the law requires it, or to protect the security of the service and the people who use it.</li>
@@ -235,9 +238,8 @@ const sections: Section[] = [
             in the app you signed in to.
           </li>
           <li>
-            When an account is removed, the Google user data stored with it is deleted. When a box is closed, its
-            server and disks are deleted with everything on them, and encrypted backup copies expire within 30
-            days.
+            When an account is removed, the Google user data stored with it is deleted. A box lives in its
+            owner&rsquo;s Hetzner account: deleting the server there deletes everything on it.
           </li>
           <li>
             To have your Google user data deleted, email {mail} from the address you signed in with, and tell us
@@ -294,7 +296,7 @@ const sections: Section[] = [
         <li>To keep the service secure: spotting abuse, scanners and break-in attempts.</li>
         <li>To tell you about your box: problems, planned maintenance, and changes to these policies.</li>
         <li>To answer you when you write to us.</li>
-        <li>To understand who we&rsquo;re building for, and to invite you, if you requested an invite.</li>
+        <li>To send you the sign-up link, if you joined the sign-up list.</li>
         <li>To bill you, once pricing exists.</li>
       </ul>
     ),
@@ -331,12 +333,15 @@ const sections: Section[] = [
           <tbody>
             <tr>
               <td>Hetzner</td>
-              <td>The servers your box and this website run on, in Hetzner&rsquo;s data centres.</td>
+              <td>
+                The server this website runs on. Your box runs in your own Hetzner account, under your agreement with
+                Hetzner; we create it there with the key you give us.
+              </td>
             </tr>
             <tr>
               <td>SendGrid (Twilio)</td>
               <td>
-                Delivers the email ShipTiffin itself sends: account and sign-in emails, notices about your box, and invite emails.
+                Delivers the email ShipTiffin itself sends: account and sign-in emails, notices about your box, and sign-up list emails.
                 Mail your apps send goes through the mail provider you connect, not through us.
               </td>
             </tr>
@@ -393,17 +398,13 @@ const sections: Section[] = [
           Visit counts: 365 days by default (you can change it per project). They hold no IP addresses and no
           cookies; the daily salt behind them is deleted after 48 hours.
         </li>
-        <li>Data in your apps: until you delete it, or until your box is closed.</li>
+        <li>Data in your apps: on your server, until you delete it or delete the server in Hetzner.</li>
         <li>Deleted databases and buckets: kept for 7 days in case you change your mind, then gone.</li>
-        <li>Backup copies kept off the box: 30 days, each.</li>
-        <li>
-          When your box is closed, we delete the server and its disks, and with them everything on it. Backup
-          copies kept off the box expire within 30 days after that. Export anything you want to keep first.
-        </li>
+        <li>Your Hetzner API key: forgotten once setup or a resize is done, unless you choose to let us keep it.</li>
         <li>Email you send us: as long as we need it to help you, and no longer than we have to.</li>
         <li>
-          Invite requests: until you remove yours; unconfirmed ones for 30 days; once you have joined or a request
-          is declined, 12 months after its last change.
+          The sign-up list: until you remove yourself; unconfirmed addresses for 30 days; once you have signed up,
+          12 months after the last change.
         </li>
       </ul>
     ),

@@ -59,7 +59,7 @@ const SOURCES = [
 
 const JUGGLE = [
   ["Dashboards", "5", "1"],
-  ["Bills", "5", "1"],
+  ["Bills", "5", "2"],
   ["Sets of keys to copy around", "5", "0"],
   ["Places your data lives", "5", "1"],
 ] as const;
@@ -83,7 +83,7 @@ export function Compare() {
           </h2>
           <p className="section-sub">
             A typical setup: four small Next.js apps, each with a database and sign-in, plus a cache, error tracking
-            and analytics. Here it is from separate services, and on ShipTiffin.
+            and analytics. Here it is from separate services, and on one ShipTiffin box in your Hetzner account.
           </p>
         </div>
 
@@ -143,19 +143,22 @@ export function Compare() {
               On ShipTiffin
             </p>
             <p className="cmp-box-price">
-              <span className="cmp-box-amount">$29</span>
-              <span className="cmp-box-per">a month, flat</span>
+              <span className="cmp-box-amount">$26</span>
+              <span className="cmp-box-per">a month, for all four apps</span>
             </p>
-            <p className="cmp-box-plan">Starter box. Founding members pay $22 for the first year.</p>
+            <p className="cmp-box-plan">
+              $19 for ShipTiffin, plus about $7 for your server, billed by Hetzner. The first 100 customers pay $12
+              instead of $19.
+            </p>
             <ul className="cmp-box-list">
-              <li>All four apps, with previews</li>
+              <li>All four apps, with previews, on your own server</li>
               <li>A Postgres database and sign-in for each</li>
               <li>KV cache, files and jobs</li>
               <li>Error tracking and analytics</li>
               <li>Backups, restore to any moment</li>
             </ul>
             <p className="cmp-box-save">
-              Less than the lean setup, under a quarter of the typical one, and the same bill every month.
+              Less than the lean setup, about a fifth of the typical one, and the same every month.
             </p>
           </aside>
         </div>
@@ -170,8 +173,9 @@ export function Compare() {
               {i < SOURCES.length - 2 ? ", " : i === SOURCES.length - 2 ? " and " : "."}
             </span>
           ))}{" "}
-          US dollars before tax, for one person. Email isn&rsquo;t counted on either side: on ShipTiffin you send
-          through your own provider too.
+          US dollars before tax, for one person. The Hetzner figure is for a small server (2 vCPU, 4 GB) and changes
+          with Hetzner&rsquo;s prices. Email isn&rsquo;t counted on either side: on ShipTiffin you send through your
+          own provider too.
         </p>
 
         <div className="juggle">

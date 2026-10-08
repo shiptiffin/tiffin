@@ -1,8 +1,6 @@
-// POST /api/early-access: an invite request. Step 1 of the form (name, email,
-// what you build), or the whole form from a browser without JavaScript. That
-// browser gets a redirect (303) to the next page; the form's script asks for
-// JSON, and the reply carries the token its optional step 2 sends to
-// /api/early-access/details. Every accepted request gets the same answer,
+// POST /api/early-access: someone joins the sign-up list on /start (name,
+// email, note). A browser without JavaScript gets a redirect (303) to the
+// next page; the form's script asks for JSON. Every accepted request gets the same answer,
 // whether the address was new, already there or a bot's, so the form can't be
 // used to find out who has asked.
 import { clientIP, track } from "@shiptiffin/sdk/analytics";
@@ -18,7 +16,7 @@ export async function POST(request: Request) {
   const fail = (status: number, code: ErrorCode, errors?: FieldErrors) =>
     json
       ? Response.json({ ok: false, code, errors, message: MESSAGES[code] } satisfies SignupReply, { status })
-      : new Response(null, { status: 303, headers: { location: `/early-access?error=${code}#form` } });
+      : new Response(null, { status: 303, headers: { location: `/start?error=${code}#form` } });
 
   if (Number(request.headers.get("content-length") ?? 0) > 16_384) return fail(413, "long");
   let form: FormData;

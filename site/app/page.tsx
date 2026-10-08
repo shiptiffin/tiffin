@@ -1,7 +1,5 @@
 import Link from "next/link";
 import { Compare } from "./compare";
-import { EarlyAccessForm } from "./early-access-form";
-import { InviteSteps } from "./early-access-next";
 import { Pricing } from "./pricing";
 
 export const metadata = { alternates: { canonical: "/" } };
@@ -24,7 +22,7 @@ function BoxDrawing() {
       </svg>
       <div className="tin-lid">
         <span className="tin-lid-name">Your box</span>
-        <span className="tin-lid-note">one server, yours alone</span>
+        <span className="tin-lid-note">your server, your Hetzner account</span>
       </div>
       <ol className="tin-tiers">
         {TIERS.map((t) => (
@@ -75,12 +73,31 @@ const HOLDS = [
 
 const FAQ: { q: string; a: React.ReactNode }[] = [
   {
-    q: "Why invite only?",
+    q: "What do I pay, and to whom?",
     a: (
       <p>
-        We&rsquo;re letting people in in small groups so every box gets attention: we set each one up, watch it
-        closely and fix what we find. Invites go out weekly. Founding members get 25% off their first year and keep
-        their price for 24 months.
+        Two bills. ShipTiffin is $19 a month per box ($12 for our first 100 customers, locked for 24 months). Your
+        server is billed by Hetzner, to you, at their prices: a small one is about &euro;5&ndash;7 a month. Neither
+        changes with traffic: there are no usage charges, seats or per-project fees from us.
+      </p>
+    ),
+  },
+  {
+    q: "Do I need a Hetzner account?",
+    a: (
+      <p>
+        Yes. Sign-up asks for an API key from a Hetzner Cloud project, and your server lives in that account. If
+        you don&rsquo;t have one yet, making one takes a few minutes at hetzner.com.
+      </p>
+    ),
+  },
+  {
+    q: "What happens if I stop paying ShipTiffin?",
+    a: (
+      <p>
+        Your server and your apps keep running in your Hetzner account. Updates and the managed extras stop:
+        monitoring, the shiptiffin.app address, one-click upgrades and support. Your data was always on your
+        server, in standard formats.
       </p>
     ),
   },
@@ -99,8 +116,8 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
       <p>
         Without a limit, it grows into what the box has free, and slows down rather than failing when the box is
         busy. With a limit, it&rsquo;s held at it: its apps, database, cache and builds. Either way the other
-        projects keep running, the bill stays the same, and the project&rsquo;s Usage page shows when a limit held
-        it back. When the box itself is full, move to a bigger one.
+        projects keep running, the bills stay the same, and the project&rsquo;s Usage page shows when a limit held
+        it back. When the box itself is full, move to a bigger server in a click.
       </p>
     ),
   },
@@ -108,8 +125,8 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "Is there a free plan or a trial?",
     a: (
       <p>
-        No. Every box is a real server set up for you, so instead there&rsquo;s a 14-day money-back guarantee: if
-        it isn&rsquo;t for you, you get a full refund.
+        No. Instead there&rsquo;s a 14-day money-back guarantee on what you pay us. Your server is yours either way:
+        if you change your mind, delete it in Hetzner and Hetzner stops billing.
       </p>
     ),
   },
@@ -120,16 +137,6 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
         Your apps send through your own email provider: SendGrid, Resend, Postmark, Amazon SES or any SMTP service.
         Connect it once in the dashboard by pasting its key, and every project on the box can send. Until then,
         every message waits in a test inbox you can read, which is handy while you build.
-      </p>
-    ),
-  },
-  {
-    q: "Can I leave?",
-    a: (
-      <p>
-        Yes, at any time. Export any project to a single file with its code, data and files. Everything inside is a
-        standard piece: Postgres, S3-compatible storage, a Redis-compatible store and SMTP, so it moves to any host
-        that runs them. If you close your account, you get at least 30 days to export first.
       </p>
     ),
   },
@@ -148,19 +155,19 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "What uptime can I expect?",
     a: (
       <p>
-        We aim for 99.9% each month, outside a weekly maintenance window you choose, when updates and restarts
-        happen. Your box is one server, so a hardware fault means downtime until it&rsquo;s back. That&rsquo;s why
-        we don&rsquo;t suggest it yet for apps that must never go down.
+        Your box is one server. Updates and restarts happen in a weekly maintenance window you choose, and
+        monitoring from outside the box tells you when something&rsquo;s wrong. A hardware fault means downtime
+        until the server is back, which is why we don&rsquo;t suggest it yet for apps that must never go down.
       </p>
     ),
   },
   {
-    q: "Where is my data?",
+    q: "Can I take my projects elsewhere?",
     a: (
       <p>
-        On your box: a server of your own in a data centre in the EU, in Germany or Finland. What your apps store stays on it and
-        isn&rsquo;t copied to a central ShipTiffin database. The <Link href="/privacy">privacy policy</Link> has the
-        details.
+        Yes. Export any project to a single file with its code, data and files. Everything inside is a standard
+        piece: Postgres, S3-compatible storage, a Redis-compatible store and SMTP, so it moves to any host that runs
+        them.
       </p>
     ),
   },
@@ -174,6 +181,16 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     ),
   },
 ];
+
+/* The trust story: what happens to your Hetzner key. Keep each line true to the sign-up flow. */
+const KEY = [
+  ["A project just for ShipTiffin", "You make a separate Hetzner project for your box and a key for it, so the key can only see that project."],
+  ["Used to build, then forgotten", "We use the key to create the server, its disk and its firewall, then forget it by default. Resizing later asks you to paste a key again for a minute."],
+  ["Every call listed", "Each call we make to Hetzner with your key is listed in your account."],
+  ["No way in left behind", "After install, our setup key is removed from the server. Updates are pulled by the box itself, and checked against our signature."],
+  ["Revoke it any time", "Delete the key in Hetzner whenever you like. Your box keeps running."],
+  ["Your data stays with you", "Your apps, databases and files live on your server. They never pass through us."],
+] as const;
 
 const CONFIG = [
   `<span class="t-k">export default</span> defineConfig({`,
@@ -197,7 +214,7 @@ export default function Home() {
       <section className="hero">
         <div className="wrap hero-grid">
           <div className="hero-copy">
-            <p className="kicker">Invite only. New boxes every week.</p>
+            <p className="kicker">Your server, in your own Hetzner account</p>
             <h1 className="display">
               All your apps.
               <br />
@@ -206,20 +223,21 @@ export default function Home() {
               One price.
             </h1>
             <p className="lede">
-              ShipTiffin is a server of your own with everything your apps need already on it: Postgres, sign-in,
-              file storage, jobs, analytics, error tracking and backups. Run all your projects on it for one monthly
-              price. Each gets a hard limit, so nothing runs away and there&rsquo;s never a usage bill.
+              ShipTiffin sets up a server in your Hetzner account with everything your apps need already on it:
+              Postgres, sign-in, file storage, jobs, analytics, error tracking and backups. Run all your projects on
+              it, each with a hard limit, for $19 a month plus the server, about &euro;5&ndash;7 at Hetzner. No usage
+              bills.
             </p>
             <div className="actions">
-              <a className="btn btn-primary" href="#invite">
-                Request an invite
-              </a>
+              <Link className="btn btn-primary" href="/start">
+                Get started
+              </Link>
               <a className="btn btn-quiet" href="#replaces">
                 See what it replaces
               </a>
             </div>
             <p className="fine">
-              From $29 a month for the whole box. Founding members get 25% off their first year.
+              Ready in about 5 minutes. The first 100 customers pay $12 a month, locked for 24 months.
             </p>
           </div>
           <BoxDrawing />
@@ -260,25 +278,24 @@ export default function Home() {
             </h2>
             <ol className="steps">
               <li>
-                <h3>We set up your box.</h3>
+                <h3>Paste a Hetzner key.</h3>
                 <p>
-                  One server per customer. Nobody else&rsquo;s apps run on it, and you sign in to its dashboard
-                  with your own account.
+                  Make a Hetzner Cloud project just for ShipTiffin, create an API key for it, and paste it in.
                 </p>
               </li>
               <li>
-                <h3>Connect GitHub, or let your agent deploy.</h3>
+                <h3>We set up your box in about 5 minutes.</h3>
                 <p>
-                  Pick a repository and every push to its main branch goes live, with a preview for each pull
-                  request. Or deploy with <code>git push</code>, the <code>tiffin</code> command line, or your
-                  coding agent.
+                  The server, its disk and firewall in your account, with every part installed. You get a dashboard
+                  and a free <code>yourname.shiptiffin.app</code> address.
                 </p>
               </li>
               <li>
-                <h3>Every project gets its own limits.</h3>
+                <h3>Deploy from GitHub, or let your agent.</h3>
                 <p>
-                  Projects share the box on their own. Give any of them a ceiling, a share of the box or an amount
-                  of memory and CPU, in the dashboard or in <code>tiffin.config.ts</code> next to your code.
+                  Every push to main goes live, with a preview for each pull request. Or deploy with{" "}
+                  <code>git push</code>, the <code>tiffin</code> command line or your coding agent, and give each
+                  project its limit in <code>tiffin.config.ts</code>.
                 </p>
               </li>
             </ol>
@@ -293,6 +310,27 @@ export default function Home() {
             </div>
             <pre dangerouslySetInnerHTML={{ __html: TERMINAL }} />
           </div>
+        </div>
+      </section>
+
+      <section id="control" className="band" aria-labelledby="control-title">
+        <div className="wrap">
+          <div className="section-head">
+            <h2 id="control-title" className="h2">
+              Your key, your server, your control.
+            </h2>
+            <p className="section-sub">
+              ShipTiffin needs a Hetzner API key to build your server. Here&rsquo;s how we handle it.
+            </p>
+          </div>
+          <ol className="keys">
+            {KEY.map(([k, v]) => (
+              <li key={k}>
+                <h3>{k}</h3>
+                <p>{v}</p>
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
 
@@ -352,7 +390,7 @@ export default function Home() {
             <h2 className="h2">Room to grow, and a door out.</h2>
             <div className="prose-lg">
               <p>
-                Move to a bigger server when you need one. Export any project to a single <code>.tiffin</code>{" "}
+                Move to a bigger server in a click when you need one. Export any project to a single <code>.tiffin</code>{" "}
                 file with its code, data and files, import it on another box, or move it there in one step.
               </p>
               <p>
@@ -405,29 +443,20 @@ export default function Home() {
 
       <Pricing />
 
-      <section id="invite" className="band ea" aria-labelledby="ea-title">
-        <span id="early-access" />
-        <div className="wrap ea-grid">
-          <div className="ea-copy">
-            <h2 id="ea-title" className="h2">
-              Request an invite.
+      <section id="start" className="band cta" aria-labelledby="start-title">
+        <div className="wrap cta-row">
+          <div>
+            <h2 id="start-title" className="h2">
+              All your apps on one box, in about 5 minutes.
             </h2>
             <p className="section-sub">
-              We&rsquo;re letting people in in small groups so every box gets attention. Invites go out weekly.
+              $19 a month plus your Hetzner server. The first 100 customers pay $12, locked for 24 months.
             </p>
-            <div className="founding">
-              <p className="founding-title">Founding members</p>
-              <p className="founding-text">
-                <strong>25% off your first year</strong>, then your price stays put for 24 months.
-              </p>
-              <p className="founding-prices">
-                Starter $22 <span>·</span> Plus $44 <span>·</span> Pro $89 <span className="founding-per">a month</span>
-              </p>
-            </div>
-            <InviteSteps />
           </div>
-          <div className="ea-panel">
-            <EarlyAccessForm />
+          <div className="actions">
+            <Link className="btn btn-primary" href="/start">
+              Get started
+            </Link>
           </div>
         </div>
       </section>
@@ -455,8 +484,9 @@ export default function Home() {
           </h2>
           <div className="prose-lg">
             <p>
-              ShipTiffin is a hosting service for web apps. Each customer gets a server of their own, which we call a
-              box, and runs their apps on it. The box comes with the parts most apps need: a Postgres database,
+              ShipTiffin sets up and looks after servers for web apps. Each customer brings a Hetzner Cloud account;
+              we create a server in it, which we call a box, install everything on it and keep it updated, and the
+              customer runs their apps on it. The box comes with the parts most apps need: a Postgres database,
               sign-in for the app&rsquo;s users, email sending, file storage, background jobs, logs, error tracking
               and visit counts.
             </p>
