@@ -27,7 +27,7 @@ var openConns atomic.Int64
 type connCounter struct{}
 
 func (connCounter) CaddyModule() caddy.ModuleInfo {
-	return caddy.ModuleInfo{ID: "caddy.listeners.tiffin_conns", New: func() caddy.Module { return connCounter{} }}
+	return caddy.ModuleInfo{ID: "caddy.listeners.tiffin_conns", New: func() caddy.Module { return new(connCounter) }}
 }
 
 func (connCounter) WrapListener(ln net.Listener) net.Listener { return countedListener{ln} }
