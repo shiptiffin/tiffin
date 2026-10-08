@@ -212,6 +212,11 @@ code {
   letter-spacing: -0.025em;
   line-height: 1;
 }
+/* Optical centring: the serif's capitals sit high in its line box, so the
+   word drops a touch to line up with the middle of the mark. */
+.wordmark > span {
+  transform: translateY(0.1em);
+}
 .mark {
   width: 28px;
   height: 28px;
