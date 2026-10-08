@@ -67,7 +67,7 @@ function spec(part: ConnectPart, project: string, st?: StorageInfo, kv?: KVConne
             code: `import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-const client = postgres(process.env.DATABASE_URL!, { max: Number(process.env.DATABASE_POOL_MAX) || 10 });
+const client = postgres(process.env.DATABASE_URL!, { prepare: false, max: Number(process.env.DATABASE_POOL_MAX) || 10 });
 export const db = drizzle(client);`,
           },
           {
@@ -86,15 +86,8 @@ export const prisma = new PrismaClient({ adapter });`,
             label: "postgres.js",
             code: `import postgres from "postgres";
 
-export const sql = postgres(process.env.DATABASE_URL!, { max: Number(process.env.DATABASE_POOL_MAX) || 10 });
-const books = await sql\`select * from books limit 10\`;`,
-          },
-          {
-            label: "Bun.sql",
-            code: `import { SQL } from "bun";
-
-// Bun reads DATABASE_URL by itself.
-export const sql = new SQL({ max: Number(process.env.DATABASE_POOL_MAX) || 10 });
+// prepare: false: the box's pooler shares connections between apps.
+export const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: Number(process.env.DATABASE_POOL_MAX) || 10 });
 const books = await sql\`select * from books limit 10\`;`,
           },
           {
