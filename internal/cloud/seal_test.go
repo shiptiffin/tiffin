@@ -1,7 +1,8 @@
 package cloud
 
 import (
-	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,48 +10,58 @@ import (
 	"testing"
 )
 
-// kekVector and sealedVector come from the website's seal.ts (see
-// site/lib/cloud/seal.test.ts): the worker must open what the website seals.
+// The worker's test key (X25519 private key bytes 0..31) and a value the
+// website sealed to its public half with site/lib/cloud/seal.ts
+// (PRINT_VECTOR=1 bun test lib/cloud/crypto.test.ts): the worker must open
+// what the website seals.
 const (
-	kekVector    = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-	sealedVector = "v1.dr7uacXjrv-vq84KX8StUWK2w64X2qnN8YeCQcplZQ_Qd1UyQRK0QPYw_PeXTuBBAjqHiTABZaJMNt9E.J-UYlxU4l6euVV7XZUWFuGY38yArcZTXjcDtZuxI5nXtbcgcr_Z3uL6X79rjwlo"
+	keyVector = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+	pubVector = "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8="
+	tsSealed  = "v2.5OoEEq6FrbMf_7JEYwy4buyPcz7sWni-cWjjHrSDlkU.1bacuFHzvBsPso2lvH9wBoODwxgNKdBDyPU0wOxGM29slNKI6pT2w8-qxmaEbGw"
 )
 
 func TestSealOpen(t *testing.T) {
-	kek, err := ParseKEK(kekVector)
+	priv, err := ParseSealKey(keyVector)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Seal(kek, []byte("hcloud-token-123"), TokenAAD("box_a"))
+	if KeyText(priv.PublicKey().Bytes()) != pubVector {
+		t.Fatal("the public half changed (update site/lib/cloud/crypto.test.ts)")
+	}
+	pub, err := ParseSealPublic(pubVector)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(s, "hcloud-token-123") || !strings.HasPrefix(s, "v1.") {
+	s, err := Seal(pub, []byte("hcloud-token-123"), TokenAAD("box_a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(s, "hcloud-token-123") || !strings.HasPrefix(s, "v2.") {
 		t.Fatalf("sealed: %s", s)
 	}
-	if got, err := Open(kek, s, TokenAAD("box_a")); err != nil || string(got) != "hcloud-token-123" {
+	if got, err := Open(priv, s, TokenAAD("box_a")); err != nil || string(got) != "hcloud-token-123" {
 		t.Fatalf("open: %q %v", got, err)
 	}
-	s2, _ := Seal(kek, []byte("hcloud-token-123"), TokenAAD("box_a"))
+	s2, _ := Seal(pub, []byte("hcloud-token-123"), TokenAAD("box_a"))
 	if s2 == s {
-		t.Fatal("two seals of the same value must differ (fresh data key and nonce)")
+		t.Fatal("two seals of the same value must differ (fresh ephemeral key and nonce)")
 	}
-	other := bytes.Repeat([]byte{7}, 32)
+	other, _ := ecdh.X25519().GenerateKey(rand.Reader)
 	for name, try := range map[string]func() error{
-		"another row":   func() error { _, err := Open(kek, s, TokenAAD("box_b")); return err },
-		"owner vs key":  func() error { _, err := Open(kek, s, OwnerAAD("box_a")); return err },
-		"another KEK":   func() error { _, err := Open(other, s, TokenAAD("box_a")); return err },
-		"changed":       func() error { _, err := Open(kek, s[:len(s)-4]+"AAAA", TokenAAD("box_a")); return err },
-		"not sealed":    func() error { _, err := Open(kek, "hcloud-token-123", TokenAAD("box_a")); return err },
-		"empty":         func() error { _, err := Open(kek, "", TokenAAD("box_a")); return err },
-		"missing parts": func() error { _, err := Open(kek, "v1.abc", TokenAAD("box_a")); return err },
+		"another row":   func() error { _, err := Open(priv, s, TokenAAD("box_b")); return err },
+		"another key":   func() error { _, err := Open(other, s, TokenAAD("box_a")); return err },
+		"changed":       func() error { _, err := Open(priv, s[:len(s)-4]+"AAAA", TokenAAD("box_a")); return err },
+		"not sealed":    func() error { _, err := Open(priv, "hcloud-token-123", TokenAAD("box_a")); return err },
+		"empty":         func() error { _, err := Open(priv, "", TokenAAD("box_a")); return err },
+		"missing parts": func() error { _, err := Open(priv, "v2.abc", TokenAAD("box_a")); return err },
+		"old format":    func() error { _, err := Open(priv, "v1.abc.def", TokenAAD("box_a")); return err },
 	} {
 		if err := try(); !errors.Is(err, ErrSealed) {
 			t.Errorf("%s: want ErrSealed, got %v", name, err)
 		}
 	}
-	if _, err := ParseKEK("c2hvcnQ="); err == nil {
-		t.Fatal("a short KEK must be refused")
+	if _, err := ParseSealKey("c2hvcnQ="); err == nil {
+		t.Fatal("a short key must be refused")
 	}
 	if fp := Fingerprint(" hcloud-token-123\n"); len(fp) != 12 || fp != Fingerprint("hcloud-token-123") {
 		t.Fatalf("fingerprint %q", fp)
@@ -58,10 +69,31 @@ func TestSealOpen(t *testing.T) {
 }
 
 func TestOpenWhatTheWebsiteSealed(t *testing.T) {
-	kek, _ := ParseKEK(kekVector)
-	got, err := Open(kek, sealedVector, TokenAAD("box_vector"))
+	priv, _ := ParseSealKey(keyVector)
+	got, err := Open(priv, tsSealed, TokenAAD("box_vector"))
 	if err != nil || string(got) != "hcloud-vector-token" {
 		t.Fatalf("open the website's seal: %q %v", got, err)
+	}
+}
+
+func TestAddrMAC(t *testing.T) {
+	priv, _ := ParseSealKey(keyVector)
+	other, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	m := AddrMAC(priv, "box_1", "shop", "203.0.113.5", "2001:db8::1", 2)
+	if !AddrOK(priv, m, "box_1", "shop", "203.0.113.5", "2001:db8::1", 2) {
+		t.Fatal("own MAC refused")
+	}
+	for name, ok := range map[string]bool{
+		"another IP":         AddrOK(priv, m, "box_1", "shop", "198.51.100.9", "2001:db8::1", 2),
+		"another name":       AddrOK(priv, m, "box_1", "cafe", "203.0.113.5", "2001:db8::1", 2),
+		"another box":        AddrOK(priv, m, "box_2", "shop", "203.0.113.5", "2001:db8::1", 2),
+		"another generation": AddrOK(priv, m, "box_1", "shop", "203.0.113.5", "2001:db8::1", 3),
+		"another key":        AddrOK(other, m, "box_1", "shop", "203.0.113.5", "2001:db8::1", 2),
+		"empty":              AddrOK(priv, "", "box_1", "shop", "203.0.113.5", "2001:db8::1", 2),
+	} {
+		if ok {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }
 
@@ -94,7 +126,6 @@ func TestRecorder(t *testing.T) {
 	if len(calls) != 1 || calls[0].Method != "POST" || calls[0].Path != "/v1/servers?label_selector=tiffin%3Dbox" || calls[0].Status != 201 {
 		t.Fatalf("calls: %+v", calls)
 	}
-	// A failed call is recorded too.
 	srv.Close()
 	if _, err := c.Get(srv.URL + "/v1/pricing"); err == nil {
 		t.Fatal("want an error")

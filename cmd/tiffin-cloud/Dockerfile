@@ -1,4 +1,4 @@
-# ShipTiffin's control plane worker (the `cloud` app of the `website` project).
+# ShipTiffin's control plane worker (the `worker` app of the `cloud` project).
 # Built by the box with the repository's top as the context.
 FROM golang:1.27.2-bookworm AS build
 WORKDIR /src

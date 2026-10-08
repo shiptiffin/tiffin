@@ -314,16 +314,35 @@ func (p *Provider) ChangeType(ctx context.Context, serverType string, progress f
 		err = p.wait(ctx, act)
 	}
 	changeErr := err
-	// Start the server whatever happened: a failed change leaves it as it was.
+	// Start the server whatever happened (a failed change leaves it as it
+	// was), even when ctx was cancelled meanwhile: a server left off takes
+	// every app down.
 	progress("starting the server")
-	act, _, err = p.c.Server.Poweron(ctx, srv)
-	if err == nil {
-		err = p.wait(ctx, act)
-	}
+	err = p.EnsureRunning(context.WithoutCancel(ctx), 3*time.Minute)
 	if changeErr != nil {
 		return apiErr("change the server type (the server keeps "+srv.ServerType.Name+")", changeErr)
 	}
-	return apiErr("power the server on", err)
+	return err
+}
+
+// EnsureRunning powers the box's server on if it is off, within d. A
+// resize interrupted after the shutdown (a crash, a cancelled request)
+// reconciles with it.
+func (p *Provider) EnsureRunning(ctx context.Context, d time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
+	srv, _, err := p.existing(ctx)
+	if err != nil {
+		return err
+	}
+	if srv.Status == hcloud.ServerStatusRunning || srv.Status == hcloud.ServerStatusStarting || srv.Status == hcloud.ServerStatusInitializing {
+		return nil
+	}
+	act, _, err := p.c.Server.Poweron(ctx, srv)
+	if err != nil {
+		return apiErr("power the server on", err)
+	}
+	return apiErr("power the server on", p.wait(ctx, act))
 }
 
 func (p *Provider) waitOff(ctx context.Context, srv *hcloud.Server, d time.Duration) error {

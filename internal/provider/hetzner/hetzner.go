@@ -32,6 +32,11 @@ const (
 	DefaultImage      = "ubuntu-26.04" // the image new servers get
 	LabelKind         = "tiffin"       // tiffin=box on everything Tiffin makes
 	LabelBox          = "tiffin-box"   // tiffin-box=<name>
+	// LabelOwner marks what a control plane made for one of its boxes:
+	// shiptiffin-box=<the control plane's immutable box id>. With Owner set,
+	// the provider sees, reuses and deletes only resources carrying it, so a
+	// box the customer made themselves with the same name is never touched.
+	LabelOwner = "shiptiffin-box"
 )
 
 // Config is one box on Hetzner.
@@ -64,6 +69,9 @@ type Config struct {
 	// HTTPClient, when set, makes every API request (the control plane
 	// records each call it makes with a customer's token).
 	HTTPClient *http.Client
+	// Owner, when set, is put on everything as LabelOwner and required of
+	// everything the provider lists, reuses or deletes.
+	Owner string
 }
 
 // Provider manages one Hetzner box.
@@ -150,10 +158,20 @@ func (p *Provider) HostPort() int { return 443 }
 
 // Labels are put on everything this box owns.
 func (p *Provider) Labels() map[string]string {
-	return map[string]string{LabelKind: "box", LabelBox: p.cfg.Name}
+	l := map[string]string{LabelKind: "box", LabelBox: p.cfg.Name}
+	if p.cfg.Owner != "" {
+		l[LabelOwner] = p.cfg.Owner
+	}
+	return l
 }
 
-func (p *Provider) selector() string { return LabelKind + "=box," + LabelBox + "=" + p.cfg.Name }
+func (p *Provider) selector() string {
+	s := LabelKind + "=box," + LabelBox + "=" + p.cfg.Name
+	if p.cfg.Owner != "" {
+		s += "," + LabelOwner + "=" + p.cfg.Owner
+	}
+	return s
+}
 
 // Inventory is what exists in the Hetzner project for this box.
 type Inventory struct {

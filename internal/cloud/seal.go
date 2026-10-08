@@ -2,124 +2,154 @@
 // boxes in a customer's own Hetzner Cloud project, keeps their
 // <name>.shiptiffin.app records, resizes them and, when asked, deletes
 // them. The website (site/) is the other half: accounts, billing, the
-// pages, the box check-in and the monitor. They share one Postgres
-// database; this package owns its schema.
+// pages, the box check-in and the monitor. The worker runs in a project of
+// its own (cmd/tiffin-cloud/tiffin.config.ts) and reaches the website's
+// database, whose cloud_* tables this package owns.
 package cloud
 
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdh"
+	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"strconv"
 	"strings"
 )
 
-// Envelope encryption for customers' Hetzner tokens (and a new box's owner
-// token, until the customer signs in). Each value gets its own random data
-// key; the data key is wrapped with the KEK, which lives in the project's
-// secrets (CLOUD_KEK), never in the database. The additional data binds a
-// sealed value to its row ("hetzner:<box id>"), so a value copied to another
-// row does not open.
+// Customers' Hetzner tokens are sealed to the worker's X25519 public key: the
+// website (which holds only CLOUD_SEAL_PUBLIC) can seal but never open; only
+// the worker, which holds CLOUD_SEAL_KEY, opens. Each value gets a fresh
+// ephemeral key. The additional data binds a value to its row
+// ("hetzner:<box id>"), so a value copied to another row does not open.
 //
-// Format: "v1." + base64url(nonce(12) | AES-GCM(KEK, data key)) + "." +
-// base64url(nonce(12) | AES-GCM(data key, value, aad)).
-// The website seals the same way (site/lib/cloud/seal.ts).
+// Format: "v2." + base64url(ephemeral public key, 32 bytes) + "." +
+// base64url(nonce(12) | AES-256-GCM(key, value, aad)), where
+// key = HKDF-SHA256(X25519(ephemeral, recipient), salt = ephemeral public |
+// recipient public, info = "shiptiffin seal v2"). The website seals the same
+// way (site/lib/cloud/seal.ts).
 
-const sealPrefix = "v1."
+const (
+	sealPrefix = "v2."
+	sealInfo   = "shiptiffin seal v2"
+)
 
 var b64 = base64.RawURLEncoding
 
-// ParseKEK reads the KEK: the base64 of 32 random bytes.
-func ParseKEK(s string) ([]byte, error) {
+func decodeKey(s string) ([]byte, error) {
 	s = strings.TrimSpace(s)
 	raw, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		raw, err = base64.RawURLEncoding.DecodeString(s)
 	}
-	if err != nil || len(raw) != 32 {
-		return nil, errors.New("CLOUD_KEK: want the base64 of 32 random bytes (openssl rand -base64 32)")
-	}
-	return raw, nil
+	return raw, err
 }
 
-func gcmSeal(key, plain, aad []byte) ([]byte, error) {
+// ParseSealKey reads CLOUD_SEAL_KEY: the base64 of a 32-byte X25519 private key.
+func ParseSealKey(s string) (*ecdh.PrivateKey, error) {
+	raw, err := decodeKey(s)
+	if err != nil || len(raw) != 32 {
+		return nil, errors.New("CLOUD_SEAL_KEY: want the base64 of a 32-byte X25519 private key (tiffin-cloud keygen makes one)")
+	}
+	return ecdh.X25519().NewPrivateKey(raw)
+}
+
+// ParseSealPublic reads CLOUD_SEAL_PUBLIC (the website's half).
+func ParseSealPublic(s string) (*ecdh.PublicKey, error) {
+	raw, err := decodeKey(s)
+	if err != nil || len(raw) != 32 {
+		return nil, errors.New("CLOUD_SEAL_PUBLIC: want the base64 of a 32-byte X25519 public key")
+	}
+	return ecdh.X25519().NewPublicKey(raw)
+}
+
+// KeyText is a key as the secrets hold it.
+func KeyText(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+func sealKey(shared, ephPub, recipPub []byte) ([]byte, error) {
+	salt := append(append([]byte{}, ephPub...), recipPub...)
+	return hkdf.Key(sha256.New, shared, salt, sealInfo, 32)
+}
+
+func gcm(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	g, err := cipher.NewGCM(block)
+	return cipher.NewGCM(block)
+}
+
+// Seal encrypts value to pub for the row aad names.
+func Seal(pub *ecdh.PublicKey, value []byte, aad string) (string, error) {
+	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	shared, err := eph.ECDH(pub)
+	if err != nil {
+		return "", err
+	}
+	key, err := sealKey(shared, eph.PublicKey().Bytes(), pub.Bytes())
+	clear(shared)
+	if err != nil {
+		return "", err
+	}
+	defer clear(key)
+	g, err := gcm(key)
+	if err != nil {
+		return "", err
 	}
 	nonce := make([]byte, g.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return g.Seal(nonce, nonce, plain, aad), nil
-}
-
-func gcmOpen(key, sealed, aad []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	g, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	if len(sealed) < g.NonceSize()+g.Overhead() {
-		return nil, errors.New("too short")
-	}
-	return g.Open(nil, sealed[:g.NonceSize()], sealed[g.NonceSize():], aad)
-}
-
-// Seal encrypts value for the row aad names.
-func Seal(kek []byte, value []byte, aad string) (string, error) {
-	dek := make([]byte, 32)
-	if _, err := rand.Read(dek); err != nil {
 		return "", err
 	}
-	wrapped, err := gcmSeal(kek, dek, []byte("dek"))
-	if err != nil {
-		return "", err
-	}
-	body, err := gcmSeal(dek, value, []byte(aad))
-	if err != nil {
-		return "", err
-	}
-	clear(dek)
-	return sealPrefix + b64.EncodeToString(wrapped) + "." + b64.EncodeToString(body), nil
+	body := g.Seal(nonce, nonce, value, []byte(aad))
+	return sealPrefix + b64.EncodeToString(eph.PublicKey().Bytes()) + "." + b64.EncodeToString(body), nil
 }
 
-// ErrSealed means a sealed value could not be opened: another KEK, another
+// ErrSealed means a sealed value could not be opened: another key, another
 // row, or changed.
 var ErrSealed = errors.New("sealed value does not open")
 
-// Open decrypts a Seal'ed value.
-func Open(kek []byte, sealed, aad string) ([]byte, error) {
+// Open decrypts a Seal'ed value with the worker's private key.
+func Open(priv *ecdh.PrivateKey, sealed, aad string) ([]byte, error) {
 	rest, ok := strings.CutPrefix(sealed, sealPrefix)
 	if !ok {
 		return nil, ErrSealed
 	}
-	w, b, ok := strings.Cut(rest, ".")
+	e, b, ok := strings.Cut(rest, ".")
 	if !ok {
 		return nil, ErrSealed
 	}
-	wrapped, err1 := b64.DecodeString(w)
+	ephRaw, err1 := b64.DecodeString(e)
 	body, err2 := b64.DecodeString(b)
-	if err1 != nil || err2 != nil {
+	if err1 != nil || err2 != nil || len(ephRaw) != 32 {
 		return nil, ErrSealed
 	}
-	dek, err := gcmOpen(kek, wrapped, []byte("dek"))
+	eph, err := ecdh.X25519().NewPublicKey(ephRaw)
 	if err != nil {
-		return nil, fmt.Errorf("%w (data key)", ErrSealed)
+		return nil, ErrSealed
 	}
-	defer clear(dek)
-	v, err := gcmOpen(dek, body, []byte(aad))
+	shared, err := priv.ECDH(eph)
+	if err != nil {
+		return nil, ErrSealed
+	}
+	key, err := sealKey(shared, ephRaw, priv.PublicKey().Bytes())
+	clear(shared)
+	if err != nil {
+		return nil, ErrSealed
+	}
+	defer clear(key)
+	g, err := gcm(key)
+	if err != nil || len(body) < g.NonceSize()+g.Overhead() {
+		return nil, ErrSealed
+	}
+	v, err := g.Open(nil, body[:g.NonceSize()], body[g.NonceSize():], []byte(aad))
 	if err != nil {
 		return nil, ErrSealed
 	}
@@ -129,12 +159,27 @@ func Open(kek []byte, sealed, aad string) ([]byte, error) {
 // TokenAAD binds a sealed Hetzner token to its box.
 func TokenAAD(boxID string) string { return "hetzner:" + boxID }
 
-// OwnerAAD binds a sealed box owner token to its box.
-func OwnerAAD(boxID string) string { return "owner:" + boxID }
-
 // Fingerprint is what stays of a token once it is forgotten: enough to
 // recognise it ("is this the key I made on Tuesday?"), useless to call with.
 func Fingerprint(token string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
 	return hex.EncodeToString(sum[:])[:12]
+}
+
+// AddrMAC authenticates the addresses the worker itself recorded for a box,
+// so DNS only ever points a name at an address the worker learned from
+// Hetzner for that box and installation, never at one written to the
+// database by anything else (the website can write the database; it can't
+// forge this). The key is derived from the worker's private key.
+func AddrMAC(priv *ecdh.PrivateKey, boxID, name, ipv4, ipv6 string, gen int64) string {
+	k, _ := hkdf.Key(sha256.New, priv.Bytes(), nil, "shiptiffin dns addresses", 32)
+	m := hmac.New(sha256.New, k)
+	clear(k)
+	m.Write([]byte(strings.Join([]string{boxID, name, ipv4, ipv6, strconv.FormatInt(gen, 10)}, "\n")))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+// AddrOK checks AddrMAC in constant time.
+func AddrOK(priv *ecdh.PrivateKey, mac, boxID, name, ipv4, ipv6 string, gen int64) bool {
+	return mac != "" && hmac.Equal([]byte(mac), []byte(AddrMAC(priv, boxID, name, ipv4, ipv6, gen)))
 }

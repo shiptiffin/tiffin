@@ -142,6 +142,25 @@ func (f *Fake) ServerByName(name string) *schema.Server {
 	return nil
 }
 
+// AddLabelledServer adds a running server with these labels (a box someone
+// made with tiffin up carries tiffin=box and tiffin-box=<name>).
+func (f *Fake) AddLabelledServer(name string, labels map[string]string) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.newServer(name, serverTypes()[0], Locations[0], labels).ID
+}
+
+// SetServerStatus sets a server's status ("off", "running").
+func (f *Fake) SetServerStatus(name, status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, s := range f.servers {
+		if s.Name == name {
+			s.Status = status
+		}
+	}
+}
+
 // AddForeignServer adds a server Tiffin did not make (no labels).
 func (f *Fake) AddForeignServer(name string) {
 	f.mu.Lock()

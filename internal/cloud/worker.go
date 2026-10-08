@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
@@ -32,8 +33,10 @@ type Machine interface {
 
 // Worker runs the control plane's jobs.
 type Worker struct {
-	Store   Store
-	KEK     []byte
+	Store Store
+	// SealKey opens customers' Hetzner tokens (the website seals them to its
+	// public half) and keys the MAC over the addresses DNS points at.
+	SealKey *ecdh.PrivateKey
 	Licence ed25519.PrivateKey
 	DNS     DNS
 	// ControlURL is where boxes check in, e.g. https://shiptiffin.com.
@@ -55,13 +58,16 @@ type Worker struct {
 	Install func(ctx context.Context, m provider.Machine, bin string, o install.Options, progress func(string)) (*install.Result, error)
 	// PrepareData formats and mounts the data volume (install.PrepareData).
 	PrepareData func(ctx context.Context, m provider.Machine, d install.DataSpec, progress func(string)) ([]string, error)
-	// WaitHTTPS waits until the box answers on its address (best effort).
-	WaitHTTPS func(ctx context.Context, url string) error
+	// WaitHTTPS waits, up to within, until url answers 200 over HTTPS with a
+	// certificate that checks out.
+	WaitHTTPS func(ctx context.Context, url string, within time.Duration) error
 	// TempDir holds a job's setup key while it runs.
 	TempDir string
 	// Concurrency is how many jobs run at once (default 3).
 	Concurrency int
-	Now         func() time.Time
+	// Lease is how long a claim lasts without renewal (default 5 minutes).
+	Lease time.Duration
+	Now   func() time.Time
 }
 
 // Defaults fills in the real implementations of what tests replace.
@@ -90,6 +96,9 @@ func (w *Worker) defaults() {
 	if w.Concurrency == 0 {
 		w.Concurrency = 3
 	}
+	if w.Lease == 0 {
+		w.Lease = 5 * time.Minute
+	}
 	if w.Now == nil {
 		w.Now = time.Now
 	}
@@ -102,27 +111,44 @@ func (w *Worker) defaults() {
 }
 
 const (
-	lease = 5 * time.Minute
 	// MaxTokenAge: a job token never outlives this, used or not.
 	MaxTokenAge = 2 * time.Hour
-	// OwnerTokenFor is the longest the new box's owner token is kept.
-	OwnerTokenFor = 7 * 24 * time.Hour
+	// SigninFor is how long the box's one-time sign-in link works (the box enforces it).
+	SigninFor = 24 * time.Hour
+	// FreshHeartbeat: DNS comes back only for a box that checked in, from its
+	// own address with its current licence, at most this long ago.
+	FreshHeartbeat = 7 * time.Hour
+	// ParkAfter: a box that has not checked in for this long loses its
+	// address (its server may be gone and its IP someone else's).
+	ParkAfter = 72 * time.Hour
+	// GraceDays the address stays after the managed extras pause.
+	GraceDays = 30
 )
 
-// Run claims and runs jobs until ctx ends.
+// Run claims and runs jobs until ctx ends. Every minute it also sweeps up
+// after stopped workers and checks boxes still waiting for a certificate.
 func (w *Worker) Run(ctx context.Context) {
 	w.defaults()
+	// Setup keys of jobs that were running when this worker last stopped:
+	// those jobs are over, so nothing may use their keys again.
+	if old, _ := filepath.Glob(filepath.Join(w.TempDir, "setup-*")); len(old) > 0 {
+		for _, d := range old {
+			_ = os.RemoveAll(d)
+		}
+		w.Log.Info("deleted setup keys left by a stopped worker", "n", len(old))
+	}
 	sem := make(chan struct{}, w.Concurrency)
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	lastSweep := time.Time{}
 	for ctx.Err() == nil {
 		if time.Since(lastSweep) > time.Minute {
-			if did, err := w.Store.Sweep(ctx, w.Now(), MaxTokenAge); err != nil {
+			if did, err := w.Store.Sweep(ctx, w.Now()); err != nil {
 				w.Log.Warn("sweep", "err", err)
 			} else if did != "" {
 				w.Log.Info("sweep", "did", did)
 			}
+			w.CheckCertificates(ctx)
 			lastSweep = time.Now()
 		}
 		select {
@@ -130,7 +156,7 @@ func (w *Worker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
-		job, err := w.Store.Claim(ctx, lease)
+		job, err := w.Store.Claim(ctx, w.Lease)
 		if err != nil || job == nil {
 			<-sem
 			if err != nil && ctx.Err() == nil {
@@ -148,33 +174,87 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-// RunJob runs one claimed job to its end.
+// CheckCertificates looks again at boxes whose dashboard had no valid
+// certificate yet, and makes those that have one active ("ready" email).
+func (w *Worker) CheckCertificates(ctx context.Context) {
+	w.defaults()
+	boxes, err := w.Store.CertPending(ctx, w.Now().Add(-50*time.Second), 10)
+	if err != nil {
+		w.Log.Warn("certificate checks", "err", err)
+		return
+	}
+	for _, b := range boxes {
+		if b.Name == "" {
+			continue
+		}
+		if err := w.WaitHTTPS(ctx, "https://dashboard."+w.DNS.Domain(b.Name)+"/v1/health", 15*time.Second); err != nil {
+			_ = w.Store.CheckedHTTPS(ctx, b.ID)
+			continue
+		}
+		if ok, err := w.Store.MarkReady(ctx, b.ID); err != nil {
+			w.Log.Warn("mark ready", "box", b.ID, "err", err)
+		} else if ok {
+			w.Log.Info("box ready", "box", b.ID)
+		}
+	}
+}
+
+// RunJob runs one claimed job to its end. It renews the lease while it
+// runs and stops (cancelling the job's context) as soon as it can't: from
+// then on another worker may run the job, and every write this one would
+// make is fenced off anyway.
 func (w *Worker) RunJob(ctx context.Context, job *Job) {
 	w.defaults()
-	jctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() { // keep the lease while it runs
-		t := time.NewTicker(lease / 3)
-		defer t.Stop()
-		for {
-			select {
-			case <-jctx.Done():
-				return
-			case <-t.C:
-				_ = w.Store.Extend(ctx, job.ID, lease)
-			}
-		}
-	}()
-	w.Log.Info("job", "id", job.ID, "kind", job.Kind, "box", job.BoxID)
+	jctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go w.keepLease(jctx, cancel, job)
+	w.Log.Info("job", "id", job.ID, "kind", job.Kind, "box", job.BoxID, "attempt", job.Attempts)
 	err := w.handle(jctx, job)
+	if errors.Is(context.Cause(jctx), ErrLeaseLost) {
+		w.Log.Warn("job stopped: the lease was lost", "id", job.ID, "kind", job.Kind, "box", job.BoxID)
+		return
+	}
+	if ctx.Err() != nil {
+		// Shutting down: the lease runs out and the sweep retries or cleans up.
+		return
+	}
 	if err != nil {
 		w.Log.Warn("job failed", "id", job.ID, "kind", job.Kind, "box", job.BoxID, "err", err)
 	}
 	// Finish clears the job's token whatever happened.
-	if ferr := w.Store.Finish(context.WithoutCancel(ctx), job.ID, err); ferr != nil {
+	if ferr := w.Store.Finish(context.WithoutCancel(ctx), job.Lease, err); ferr != nil {
 		w.Log.Error("finish job", "id", job.ID, "err", ferr)
 	}
 }
+
+func (w *Worker) keepLease(ctx context.Context, cancel context.CancelCauseFunc, job *Job) {
+	t := time.NewTicker(w.Lease / 6)
+	defer t.Stop()
+	last := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			err := w.Store.Extend(ctx, job.Lease, w.Lease)
+			switch {
+			case err == nil:
+				last = time.Now()
+			case errors.Is(err, ErrLeaseLost):
+				cancel(ErrLeaseLost)
+				return
+			case time.Since(last) > w.Lease/2:
+				// The database is unreachable: stop well before the lease ends,
+				// so the job is never run twice at once.
+				cancel(ErrLeaseLost)
+				return
+			}
+		}
+	}
+}
+
+// leaseHeld: the job's context was not cancelled for a lost lease.
+func leaseHeld(ctx context.Context) bool { return !errors.Is(context.Cause(ctx), ErrLeaseLost) }
 
 func (w *Worker) handle(ctx context.Context, job *Job) error {
 	box, err := w.Store.Box(ctx, job.BoxID)
@@ -182,7 +262,7 @@ func (w *Worker) handle(ctx context.Context, job *Job) error {
 		return fmt.Errorf("read the box: %w", err)
 	}
 	progress := func(s string) {
-		if err := w.Store.Step(ctx, job.ID, s); err != nil {
+		if err := w.Store.Step(ctx, job.Lease, s); err != nil {
 			w.Log.Warn("step", "err", err)
 		}
 	}
@@ -192,20 +272,7 @@ func (w *Worker) handle(ctx context.Context, job *Job) error {
 		if err := json.Unmarshal(job.Args, &a); err != nil {
 			return err
 		}
-		err := w.provision(ctx, job, box, a, progress)
-		if err != nil {
-			bg := context.WithoutCancel(ctx)
-			_ = w.Store.SetStatus(bg, box.ID, "failed")
-			// No address may point at a server that may never be finished (or
-			// whose IP Hetzner hands to someone else once it is deleted).
-			if a.Name != "" && ValidName(a.Name) == nil {
-				if derr := w.DNS.Remove(bg, a.Name); derr == nil {
-					_ = w.Store.SetDNS(bg, box.ID, "none")
-				}
-			}
-			progress("Setup stopped: " + firstLine(err.Error()))
-		}
-		return err
+		return w.provision(ctx, job, box, a, progress)
 	case "resize":
 		var a ResizeArgs
 		if err := json.Unmarshal(job.Args, &a); err != nil {
@@ -216,29 +283,18 @@ func (w *Worker) handle(ctx context.Context, job *Job) error {
 		var a DeleteArgs
 		_ = json.Unmarshal(job.Args, &a)
 		return w.deleteServer(ctx, job, box, a, progress)
-	case "dns_set":
-		if box.DNSState == "killed" {
-			return errors.New("this box's address was turned off by the abuse kill switch; only the owner can restore it")
-		}
-		if err := w.DNS.Set(ctx, box.Name, box.IPv4, box.IPv6); err != nil {
-			return fmt.Errorf("set the DNS records: %w", err)
-		}
-		progress(w.DNS.Domain(box.Name) + " points at the box again")
-		return w.Store.SetDNS(ctx, box.ID, "live")
-	case "dns_remove":
-		var a DNSRemoveArgs
+	case "cleanup":
+		var a CleanupArgs
 		_ = json.Unmarshal(job.Args, &a)
-		if box.Name != "" {
-			if err := w.DNS.Remove(ctx, box.Name); err != nil {
-				return fmt.Errorf("remove the DNS records: %w", err)
-			}
-		}
-		state := "removed"
-		if a.Kill {
-			state = "killed"
-		}
-		progress(w.DNS.Domain(box.Name) + " no longer points at the box")
-		return w.Store.SetDNS(ctx, box.ID, state)
+		return w.cleanup(ctx, job, box, a, progress)
+	case "dns_set":
+		var a DNSArgs
+		_ = json.Unmarshal(job.Args, &a)
+		return w.dnsSet(ctx, job, box, a, progress)
+	case "dns_remove":
+		var a DNSArgs
+		_ = json.Unmarshal(job.Args, &a)
+		return w.dnsRemove(ctx, job, box, a, progress)
 	}
 	return fmt.Errorf("unknown job kind %q", job.Kind)
 }
@@ -250,9 +306,6 @@ type ProvisionArgs struct {
 	Location   string `json:"location"`
 	VolumeGB   int    `json:"volumeGB"`
 	KeepKey    bool   `json:"keepKey"`
-	// Fresh: an earlier setup failed; delete what it left in the project
-	// (labelled for this box) before starting again.
-	Fresh bool `json:"fresh"`
 }
 
 // ResizeArgs changes the server type.
@@ -268,9 +321,25 @@ type DeleteArgs struct {
 	DeleteData bool `json:"deleteData"`
 }
 
-// DNSRemoveArgs: Kill is the abuse kill switch (never restored by itself).
-type DNSRemoveArgs struct {
-	Kill bool `json:"kill"`
+// CleanupArgs removes what a failed setup made.
+type CleanupArgs struct {
+	Reason string `json:"reason"`
+	Gen    int64  `json:"gen"`
+}
+
+// DNSArgs say why an address goes or comes back. The worker checks the
+// reason still holds when the job runs (a queue can be minutes behind):
+// a box that paid again meanwhile keeps its address, a box that checked in
+// meanwhile is not parked, and only the kill switch's own job sets "killed".
+type DNSArgs struct {
+	// dns_remove: kill, grace, parked, setup_failed, released.
+	// dns_set: heartbeat, renewed, admin_restore.
+	Reason string `json:"reason"`
+	Gen    int64  `json:"gen"`
+	// PausedAt: the extras_paused_at a grace removal was decided on.
+	PausedAt *time.Time `json:"pausedAt,omitempty"`
+	// Kill is the old spelling of reason "kill".
+	Kill bool `json:"kill,omitempty"`
 }
 
 // token opens the job's Hetzner token (or the box's stored one).
@@ -282,16 +351,17 @@ func (w *Worker) token(job *Job, box *Box, useStored bool) (string, error) {
 	if sealed == "" {
 		return "", errors.New("no Hetzner key for this job (it is forgotten after two hours): paste it again")
 	}
-	raw, err := Open(w.KEK, sealed, TokenAAD(box.ID))
+	raw, err := Open(w.SealKey, sealed, TokenAAD(box.ID))
 	if err != nil {
 		return "", errors.New("the Hetzner key could not be opened; paste it again")
 	}
 	return string(raw), nil
 }
 
-// hetzner makes a provider whose every request is recorded for the customer.
+// hetzner makes a provider that sees only what we made for this box (the
+// shiptiffin-box=<box id> label) and records every request for the customer.
 func (w *Worker) hetzner(job *Job, box *Box, purpose, token string, cfg hetzner.Config) (*hetzner.Provider, error) {
-	cfg.Token, cfg.Endpoint, cfg.PollInterval, cfg.Version = token, w.HetznerEndpoint, w.PollInterval, "control-plane"
+	cfg.Token, cfg.Endpoint, cfg.PollInterval, cfg.Version, cfg.Owner = token, w.HetznerEndpoint, w.PollInterval, "control-plane", box.ID
 	cfg.HTTPClient = &http.Client{Timeout: 2 * time.Minute, Transport: &Recorder{Record: func(c Call) {
 		if err := w.Store.RecordCall(context.Background(), box.ID, job.ID, purpose, c); err != nil {
 			w.Log.Warn("record a Hetzner call", "err", err)
@@ -303,6 +373,15 @@ func (w *Worker) hetzner(job *Job, box *Box, purpose, token string, cfg hetzner.
 	return hetzner.New(cfg)
 }
 
+// extrasOn: the subscription is in good standing (past_due only after a
+// first payment went through).
+func extrasOn(b *Box) bool {
+	if b.ExtrasPausedAt != nil || !b.FirstPaid {
+		return false
+	}
+	return b.PlanStatus == "active" || b.PlanStatus == "trialing" || b.PlanStatus == "past_due"
+}
+
 // DefaultVolumeGB is a managed box's data volume.
 const DefaultVolumeGB = 40
 
@@ -311,22 +390,57 @@ const DefaultVolumeGB = 40
 // Without one a box never updates by itself.
 const MaintenanceWindow = "03:00"
 
-func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionArgs, progress func(string)) error {
+func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionArgs, progress func(string)) (err error) {
+	var (
+		started bool // past the checks: a failure from here on is cleaned up
+		gen     int64
+		hp      *hetzner.Provider
+	)
+	defer func() {
+		// A lost lease or a shutdown: the sweep fails the job and queues
+		// the clean-up, so a worker that may no longer own the box does nothing.
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancel()
+		if started {
+			w.failSetup(bg, job, box, gen, hp, progress, err)
+		} else if box.Status == "provisioning" && box.ReadyAt == nil {
+			_ = w.Store.SetStatus(bg, job.Lease, box.ID, "failed")
+			progress("Setup stopped: " + firstLine(err.Error()))
+		}
+	}()
 	if err := ValidName(a.Name); err != nil {
 		return fmt.Errorf("box name %q: %w", a.Name, err)
 	}
 	if box.Name != a.Name {
 		return fmt.Errorf("the job is for %s but the box is named %s", a.Name, box.Name)
 	}
-	if box.DNSState == "killed" {
+	if box.Killed {
 		return errors.New("this box was turned off by the abuse kill switch")
+	}
+	if !extrasOn(box) {
+		return errors.New("the box's first payment hasn't gone through, or its subscription isn't active")
+	}
+	if box.Status != "provisioning" && box.Status != "paid" && box.Status != "failed" {
+		return fmt.Errorf("the box is %s; setup runs only for a new or failed box", box.Status)
+	}
+	if box.ReadyAt != nil {
+		return errors.New("this box was set up before; it is not set up again")
 	}
 	token, err := w.token(job, box, false)
 	if err != nil {
 		return err
 	}
-	_ = w.Store.SetFingerprint(ctx, box.ID, Fingerprint(token))
-	if err := w.Store.SetStatus(ctx, box.ID, "provisioning"); err != nil {
+	if gen, err = w.Store.NextGeneration(ctx, job.Lease, box.ID); err != nil {
+		return err
+	}
+	box.Generation, started = gen, true
+	if err := w.Store.SetFingerprint(ctx, job.Lease, box.ID, Fingerprint(token)); err != nil {
+		return err
+	}
+	if err := w.Store.SetStatus(ctx, job.Lease, box.ID, "provisioning"); err != nil {
 		return err
 	}
 	if a.VolumeGB == 0 {
@@ -334,7 +448,8 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	}
 
 	// The setup key: made for this job, in a folder only it uses, deleted
-	// when it ends (with the private half, which never leaves this worker).
+	// when it ends (with the private half, which never leaves this worker),
+	// and at the worker's next start if it stops meanwhile.
 	dir, err := os.MkdirTemp(w.TempDir, "setup-"+box.ID+"-")
 	if err != nil {
 		return err
@@ -345,9 +460,9 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if err != nil {
 		return fmt.Errorf("find the worker's address: %w", err)
 	}
-	hp, err := w.hetzner(job, box, "setup", token, hetzner.Config{Name: a.Name, Location: a.Location, ServerType: a.ServerType, VolumeGB: a.VolumeGB,
-		SSHFrom: from, KeyPath: filepath.Join(dir, "id_ed25519"), KnownHosts: filepath.Join(dir, "known_hosts")})
-	if err != nil {
+	if hp, err = w.hetzner(job, box, "setup", token, hetzner.Config{Name: a.Name, Location: a.Location, ServerType: a.ServerType, VolumeGB: a.VolumeGB,
+		SSHFrom: from, KeyPath: filepath.Join(dir, "id_ed25519"), KnownHosts: filepath.Join(dir, "known_hosts")}); err != nil {
+		hp = nil
 		return err
 	}
 	progress("Checking your Hetzner project")
@@ -356,10 +471,9 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 		return err
 	}
 	if !in.Empty() {
-		if !a.Fresh {
-			return fmt.Errorf("your Hetzner project already has resources labelled for a box called %s; delete them in the Hetzner console, or choose “Clean up and try again”", a.Name)
-		}
-		progress("Deleting what the earlier attempt left in your project")
+		// Only what an earlier attempt for this very box made (it carries the
+		// box's shiptiffin-box label); the box never ran, so there's no data.
+		progress("Deleting what an earlier attempt for this box left in your project")
 		if _, err := hp.DestroyAll(ctx, true, progress); err != nil {
 			return err
 		}
@@ -373,15 +487,19 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if err != nil {
 		return err
 	}
+	if err := w.saveResources(ctx, job, box, hp); err != nil {
+		return err
+	}
 	ip4, ip6 := hetzner.PublicIPs(hp.Server)
-	si := ServerInfo{ID: hp.Server.ID, IPv4: ip4, IPv6: ip6, Location: a.Location, Type: a.ServerType, VolumeGB: a.VolumeGB}
+	si := ServerInfo{ID: hp.Server.ID, IPv4: ip4, IPv6: ip6, Location: a.Location, Type: a.ServerType, VolumeGB: a.VolumeGB,
+		MAC: AddrMAC(w.SealKey, box.ID, a.Name, ip4, ip6, gen)}
 	if hp.Server.ServerType != nil {
 		si.Type = hp.Server.ServerType.Name
 	}
 	if hp.Server.Location != nil {
 		si.Location = hp.Server.Location.Name
 	}
-	if err := w.Store.SetServer(ctx, box.ID, si); err != nil {
+	if err := w.Store.SetServer(ctx, job.Lease, box.ID, si); err != nil {
 		return err
 	}
 
@@ -390,7 +508,7 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if err := w.DNS.Set(ctx, a.Name, ip4, ip6); err != nil {
 		return fmt.Errorf("set the DNS records: %w", err)
 	}
-	if err := w.Store.SetDNS(ctx, box.ID, "live"); err != nil {
+	if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "live"); err != nil {
 		return err
 	}
 
@@ -422,23 +540,25 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 			machine = &sm
 		}
 	}
-	tok, err := licence.Sign(w.Licence, licence.Licence{BoxID: box.ID, Name: a.Name, Domain: domain, Issued: w.Now().Unix()})
+	tok, err := licence.Sign(w.Licence, licence.Licence{BoxID: box.ID, Name: a.Name, Domain: domain, Issued: w.Now().Unix(), Gen: gen})
 	if err != nil {
 		return err
 	}
-	opts := install.Options{Domain: domain, HTTPSPort: 443, HTTPPort: 80, PublicIP: ip4, PublicIPv6: ip6,
+	opts := install.Options{Domain: domain, HTTPSPort: 443, HTTPPort: 80, PublicIP: ip4, PublicIPv6: ip6, NoOwnerToken: true,
 		Server: &platform.ServerConfig{Provider: "hetzner", Name: a.Name, PublicIP: ip4, PublicIPv6: ip6, Machine: machine, RebootWindow: MaintenanceWindow},
 		Managed: &platform.ManagedConfig{ControlPlane: w.ControlURL, BoxID: box.ID, Licence: tok,
 			PublicKey: licence.PublicKeyText(w.Licence.Public().(ed25519.PublicKey))}}
-	res, err := w.Install(ctx, m, bin, opts, progress)
+	if _, err := w.Install(ctx, m, bin, opts, progress); err != nil {
+		return err
+	}
+	// The one sign-in we keep: a link the box made, which works once and
+	// which the box itself refuses after a day. The owner token stays on the box.
+	progress("Making your one-time sign-in link (it works once, for 24 hours)")
+	code, exp, err := bootstrapLink(ctx, m)
 	if err != nil {
 		return err
 	}
-	sealedOwner, err := Seal(w.KEK, []byte(res.OwnerToken), OwnerAAD(box.ID))
-	if err != nil {
-		return err
-	}
-	if err := w.Store.SetOwnerToken(ctx, box.ID, sealedOwner, w.Now().Add(OwnerTokenFor)); err != nil {
+	if err := w.Store.SetSignin(ctx, job.Lease, box.ID, code, exp); err != nil {
 		return err
 	}
 
@@ -459,13 +579,16 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if open, keys, err := hp.SSHOpen(ctx); err != nil || open || keys > 0 {
 		return fmt.Errorf("the setup access is still there (SSH open: %v, keys: %d): %v", open, keys, err)
 	}
+	if err := w.Store.SetResources(ctx, job.Lease, box.ID, Resources{}); err != nil { // the SSH key is gone
+		return err
+	}
 
 	if a.KeepKey {
-		sealed, err := Seal(w.KEK, []byte(token), TokenAAD(box.ID))
+		sealed, err := Seal(w.SealKey.PublicKey(), []byte(token), TokenAAD(box.ID))
 		if err != nil {
 			return err
 		}
-		if err := w.Store.KeepToken(ctx, box.ID, sealed); err != nil {
+		if err := w.Store.KeepToken(ctx, job.Lease, box.ID, sealed); err != nil {
 			return err
 		}
 		progress("Kept your Hetzner key, sealed, for one-click resizes (remove it any time)")
@@ -473,16 +596,122 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 		progress("Forgot your Hetzner key (only its fingerprint " + Fingerprint(token) + " stays)")
 	}
 
-	url := "https://dashboard." + domain
-	progress("Waiting for " + url + " to answer over HTTPS")
-	if err := w.WaitHTTPS(ctx, url+"/v1/health"); err != nil {
-		progress("The dashboard is not answering over HTTPS yet (its certificate can take a few minutes): " + firstLine(err.Error()))
+	// Ready means the dashboard answers over HTTPS with a valid certificate.
+	if err := w.Store.SetStatus(ctx, job.Lease, box.ID, "cert_pending"); err != nil {
+		return err
 	}
-	if err := w.Store.SetStatus(ctx, box.ID, "active"); err != nil {
+	url := "https://dashboard." + domain
+	progress("Waiting for " + url + " to answer over HTTPS with a valid certificate")
+	if err := w.WaitHTTPS(ctx, url+"/v1/health", 5*time.Minute); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		_ = w.Store.CheckedHTTPS(ctx, box.ID)
+		progress("Installed. The certificate is still pending (" + firstLine(err.Error()) + "): we check every minute and email you when the dashboard is ready")
+		return nil
+	}
+	if _, err := w.Store.MarkReady(ctx, box.ID); err != nil {
 		return err
 	}
 	progress("Your box is ready")
 	return nil
+}
+
+// saveResources records the IDs of what Ensure made or reused.
+func (w *Worker) saveResources(ctx context.Context, job *Job, box *Box, hp *hetzner.Provider) error {
+	r := Resources{}
+	if hp.Server != nil {
+		r.Server = hp.Server.ID
+	}
+	if hp.Volume != nil {
+		r.Volume = hp.Volume.ID
+	}
+	if in, err := hp.Inventory(ctx); err == nil {
+		if len(in.Firewalls) > 0 {
+			r.Firewall = in.Firewalls[0].ID
+		}
+		if len(in.SSHKeys) > 0 {
+			r.SSHKey = in.SSHKeys[0].ID
+		}
+	}
+	return w.Store.SetResources(ctx, job.Lease, box.ID, r)
+}
+
+// failSetup cleans up after a setup that stopped: the box is failed, its
+// address goes (no name may point at a server that may never be finished,
+// or whose IP Hetzner hands to someone else), and what this setup made in
+// the customer's project is deleted (the box never ran, so there's no data
+// to keep). What can't be done now is retried by a clean-up job.
+func (w *Worker) failSetup(ctx context.Context, job *Job, box *Box, gen int64, hp *hetzner.Provider, progress func(string), cause error) {
+	_ = w.Store.SetStatus(ctx, job.Lease, box.ID, "failed")
+	_ = w.Store.SetSignin(ctx, job.Lease, box.ID, "", time.Time{})
+	if box.Name != "" && ValidName(box.Name) == nil {
+		if err := w.DNS.Remove(ctx, box.Name); err == nil {
+			_ = w.Store.SetDNS(ctx, job.Lease, box.ID, "removed")
+		}
+	}
+	progress("Setup stopped: " + firstLine(cause.Error()))
+	if hp != nil {
+		progress("Deleting what this setup made in your Hetzner project")
+		if _, err := hp.DestroyAll(ctx, true, func(string) {}); err != nil {
+			progress("Couldn't delete it all yet (" + firstLine(err.Error()) + "); we try again")
+			_ = w.Store.EnqueueCleanup(ctx, job.Lease, box.ID, CleanupArgs{Reason: "setup_failed", Gen: gen}, job.TokenSealed, job.TokenExpiry)
+		}
+	}
+	_ = w.Store.QueueEmail(ctx, job.Lease, box.ID, "setup_failed", fmt.Sprint(gen), map[string]any{"error": firstLine(cause.Error())})
+}
+
+// cleanup finishes what failSetup could not (or what a stopped worker left).
+func (w *Worker) cleanup(ctx context.Context, job *Job, box *Box, a CleanupArgs, progress func(string)) error {
+	if box.Status != "failed" || box.Generation != a.Gen || box.ReadyAt != nil {
+		progress("Nothing to clean up: the box has moved on")
+		return nil
+	}
+	if box.DNSState == "live" && box.Name != "" {
+		if err := w.DNS.Remove(ctx, box.Name); err != nil {
+			return fmt.Errorf("remove the DNS records: %w", err)
+		}
+		if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "removed"); err != nil {
+			return err
+		}
+	}
+	_ = w.Store.SetSignin(ctx, job.Lease, box.ID, "", time.Time{})
+	if job.TokenSealed == "" {
+		progress("Your Hetzner key is forgotten, so what the setup made stays: delete what carries the label shiptiffin-box=" + box.ID + " in the Hetzner console, or try the setup again (it cleans up first)")
+		return nil
+	}
+	token, err := w.token(job, box, false)
+	if err != nil {
+		return err
+	}
+	hp, err := w.hetzner(job, box, "cleanup", token, hetzner.Config{})
+	if err != nil {
+		return err
+	}
+	rep, err := hp.DestroyAll(ctx, true, progress)
+	if err != nil {
+		return err
+	}
+	for _, d := range rep.Deleted {
+		progress("Deleted " + d)
+	}
+	return nil
+}
+
+// bootstrapLink asks the new box for its one-time owner sign-in link.
+func bootstrapLink(ctx context.Context, m Machine) (string, time.Time, error) {
+	out, stderr, err := m.Exec(ctx, "sudo "+install.BinLink+" --home "+install.Home+" bootstrap-link --valid "+SigninFor.String())
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("make the sign-in link: %v %s", err, firstLine(stderr))
+	}
+	var r struct {
+		Code      string    `json:"code"`
+		ExpiresAt time.Time `json:"expiresAt"`
+	}
+	if json.Unmarshal([]byte(out), &r) != nil || !strings.HasPrefix(r.Code, "tfl_") || r.ExpiresAt.IsZero() {
+		return "", time.Time{}, fmt.Errorf("make the sign-in link: unexpected answer %q", firstLine(out))
+	}
+	return r.Code, r.ExpiresAt, nil
 }
 
 // RemoveKeyScript deletes one public key's line from root's authorized_keys
@@ -506,73 +735,218 @@ echo removed`
 }
 
 func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, progress func(string)) error {
+	if box.Status != "active" && box.Status != "cert_pending" {
+		return fmt.Errorf("the box is %s; only a running box is resized", box.Status)
+	}
+	if !extrasOn(box) {
+		return errors.New("one-click resize is part of the subscription, which isn't active")
+	}
 	token, err := w.token(job, box, a.UseStored)
 	if err != nil {
 		return err
 	}
-	hp, err := w.hetzner(job, box, "resize", token, hetzner.Config{Name: box.Name})
+	hp, err := w.hetzner(job, box, "resize", token, hetzner.Config{})
 	if err != nil {
 		return err
+	}
+	// Whatever happens below (a failure, a cancelled job, a retry after the
+	// worker stopped half way), the server ends up running.
+	defer func() {
+		bg := context.WithoutCancel(ctx)
+		if err := hp.EnsureRunning(bg, 3*time.Minute); err != nil {
+			progress("Couldn't start the server again (" + firstLine(err.Error()) + "): start it in the Hetzner console")
+		}
+	}()
+	var phase string
+	_ = json.Unmarshal(job.Checkpoint["phase"], &phase)
+	if phase != "" {
+		progress("Picking up a resize that stopped while " + phase)
 	}
 	r, err := hp.PlanResize(ctx, a.ServerType, 0)
 	if err != nil {
 		return err
 	}
-	if r.To == nil {
-		progress("The box is already " + a.ServerType)
-		return nil
+	if r.To != nil {
+		progress(fmt.Sprintf("Changing %s to %s: about 2 minutes offline (Hetzner then bills about %.2f %s a month before VAT)", r.From.Name, r.To.Name, r.MonthlyNetAfter, r.Currency))
+		if err := w.Store.Checkpoint(ctx, job.Lease, "phase", "changing the type"); err != nil {
+			return err
+		}
+		if err := hp.ChangeType(ctx, r.To.Name, progress); err != nil {
+			return err
+		}
+	} else {
+		progress("The server is already " + a.ServerType)
 	}
-	progress(fmt.Sprintf("Changing %s to %s: about 2 minutes offline (Hetzner then bills about %.2f %s a month before VAT)", r.From.Name, r.To.Name, r.MonthlyNetAfter, r.Currency))
-	if err := hp.ChangeType(ctx, r.To.Name, progress); err != nil {
+	if err := w.Store.Checkpoint(ctx, job.Lease, "phase", "starting the server"); err != nil {
 		return err
 	}
-	srv, _, err := hp.FindServer(ctx, box.Name)
-	if err == nil && srv != nil {
-		ip4, ip6 := hetzner.PublicIPs(srv)
-		_ = w.Store.SetServer(ctx, box.ID, ServerInfo{ID: srv.ID, IPv4: ip4, IPv6: ip6, Type: r.To.Name, Location: box.Location})
+	if err := hp.EnsureRunning(ctx, 3*time.Minute); err != nil {
+		return err
 	}
-	if a.KeepKey && job.TokenSealed != "" {
-		sealed, err := Seal(w.KEK, []byte(token), TokenAAD(box.ID))
-		if err == nil {
-			_ = w.Store.KeepToken(ctx, box.ID, sealed)
+	if in, err := hp.Inventory(ctx); err == nil && len(in.Servers) == 1 {
+		srv := in.Servers[0]
+		ip4, ip6 := hetzner.PublicIPs(srv)
+		si := ServerInfo{ID: srv.ID, IPv4: ip4, IPv6: ip6, Type: a.ServerType, Location: box.Location}
+		if srv.ServerType != nil {
+			si.Type = srv.ServerType.Name
+		}
+		if ip4 == box.IPv4 && ip6 == box.IPv6 {
+			si.MAC = AddrMAC(w.SealKey, box.ID, box.Name, ip4, ip6, box.Generation)
+		}
+		if err := w.Store.SetServer(ctx, job.Lease, box.ID, si); err != nil {
+			return err
 		}
 	}
+	if a.KeepKey && job.TokenSealed != "" {
+		if sealed, err := Seal(w.SealKey.PublicKey(), []byte(token), TokenAAD(box.ID)); err == nil {
+			_ = w.Store.KeepToken(ctx, job.Lease, box.ID, sealed)
+		}
+	}
+	_ = w.Store.Checkpoint(ctx, job.Lease, "phase", "done")
 	progress("Resized. The box retunes Postgres and the apps' memory as it starts")
 	return nil
 }
 
+// deleteServer deletes the customer's server when they ask: the address
+// first (so no name points at an IP Hetzner may hand to someone else), then
+// only the resources carrying this box's label, then the box is released.
+// Each phase is checkpointed; a retry skips what is done.
 func (w *Worker) deleteServer(ctx context.Context, job *Job, box *Box, a DeleteArgs, progress func(string)) error {
-	token, err := w.token(job, box, false)
-	if err != nil {
-		return err
+	if box.Status != "deleting" {
+		return fmt.Errorf("the box is %s, not being deleted", box.Status)
 	}
-	hp, err := w.hetzner(job, box, "delete", token, hetzner.Config{Name: box.Name})
-	if err != nil {
-		return err
+	if _, done := job.Checkpoint["dns"]; !done {
+		if box.Name != "" {
+			progress("Removing " + w.DNS.Domain(box.Name) + " first")
+			if err := w.DNS.Remove(ctx, box.Name); err != nil {
+				return fmt.Errorf("remove the DNS records: %w", err)
+			}
+		}
+		if err := w.Store.SetDNS(ctx, job.Lease, box.ID, "removed"); err != nil {
+			return err
+		}
+		if err := w.Store.Checkpoint(ctx, job.Lease, "dns", true); err != nil {
+			return err
+		}
 	}
-	rep, err := hp.DestroyAll(ctx, a.DeleteData, progress)
-	if err != nil {
-		return err
+	if _, done := job.Checkpoint["hetzner"]; !done {
+		token, err := w.token(job, box, false)
+		if err != nil {
+			return err
+		}
+		hp, err := w.hetzner(job, box, "delete", token, hetzner.Config{})
+		if err != nil {
+			return err
+		}
+		in, err := hp.Inventory(ctx)
+		if err != nil {
+			return err
+		}
+		for _, s := range in.Servers {
+			if box.ServerID != 0 && s.ID != box.ServerID {
+				return fmt.Errorf("a server labelled for this box (%s, id %d) isn't the one we recorded (id %d); nothing was deleted: write to hello@shiptiffin.com", s.Name, s.ID, box.ServerID)
+			}
+		}
+		rep, err := hp.DestroyAll(ctx, a.DeleteData, progress)
+		if err != nil {
+			return err
+		}
+		for _, d := range rep.Deleted {
+			progress("Deleted " + d)
+		}
+		for _, k := range rep.Kept {
+			progress("Kept " + k + " (delete it in the Hetzner console when you no longer need it)")
+		}
+		if err := w.Store.Checkpoint(ctx, job.Lease, "hetzner", rep); err != nil {
+			return err
+		}
 	}
-	for _, d := range rep.Deleted {
-		progress("Deleted " + d)
+	return w.Store.Released(ctx, job.Lease, box.ID)
+}
+
+// dnsSet puts an address back, once it checks out that the box is the one
+// at its IP: a fresh check-in with the current generation's licence from
+// that very address (the website records only those), and the addresses
+// are the ones this worker recorded (their MAC).
+func (w *Worker) dnsSet(ctx context.Context, job *Job, box *Box, a DNSArgs, progress func(string)) error {
+	why := ""
+	switch {
+	case box.Killed:
+		why = "the abuse kill switch turned it off; an admin restores it"
+	case box.Status != "active" && box.Status != "cert_pending":
+		why = "the box is " + box.Status
+	case !extrasOn(box):
+		why = "the subscription isn't active"
+	case a.Gen != 0 && a.Gen != box.Generation:
+		why = "the box was set up again since"
+	case box.LastHeartbeatAt == nil || w.Now().Sub(*box.LastHeartbeatAt) > FreshHeartbeat:
+		why = "the box hasn't checked in lately; the address comes back at its next check-in"
+	case !AddrOK(w.SealKey, box.AddrMAC, box.ID, box.Name, box.IPv4, box.IPv6, box.Generation):
+		why = "its recorded addresses don't check out"
 	}
-	for _, k := range rep.Kept {
-		progress("Kept " + k + " (delete it in the Hetzner console when you no longer need it)")
+	if why != "" {
+		progress(w.DNS.Domain(box.Name) + " stays off: " + why)
+		return nil
+	}
+	if err := w.DNS.Set(ctx, box.Name, box.IPv4, box.IPv6); err != nil {
+		return fmt.Errorf("set the DNS records: %w", err)
+	}
+	progress(w.DNS.Domain(box.Name) + " points at the box again")
+	return w.Store.SetDNS(ctx, job.Lease, box.ID, "live")
+}
+
+// dnsRemove takes an address away, if the reason it was queued for still holds.
+func (w *Worker) dnsRemove(ctx context.Context, job *Job, box *Box, a DNSArgs, progress func(string)) error {
+	if a.Kill {
+		a.Reason = "kill"
+	}
+	state, why := "removed", ""
+	now := w.Now()
+	switch a.Reason {
+	case "kill":
+		state = "killed"
+		if !box.Killed {
+			why = "the kill was undone meanwhile"
+		}
+	case "grace":
+		switch {
+		case extrasOn(box) || box.ExtrasPausedAt == nil:
+			why = "the subscription is active again"
+		case a.PausedAt != nil && !a.PausedAt.Equal(*box.ExtrasPausedAt):
+			why = "the subscription changed since"
+		case now.Before(box.ExtrasPausedAt.AddDate(0, 0, GraceDays)):
+			why = "the grace period isn't over"
+		}
+	case "parked":
+		state = "parked"
+		last := box.LastHeartbeatAt
+		if last == nil {
+			last = box.ReadyAt
+		}
+		if last != nil && now.Sub(*last) < ParkAfter {
+			why = "the box checked in meanwhile"
+		}
+	case "setup_failed", "released":
+		if box.Status != "failed" && box.Status != "released" && box.Status != "deleting" {
+			why = "the box is " + box.Status
+		}
+	default:
+		why = fmt.Sprintf("unknown reason %q", a.Reason)
+	}
+	if a.Gen != 0 && a.Gen != box.Generation && a.Reason != "kill" {
+		why = "the box was set up again since"
+	}
+	if why != "" {
+		progress(w.DNS.Domain(box.Name) + " stays: " + why)
+		return nil
 	}
 	if box.Name != "" {
 		if err := w.DNS.Remove(ctx, box.Name); err != nil {
-			return err
+			return fmt.Errorf("remove the DNS records: %w", err)
 		}
-		state := "removed"
-		if box.DNSState == "killed" {
-			state = "killed"
-		}
-		_ = w.Store.SetDNS(ctx, box.ID, state)
 	}
-	_ = w.Store.KeepToken(ctx, box.ID, "")
-	_ = w.Store.SetOwnerToken(ctx, box.ID, "", time.Time{})
-	return w.Store.SetStatus(ctx, box.ID, "released")
+	progress(w.DNS.Domain(box.Name) + " no longer points at the box")
+	return w.Store.SetDNS(ctx, job.Lease, box.ID, state)
 }
 
 func firstLine(s string) string {
@@ -592,12 +966,13 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 	}
 }
 
-// waitHTTPS polls url until it answers 200, for up to 5 minutes.
-func waitHTTPS(ctx context.Context, url string) error {
+// waitHTTPS polls url until it answers 200 over HTTPS (Go's client checks
+// the certificate: a public CA's, for this name, in date), for up to within.
+func waitHTTPS(ctx context.Context, url string, within time.Duration) error {
 	c := &http.Client{Timeout: 10 * time.Second}
-	deadline := time.Now().Add(5 * time.Minute)
+	deadline := time.Now().Add(within)
 	var last error
-	for time.Now().Before(deadline) {
+	for {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		res, err := c.Do(req)
 		if err == nil {
@@ -608,11 +983,13 @@ func waitHTTPS(ctx context.Context, url string) error {
 			err = fmt.Errorf("HTTP %d", res.StatusCode)
 		}
 		last = err
+		if !time.Now().Add(5 * time.Second).Before(deadline) {
+			return last
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(5 * time.Second):
 		}
 	}
-	return last
 }
