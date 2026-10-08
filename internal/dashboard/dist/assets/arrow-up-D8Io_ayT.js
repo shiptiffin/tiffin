@@ -1,0 +1,1 @@
+import{n as e}from"./cn-BodvO3Y3.js";var t={name:`arrow-up`,size:24,node:[[`path`,{d:`m5 12 7-7 7 7`,key:`hav0vg`}],[`path`,{d:`M12 19V5`,key:`x0mq9r`}]]};t.node;var n=e(t);export{n as t};
