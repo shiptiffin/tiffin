@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"slices"
@@ -60,6 +61,9 @@ type Config struct {
 	Version string // tiffin version, sent as the API user agent
 	// PollInterval for actions (tests make it short).
 	PollInterval time.Duration
+	// HTTPClient, when set, makes every API request (the control plane
+	// records each call it makes with a customer's token).
+	HTTPClient *http.Client
 }
 
 // Provider manages one Hetzner box.
@@ -134,6 +138,9 @@ func New(cfg Config) (*Provider, error) {
 	}
 	if cfg.Endpoint != "" {
 		opts = append(opts, hcloud.WithEndpoint(cfg.Endpoint))
+	}
+	if cfg.HTTPClient != nil {
+		opts = append(opts, hcloud.WithHTTPClient(cfg.HTTPClient))
 	}
 	return &Provider{cfg: cfg, c: hcloud.NewClient(opts...)}, nil
 }
