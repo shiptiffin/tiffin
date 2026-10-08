@@ -44,14 +44,17 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
   }
   if (sp.box && sp.session_id) await confirmCheckout(acct, sp.box, sp.session_id);
   const boxes = await boxesFor(acct.id);
-  const inSetup = [...boxes].reverse().find((b) => b.status === "paid" || b.status === "provisioning" || b.status === "failed");
+  const inSetup = [...boxes].reverse().find((b) => b.status === "paid" || b.status === "provisioning" || b.status === "cert_pending" || b.status === "failed");
   const justDone = sp.box ? boxes.find((b) => b.id === sp.box && b.status === "active") : undefined;
   const current: BoxRow | undefined = sp.new ? undefined : (inSetup ?? justDone);
 
   if (current) {
     const job = await latestJob(current.id, ["provision"]);
     return (
-      <Shell step={current.status === "active" ? 4 : current.status === "provisioning" ? 3 : 2} title={current.status === "active" ? "Your box is ready" : "Set up your box"}>
+      <Shell
+        step={current.status === "active" ? 4 : current.status === "provisioning" || current.status === "cert_pending" ? 3 : 2}
+        title={current.status === "active" ? "Your box is ready" : "Set up your box"}
+      >
         <StartFlow
           box={{ id: current.id, name: current.name, status: current.status, fingerprint: current.token_fingerprint }}
           job={job && { status: job.status, steps: job.steps, error: job.error }}
@@ -83,7 +86,7 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
         <p className="cp-sub">
           {founding ? "The founding price for our first 100 customers: $12 instead of $19 for 24 months, then $19. " : ""}
           Your Hetzner server is billed by Hetzner, about €5 to €7 a month for the sizes we suggest. Cancel any time: your server and
-          apps keep running; updates and the extras stop. 14-day money-back guarantee.
+          apps keep running; updates and the extras stop, and the address stays 30 days. 14-day money-back guarantee.
         </p>
         <ul className="cp-guide">
           <li>Tiffin installed, then kept up to date with signed releases</li>

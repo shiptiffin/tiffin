@@ -1,6 +1,6 @@
-// GET /api/cloud/boxes/:id/open: "Open your dashboard". While we still hold
-// the new box's setup sign-in key it mints a one-time sign-in link; after
-// that it is just the dashboard's address.
+// GET /api/cloud/boxes/:id/open: "Open your dashboard". The first time, the
+// one-time sign-in link the box made at setup (forgotten as it is handed
+// out; the box refuses it after 24 hours); after that, the box's own sign-in.
 import { ActionError, openDashboard } from "@/lib/cloud/actions";
 import { currentAccount } from "@/lib/cloud/session";
 

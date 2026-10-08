@@ -1,4 +1,4 @@
-// /admin: owner only (CLOUD_ADMIN_EMAILS). Boxes at a glance, abuse reports
+// /admin: owner only (account ids in CLOUD_ADMIN_USER_IDS, verified email). Boxes at a glance, abuse reports
 // and the kill switch that removes a box's shiptiffin.app records. For
 // everything else, the website project's Database browser has the tables.
 import type { Metadata } from "next";
@@ -15,11 +15,15 @@ export const dynamic = "force-dynamic";
 
 export default async function Admin() {
   const acct = await currentAccount();
-  if (!acct || !isAdmin(acct.email)) notFound();
+  if (!isAdmin(acct)) notFound();
   if (!(await tablesReady())) return <p className="wrap cp">The cloud worker hasn&rsquo;t made its tables yet.</p>;
   const s = db();
-  const boxes = await s`select id, name, email, status, plan_status, dns_state, founding, server_type, location, ipv4, last_heartbeat_at, last_version, kill_reason, created_at
+  const boxes = await s`select id, name, email, status, plan_status, dns_state, founding, server_type, location, ipv4, last_heartbeat_at, last_version, kill_reason,
+    first_paid_at, refunded_at, stripe_subscription_id, heartbeat_refused_at, heartbeat_refused_why, created_at
     from cloud_boxes where status <> 'awaiting_payment' order by created_at desc limit 300`;
+  const stuck = await s`select box_id, kind, key, attempts, status, last_error, created_at from cloud_outbox where status = 'failed' or (status = 'queued' and attempts > 2)
+    order by id desc limit 50`;
+  const billing = await s`select box_id, what, subscription_id, at from cloud_billing_log order by id desc limit 30`;
   const reports = await s`select id, target, box_id, reporter_email, details, status, created_at from cloud_abuse_reports order by (status = 'new') desc, created_at desc limit 100`;
   const [counts] = await s`select (select count(*) from cloud_founding_claims)::int as founding, (select count(*) from cloud_boxes where status = 'active')::int as active,
     (select count(*) from cloud_jobs where status in ('queued', 'running'))::int as jobs, (select count(*) from cloud_jobs where status = 'failed' and finished_at > now() - interval '1 day')::int as failed`;
@@ -47,6 +51,44 @@ export default async function Admin() {
           </div>
         ))}
       </div>
+      {stuck.length > 0 && (
+        <div className="cp-card cp-table-wrap">
+          <h2>Outbox: failing</h2>
+          <table className="cp-log">
+            <tbody>
+              {stuck.map((o, i) => (
+                <tr key={i}>
+                  <td>{o.box_id}</td>
+                  <td>
+                    {o.kind} {o.key}
+                  </td>
+                  <td>
+                    {o.status} after {o.attempts} tries: {o.last_error}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {billing.length > 0 && (
+        <div className="cp-card cp-table-wrap">
+          <h2>Billing log</h2>
+          <table className="cp-log">
+            <tbody>
+              {billing.map((l, i) => (
+                <tr key={i}>
+                  <td>{new Date(l.at).toISOString().slice(0, 16)}</td>
+                  <td>{l.box_id}</td>
+                  <td>
+                    {l.what} {l.subscription_id}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="cp-card cp-table-wrap">
         <h2>Boxes</h2>
         <table className="cp-log">
@@ -73,12 +115,25 @@ export default async function Admin() {
                   {b.status} · {b.plan_status}
                   {b.founding ? " · founding" : ""} · dns {b.dns_state}
                   {b.kill_reason ? ` (${b.kill_reason})` : ""}
+                  <br />
+                  <span className="cp-muted">
+                    {b.first_paid_at ? `first paid ${Math.floor((Date.now() - new Date(b.first_paid_at).getTime()) / 86_400_000)} days ago` : "not paid"}
+                    {b.refunded_at ? " · refunded" : ""}
+                  </span>
                 </td>
                 <td>
                   {b.server_type} {b.location} {b.ipv4}
                 </td>
                 <td>
                   {b.last_heartbeat_at ? new Date(b.last_heartbeat_at).toISOString().slice(0, 16) : "never"} {b.last_version}
+                  {b.heartbeat_refused_at && (
+                    <>
+                      <br />
+                      <span className="cp-muted">
+                        refused {new Date(b.heartbeat_refused_at).toISOString().slice(0, 16)}: {b.heartbeat_refused_why}
+                      </span>
+                    </>
+                  )}
                 </td>
                 <td>
                   {b.dns_state === "killed" ? (
@@ -86,6 +141,13 @@ export default async function Admin() {
                   ) : b.dns_state === "live" ? (
                     <AdminButton body={{ action: "kill", boxId: b.id }} label="Kill" ask="Remove this box's shiptiffin.app records? The customer is emailed." reason />
                   ) : null}
+                  {b.stripe_subscription_id && b.first_paid_at && !b.refunded_at && (
+                    <AdminButton
+                      body={{ action: "refund", boxId: b.id }}
+                      label="Refund and cancel"
+                      ask="The 14-day money-back: refund the first payment in full and end the subscription now? The customer is emailed."
+                    />
+                  )}
                 </td>
               </tr>
             ))}

@@ -5,14 +5,14 @@
 import { sessionFor } from "@shiptiffin/sdk/auth";
 import { headers } from "next/headers";
 
-export type Account = { id: string; email: string; name: string };
+export type Account = { id: string; email: string; name: string; emailVerified: boolean };
 
 export async function currentAccount(opts?: { fresh?: boolean }): Promise<Account | null> {
   try {
     const { session } = await sessionFor(await headers(), opts);
     const u = session?.user;
     if (!u?.id || !u.email) return null;
-    return { id: u.id, email: u.email.toLowerCase(), name: u.name };
+    return { id: u.id, email: u.email.toLowerCase(), name: u.name, emailVerified: u.emailVerified === true };
   } catch {
     return null;
   }

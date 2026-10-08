@@ -1,21 +1,22 @@
 // Checks a managed box's licence (internal/licence): "tl1." + base64url(JSON)
 // + "." + base64url(ed25519 signature of everything before the last dot). The
-// website only verifies; the cloud worker signs. Both use CLOUD_LICENCE_KEY
-// (a 32-byte ed25519 seed); the public half is derived here.
-import { createPrivateKey, createPublicKey, verify, type KeyObject } from "node:crypto";
+// website only verifies, with the public key (CLOUD_LICENCE_PUBLIC); the cloud
+// worker signs with the private key, which only its own project holds.
+import { createPublicKey, verify, type KeyObject } from "node:crypto";
 
 export type Licence = { v: number; box: string; name: string; domain: string; iat: number; gen?: number };
 
-const PKCS8_ED25519 = Buffer.from("302e020100300506032b657004220420", "hex");
-
-/** The public key for a base64 seed, or null when the seed is missing or wrong. */
-export function publicKeyFromSeed(seed: string | undefined): KeyObject | null {
-  const s = seed?.trim();
+/** CLOUD_LICENCE_PUBLIC: the base64 of a 32-byte ed25519 public key, or null when unset or wrong. */
+export function licencePublicFrom(value: string | undefined): KeyObject | null {
+  const s = value?.trim();
   if (!s) return null;
   const raw = Buffer.from(s, s.includes("-") || s.includes("_") ? "base64url" : "base64");
   if (raw.length !== 32) return null;
-  const priv = createPrivateKey({ key: Buffer.concat([PKCS8_ED25519, raw]), format: "der", type: "pkcs8" });
-  return createPublicKey(priv);
+  try {
+    return createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: raw.toString("base64url") }, format: "jwk" });
+  } catch {
+    return null;
+  }
 }
 
 /** What a valid token says, or null. */

@@ -6,11 +6,6 @@ export const json = (body: unknown, status = 200) =>
 
 export const problem = (status: number, message: string, extra?: Record<string, unknown>) => json({ ok: false, message, ...extra }, status);
 
-/** The client's address as the box's edge saw it. */
-export function clientIp(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
-}
-
 /** Same-origin check for browser POSTs (cookies ride along on cross-site forms). */
 export function sameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");

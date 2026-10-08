@@ -1,5 +1,6 @@
 // POST /api/admin: owner-only actions (the abuse kill switch, restoring an
-// address, marking reports). Owners are CLOUD_ADMIN_EMAILS.
+// address, marking reports, the money-back refund). Owners are the account
+// ids in CLOUD_ADMIN_USER_IDS, with a verified email.
 import { ActionError, adminAction } from "@/lib/cloud/actions";
 import { isAdmin } from "@/lib/cloud/config";
 import { json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return problem(403, "Cross-site request refused.");
   const acct = await currentAccount({ fresh: true });
-  if (!acct || !isAdmin(acct.email)) return problem(403, "Owners only.");
+  if (!isAdmin(acct)) return problem(403, "Owners only.");
   const body = await readJson<Parameters<typeof adminAction>[0]>(request);
   if (!body?.action) return problem(400, "Bad request.");
   try {

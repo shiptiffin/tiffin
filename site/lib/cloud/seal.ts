@@ -1,67 +1,57 @@
-// Envelope encryption for customers' Hetzner tokens, the same format the
-// cloud worker opens (internal/cloud/seal.go): a random data key per value,
-// AES-256-GCM, the data key wrapped with CLOUD_KEK (a project secret, never in
-// the database), bound to its row by the additional data ("hetzner:<box id>").
+// Seals customers' Hetzner tokens to the cloud worker's X25519 public key
+// (CLOUD_SEAL_PUBLIC), in the format the worker opens (internal/cloud/seal.go).
+// The website can seal but never open: only the worker holds the private key,
+// in its own project's secrets. Each value gets a fresh ephemeral key; the
+// additional data binds it to its row ("hetzner:<box id>").
 //
-//   "v1." + base64url(nonce | AES-GCM(KEK, data key) | tag) + "." +
-//           base64url(nonce | AES-GCM(data key, value, aad) | tag)
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+//   "v2." + base64url(ephemeral public key) + "." + base64url(nonce | AES-256-GCM(key, value, aad) | tag)
+//   key = HKDF-SHA256(X25519(ephemeral, worker), salt = ephemeral pub | worker pub, info = "shiptiffin seal v2")
+import { createCipheriv, createHash, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, type KeyObject } from "node:crypto";
 
 const b64 = (b: Buffer) => b.toString("base64url");
+export const SEAL_INFO = "shiptiffin seal v2";
 
-/** CLOUD_KEK: the base64 of 32 random bytes, or null when unset or wrong. */
-export function kekFrom(value: string | undefined): Buffer | null {
+/** CLOUD_SEAL_PUBLIC: the base64 of a 32-byte X25519 public key, or null when unset or wrong. */
+export function sealPublicFrom(value: string | undefined): KeyObject | null {
   const s = value?.trim();
   if (!s) return null;
   const raw = Buffer.from(s, s.includes("-") || s.includes("_") ? "base64url" : "base64");
-  return raw.length === 32 ? raw : null;
-}
-
-function gcmSeal(key: Buffer, plain: Buffer, aad: Buffer): Buffer {
-  const nonce = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", key, nonce);
-  c.setAAD(aad);
-  const body = Buffer.concat([c.update(plain), c.final()]);
-  return Buffer.concat([nonce, body, c.getAuthTag()]);
-}
-
-function gcmOpen(key: Buffer, sealed: Buffer, aad: Buffer): Buffer {
-  if (sealed.length < 12 + 16) throw new Error("too short");
-  const d = createDecipheriv("aes-256-gcm", key, sealed.subarray(0, 12));
-  d.setAAD(aad);
-  d.setAuthTag(sealed.subarray(sealed.length - 16));
-  return Buffer.concat([d.update(sealed.subarray(12, sealed.length - 16)), d.final()]);
-}
-
-export function seal(kek: Buffer, value: string, aad: string): string {
-  const dek = randomBytes(32);
+  if (raw.length !== 32) return null;
   try {
-    const wrapped = gcmSeal(kek, dek, Buffer.from("dek"));
-    const body = gcmSeal(dek, Buffer.from(value, "utf8"), Buffer.from(aad, "utf8"));
-    return `v1.${b64(wrapped)}.${b64(body)}`;
-  } finally {
-    dek.fill(0);
-  }
-}
-
-/** The value, or null when it does not open (another KEK, another row, changed). */
-export function open(kek: Buffer, sealed: string, aad: string): string | null {
-  const m = /^v1\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(sealed);
-  if (!m) return null;
-  try {
-    const dek = gcmOpen(kek, Buffer.from(m[1]!, "base64url"), Buffer.from("dek"));
-    try {
-      return gcmOpen(dek, Buffer.from(m[2]!, "base64url"), Buffer.from(aad, "utf8")).toString("utf8");
-    } finally {
-      dek.fill(0);
-    }
+    return createPublicKey({ key: { kty: "OKP", crv: "X25519", x: raw.toString("base64url") }, format: "jwk" });
   } catch {
     return null;
   }
 }
 
+/** The raw 32 bytes of an X25519 key object. */
+export function rawX25519(k: KeyObject): Buffer {
+  return Buffer.from(k.export({ format: "jwk" }).x as string, "base64url");
+}
+
+export function sealKey(shared: Buffer, ephPub: Buffer, recipPub: Buffer): Buffer {
+  return Buffer.from(hkdfSync("sha256", shared, Buffer.concat([ephPub, recipPub]), SEAL_INFO, 32));
+}
+
+/** Seals value for the worker (pub), bound to the row aad names. */
+export function seal(pub: KeyObject, value: string, aad: string): string {
+  const eph = generateKeyPairSync("x25519");
+  const shared = diffieHellman({ privateKey: eph.privateKey, publicKey: pub });
+  const ephPub = rawX25519(eph.publicKey);
+  const key = sealKey(shared, ephPub, rawX25519(pub));
+  shared.fill(0);
+  try {
+    const nonce = randomBytes(12);
+    const c = createCipheriv("aes-256-gcm", key, nonce);
+    c.setAAD(Buffer.from(aad, "utf8"));
+    const body = Buffer.concat([nonce, c.update(Buffer.from(value, "utf8")), c.final(), c.getAuthTag()]);
+    return `v2.${b64(ephPub)}.${b64(body)}`;
+  } finally {
+    key.fill(0);
+  }
+}
+
 export const tokenAAD = (boxId: string) => `hetzner:${boxId}`;
-export const ownerAAD = (boxId: string) => `owner:${boxId}`;
 
 /** What stays of a forgotten token: 12 hex characters of its sha256. */
 export function fingerprint(token: string): string {

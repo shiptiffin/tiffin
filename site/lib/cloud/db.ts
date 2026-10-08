@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import type postgres from "postgres";
 import { sql } from "../early-access-pg";
 import type { BillingPatch, BillingRepo, BoxBilling } from "./billing";
+import type { OutboxRow, OutboxStore } from "./outbox";
 import type { Call } from "./hetzner";
 
 type Sql = postgres.Sql;
@@ -23,7 +24,7 @@ export async function tablesReady(): Promise<boolean> {
   const s = sql();
   if (!s) return false;
   try {
-    const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_emails_sent') is not null as ok`;
+    const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_outbox') is not null as ok`;
     tablesSeen = Boolean(r?.ok);
   } catch {
     return false;
@@ -39,35 +40,46 @@ export function newBoxId(): string {
   return s;
 }
 
+export type BoxStatus = "awaiting_payment" | "paid" | "provisioning" | "cert_pending" | "active" | "failed" | "deleting" | "released";
+
 export type BoxRow = {
   id: string;
   user_id: string;
   email: string;
   name: string | null;
-  status: "awaiting_payment" | "paid" | "provisioning" | "active" | "failed" | "released";
+  status: BoxStatus;
   plan_status: string;
   cancel_at_period_end: boolean;
   current_period_end: Date | null;
+  first_paid_at: Date | null;
   extras_paused_at: Date | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  checkout_session_id: string | null;
+  checkout_url: string | null;
+  checkout_expires_at: Date | null;
+  refunded_at: Date | null;
   founding: boolean;
   server_type: string | null;
   location: string | null;
   ipv4: string | null;
   ipv6: string | null;
+  generation: number;
   token_fingerprint: string | null;
   token_sealed: string | null;
   token_kept_at: Date | null;
-  owner_token_sealed: string | null;
-  owner_token_expires_at: Date | null;
-  first_opened_at: Date | null;
-  dns_state: "none" | "live" | "removed" | "killed";
+  signin_code: string | null;
+  signin_expires_at: Date | null;
+  dns_state: "none" | "live" | "removed" | "parked" | "killed";
   last_heartbeat_at: Date | null;
+  last_heartbeat_ip: string | null;
+  heartbeat_refused_at: Date | null;
+  heartbeat_refused_why: string | null;
   last_version: string | null;
   failing: string[];
   health_failures: number;
   health_checked_at: Date | null;
+  ready_at: Date | null;
   down_alerted_at: Date | null;
   heartbeat_alerted_at: Date | null;
   killed_at: Date | null;
@@ -102,12 +114,11 @@ export async function boxById(id: string): Promise<BoxRow | null> {
   return b ?? null;
 }
 
-/** A box waiting for its first payment, made fresh or reused (one at a time per account). */
+/** A box waiting for its first payment, made fresh or reused (one per account: a unique index settles two tabs). */
 export async function pendingBox(userId: string, email: string): Promise<BoxRow> {
   const s = db();
-  const [old] = await s<BoxRow[]>`select * from cloud_boxes where user_id = ${userId} and status = 'awaiting_payment' order by created_at desc limit 1`;
-  if (old) return old;
-  const [b] = await s<BoxRow[]>`insert into cloud_boxes (id, user_id, email) values (${newBoxId()}, ${userId}, ${email.toLowerCase()}) returning *`;
+  await s`insert into cloud_boxes (id, user_id, email) values (${newBoxId()}, ${userId}, ${email.toLowerCase()}) on conflict do nothing`;
+  const [b] = await s<BoxRow[]>`select * from cloud_boxes where user_id = ${userId} and status = 'awaiting_payment'`;
   return b!;
 }
 
@@ -126,10 +137,11 @@ export async function nameTaken(name: string): Promise<boolean> {
   return Boolean(r);
 }
 
-/** Queues a job (a sealed token travels with it until the job ends). */
+/** Queues a job (a sealed token travels with it until the job ends, two hours at most). */
 export async function enqueue(boxId: string, kind: string, args: Record<string, unknown>, tokenSealed: string | null, tx?: Tx): Promise<number> {
   const s = tx ?? db();
-  const [j] = await s`insert into cloud_jobs (box_id, kind, args, token_sealed) values (${boxId}, ${kind}, ${s.json(args as any)}, ${tokenSealed}) returning id`;
+  const [j] = await s`insert into cloud_jobs (box_id, kind, args, token_sealed, token_expires_at)
+    values (${boxId}, ${kind}, ${s.json(args as any)}, ${tokenSealed}, ${tokenSealed ? new Date(Date.now() + 2 * 3_600_000) : null}) returning id`;
   return Number(j!.id);
 }
 
@@ -165,24 +177,55 @@ export async function portalCustomer(userId: string): Promise<string | null> {
   return (r?.c as string | null) ?? null;
 }
 
-export async function emailOnce(boxId: string, kind: string, key: string, tx?: Tx | Sql): Promise<boolean> {
+/** Queues an email or Stripe action once per (box, kind, key); true the first time. */
+export async function outbox(boxId: string, kind: string, key: string, params: Record<string, unknown> = {}, tx?: Tx | Sql): Promise<boolean> {
   const s = tx ?? db();
-  const rows = await s`insert into cloud_emails_sent (box_id, kind, key) values (${boxId}, ${kind}, ${key}) on conflict do nothing returning 1`;
+  const rows = await s`insert into cloud_outbox (box_id, kind, key, params) values (${boxId}, ${kind}, ${key}, ${s.json(params as any)}) on conflict do nothing returning 1`;
   return rows.length > 0;
+}
+
+/** Whether an outbox row is settled (sent, or given up on): the address doesn't go before its warning did. */
+export async function outboxSettled(boxId: string, kind: string, key: string): Promise<boolean | null> {
+  const [r] = await db()`select status from cloud_outbox where box_id = ${boxId} and kind = ${kind} and key = ${key}`;
+  return r ? r.status !== "queued" : null;
+}
+
+export function pgOutbox(): OutboxStore {
+  const s = db();
+  return {
+    async claim(limit) {
+      return s<OutboxRow[]>`with due as (select id from cloud_outbox where status = 'queued' and next_attempt_at <= now() order by id limit ${limit} for update skip locked),
+        claimed as (update cloud_outbox o set next_attempt_at = now() + interval '10 minutes' from due where o.id = due.id returning o.*)
+        select c.id::int as id, c.box_id, c.kind, c.key, c.params, c.attempts, coalesce(b.email, '') as email, b.name, b.last_heartbeat_at, b.extras_paused_at,
+          b.kill_reason, b.stripe_subscription_id from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
+    },
+    async done(id) {
+      await s`update cloud_outbox set status = 'done', done_at = now(), attempts = attempts + 1, last_error = null where id = ${id}`;
+    },
+    async retry(id, attempts, next, error) {
+      await s`update cloud_outbox set attempts = ${attempts}, next_attempt_at = ${next}, last_error = ${error} where id = ${id}`;
+    },
+    async fail(id, attempts, error) {
+      await s`update cloud_outbox set status = 'failed', attempts = ${attempts}, last_error = ${error}, done_at = now() where id = ${id}`;
+    },
+  };
 }
 
 // ---- billing ----
 
-const toBilling = (b: BoxRow & { plan_status_at: Date | null }): BoxBilling => ({
+type BillingRow = BoxRow;
+
+const toBilling = (b: BillingRow): BoxBilling => ({
   id: b.id,
   userId: b.user_id,
   email: b.email,
   name: b.name,
   status: b.status,
   planStatus: b.plan_status,
-  planStatusAt: b.plan_status_at,
+  firstPaidAt: b.first_paid_at,
   extrasPausedAt: b.extras_paused_at,
   dnsState: b.dns_state,
+  generation: Number(b.generation),
   stripeCustomerId: b.stripe_customer_id,
   stripeSubscriptionId: b.stripe_subscription_id,
   founding: b.founding,
@@ -195,9 +238,9 @@ function pgBillingTx(tx: Tx | Sql): BillingRepo {
       const rows = await tx`insert into cloud_stripe_events (id, type, created) values (${id}, ${type}, ${created}) on conflict do nothing returning 1`;
       return rows.length > 0;
     },
-    async findBox({ boxId, subscriptionId }) {
+    async lockBox({ boxId, subscriptionId }) {
       // Locked for the rest of the event, so two events for one box run one after the other.
-      const [b] = await tx<(BoxRow & { plan_status_at: Date | null })[]>`select * from cloud_boxes
+      const [b] = await tx<BillingRow[]>`select * from cloud_boxes
         where (${boxId ?? null}::text is not null and id = ${boxId ?? null}) or (${subscriptionId ?? null}::text is not null and stripe_subscription_id = ${subscriptionId ?? null})
         order by (id = ${boxId ?? ""}) desc limit 1 for update`;
       return b ? toBilling(b) : null;
@@ -206,14 +249,14 @@ function pgBillingTx(tx: Tx | Sql): BillingRepo {
       const set: Record<string, unknown> = {};
       if (p.status !== undefined) set.status = p.status;
       if (p.planStatus !== undefined) set.plan_status = p.planStatus;
-      if (p.planStatusAt !== undefined) set.plan_status_at = p.planStatusAt;
+      if (p.firstPaidAt !== undefined) set.first_paid_at = p.firstPaidAt;
       if (p.extrasPausedAt !== undefined) set.extras_paused_at = p.extrasPausedAt;
       if (p.stripeCustomerId !== undefined) set.stripe_customer_id = p.stripeCustomerId;
       if (p.stripeSubscriptionId !== undefined) set.stripe_subscription_id = p.stripeSubscriptionId;
       if (p.founding !== undefined) set.founding = p.founding;
       if (p.cancelAtPeriodEnd !== undefined) set.cancel_at_period_end = p.cancelAtPeriodEnd;
       if (p.currentPeriodEnd !== undefined) set.current_period_end = p.currentPeriodEnd;
-      if (p.checkoutSessionId !== undefined) set.checkout_session_id = p.checkoutSessionId;
+      if (p.refundedAt !== undefined) set.refunded_at = p.refundedAt;
       if (Object.keys(set).length === 0) return;
       set.updated_at = new Date();
       await tx`update cloud_boxes set ${tx(set as any)} where id = ${boxId}`;
@@ -228,7 +271,10 @@ function pgBillingTx(tx: Tx | Sql): BillingRepo {
     async enqueue(boxId, kind, args = {}) {
       await tx`insert into cloud_jobs (box_id, kind, args) values (${boxId}, ${kind}, ${tx.json(args as any)})`;
     },
-    emailOnce: (boxId, kind, key) => emailOnce(boxId, kind, key, tx),
+    outbox: (boxId, kind, key, params) => outbox(boxId, kind, key, params, tx),
+    async log(boxId, what, subscriptionId, detail = {}) {
+      await tx`insert into cloud_billing_log (box_id, what, subscription_id, detail) values (${boxId}, ${what}, ${subscriptionId}, ${tx.json(detail as any)})`;
+    },
   };
   return repo;
 }

@@ -4,7 +4,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { EXTRAS_ON } from "@/lib/cloud/billing";
+import { DNS_GRACE_DAYS, ENDED, extrasOn } from "@/lib/cloud/billing";
 import { isAdmin } from "@/lib/cloud/config";
 import { boxesFor, callsFor, latestJob, tablesReady, type BoxRow } from "@/lib/cloud/db";
 import { family, RESIZE_TYPES } from "@/lib/cloud/hetzner";
@@ -23,10 +23,15 @@ function statusPill(b: BoxRow): [string, "good" | "warn" | "bad" | undefined] {
   switch (b.status) {
     case "active":
       if (b.dns_state === "killed") return ["Address turned off", "bad"];
+      if (b.dns_state === "parked") return ["Address parked: no check-in", "warn"];
       if (b.down_alerted_at) return ["Not answering", "bad"];
       return ["Running", "good"];
+    case "cert_pending":
+      return ["Installed: certificate pending", "warn"];
     case "provisioning":
       return ["Being created", "warn"];
+    case "deleting":
+      return ["Being deleted", "warn"];
     case "failed":
       return ["Setup stopped", "bad"];
     case "paid":
@@ -42,12 +47,13 @@ function planWords(b: BoxRow): string {
   if (b.status === "released") return "No subscription. The server is yours, unmanaged.";
   if (b.plan_status === "none") return "Not paid yet";
   const price = b.founding ? "$12 a month (founding price)" : "$19 a month";
-  if (EXTRAS_ON.has(b.plan_status)) {
+  if (b.refunded_at) return "Refunded; the subscription has ended.";
+  if (extrasOn(b.plan_status, Boolean(b.first_paid_at))) {
     if (b.cancel_at_period_end) return `${price}, ends ${day(b.current_period_end)}`;
     if (b.plan_status === "past_due") return `${price}, payment overdue: update your card`;
     return b.current_period_end ? `${price}, renews ${day(b.current_period_end)}` : price;
   }
-  const until = b.extras_paused_at ? new Date(b.extras_paused_at.getTime() + 30 * 86_400_000) : null;
+  const until = b.extras_paused_at ? new Date(b.extras_paused_at.getTime() + DNS_GRACE_DAYS * 86_400_000) : null;
   return `Ended (${b.plan_status}). Updates and extras are paused${b.dns_state === "live" && until ? `; the address stays until ${day(until)}` : ""}.`;
 }
 
@@ -65,7 +71,7 @@ export default async function Account() {
             Signed in as {acct.email}
           </p>
           <div className="cp-row">
-            {isAdmin(acct.email) && <Link href="/admin">Admin</Link>}
+            {isAdmin(acct) && <Link href="/admin">Admin</Link>}
             <SignOut />
           </div>
         </div>
@@ -91,7 +97,13 @@ export default async function Account() {
                 {b.name && (
                   <>
                     <dt>Address</dt>
-                    <dd>{b.dns_state === "live" ? <a href={dashboardUrl(b.name)}>{boxDomain(b.name)}</a> : `${boxDomain(b.name)} (${b.dns_state === "killed" ? "turned off" : "not live"})`}</dd>
+                    <dd>
+                      {b.dns_state === "live" ? (
+                        <a href={dashboardUrl(b.name)}>{boxDomain(b.name)}</a>
+                      ) : (
+                        `${boxDomain(b.name)} (${b.dns_state === "killed" ? "turned off" : b.dns_state === "parked" ? "parked: it comes back at the box's next check-in" : "not live"})`
+                      )}
+                    </dd>
                   </>
                 )}
                 <dt>Plan</dt>
@@ -105,7 +117,7 @@ export default async function Account() {
                     </dd>
                   </>
                 )}
-                {b.status === "active" && (
+                {(b.status === "active" || b.status === "cert_pending") && (
                   <>
                     <dt>Last check-in</dt>
                     <dd>
@@ -120,10 +132,13 @@ export default async function Account() {
                   {b.token_sealed ? `Kept, encrypted, since ${day(b.token_kept_at)}` : "Not stored"}
                   {b.token_fingerprint ? ` (fingerprint ${b.token_fingerprint})` : ""}
                 </dd>
-                {b.owner_token_sealed && (
+                {b.signin_code && (
                   <>
-                    <dt>Setup sign-in</dt>
-                    <dd>We can sign in to this box until {when(b.owner_token_expires_at)}, so &ldquo;Open your dashboard&rdquo; works. Forget it sooner below.</dd>
+                    <dt>Sign-in link</dt>
+                    <dd>
+                      We hold the one-time sign-in link your box made at setup, so your first &ldquo;Open dashboard&rdquo; signs you in. It works once, and your box
+                      refuses it after {when(b.signin_expires_at)}. Forget it sooner below.
+                    </dd>
                   </>
                 )}
               </dl>
@@ -137,11 +152,12 @@ export default async function Account() {
                   id: b.id,
                   name: b.name,
                   status: b.status,
-                  active: EXTRAS_ON.has(b.plan_status),
+                  active: extrasOn(b.plan_status, Boolean(b.first_paid_at)),
+                  renewable: (b.status === "active" || b.status === "cert_pending") && ENDED.has(b.plan_status) && !b.refunded_at,
                   cancelAtPeriodEnd: b.cancel_at_period_end,
                   hasSubscription: Boolean(b.stripe_subscription_id),
                   keyStored: Boolean(b.token_sealed),
-                  ownerKey: Boolean(b.owner_token_sealed),
+                  signinLink: Boolean(b.signin_code),
                   serverType: b.server_type,
                   sizes: RESIZE_TYPES.filter((t) => b.server_type && t !== b.server_type && family(t) === family(b.server_type)),
                 }}

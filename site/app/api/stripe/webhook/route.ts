@@ -1,9 +1,12 @@
 // POST /api/stripe/webhook: Stripe's events for box subscriptions. The
-// signature is checked over the raw body; each event is handled once. The
+// signature is checked over the raw body; each event is handled once, by
+// retrieving the subscription from Stripe (lib/cloud/billing.ts). The
 // endpoint in Stripe: https://shiptiffin.com/api/stripe/webhook with
-// checkout.session.completed, customer.subscription.updated,
-// customer.subscription.deleted, invoice.paid and invoice.payment_failed.
-import { sendNotices } from "@/lib/cloud/actions";
+// checkout.session.completed, checkout.session.async_payment_succeeded,
+// checkout.session.async_payment_failed, customer.subscription.created,
+// customer.subscription.updated, customer.subscription.deleted, invoice.paid,
+// invoice.payment_failed and charge.refunded.
+import { drainOutbox, stripe } from "@/lib/cloud/actions";
 import { handleEvent, type StripeEvent } from "@/lib/cloud/billing";
 import { pgBilling, tablesReady } from "@/lib/cloud/db";
 import { verifyStripeSignature } from "@/lib/cloud/stripe";
@@ -25,11 +28,16 @@ export async function POST(request: Request) {
   }
   if (!(await tablesReady())) return new Response("not ready", { status: 503 }); // Stripe retries
   try {
-    const { notices } = await handleEvent(pgBilling(), ev);
-    await sendNotices(notices);
-    return Response.json({ received: true });
+    await handleEvent(pgBilling(), stripe(), ev);
   } catch (e) {
     console.error("stripe webhook", ev.type, ev.id, e instanceof Error ? e.message : e);
     return new Response("failed; retry", { status: 500 });
   }
+  // Emails and Stripe actions the event asked for (the cron retries what fails).
+  try {
+    await drainOutbox();
+  } catch (e) {
+    console.error("outbox", e instanceof Error ? e.message : e);
+  }
+  return Response.json({ received: true });
 }

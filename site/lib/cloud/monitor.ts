@@ -1,21 +1,19 @@
 // The monitor: a cron every 5 minutes (tiffin.config.ts). For each managed
 // box it checks the dashboard answers over HTTPS and that the box checked in
-// within a day and a half, and emails the customer when either stops (and
-// when the box is back). It also ends the shiptiffin.app grace period of
-// boxes whose subscription ended. Decisions are pure (decide) so they can be
-// tested; run() does the I/O.
-import { DNS_GRACE_DAYS, EXTRAS_ON } from "./billing";
+// lately, and emails the customer when either stops (and when the box is
+// back). It parks the shiptiffin.app address of a box that hasn't checked in
+// for 72 hours, whatever its HTTPS answers (a server deleted in the Hetzner
+// console leaves an IP that someone else may get, and serve 200 from), and
+// ends the grace period of boxes whose subscription ended. Decisions are pure
+// (decide) so they can be tested; actions.ts does the I/O. The worker checks
+// every removal's reason again before it acts.
+import { DNS_GRACE_DAYS, extrasOn } from "./billing";
 
 export const DOWN_AFTER = 3; // failed checks in a row (15 minutes) before an email
 export const SILENT_AFTER_MS = 36 * 3_600_000;
 export const WARN_BEFORE_DAYS = 7;
-/**
- * A box that neither answers nor checks in for this long is probably deleted
- * (in the Hetzner console, say). Its address is parked: Hetzner may give the
- * IP to someone else, who must not get a shiptiffin.app name with it. The
- * next check-in puts it back.
- */
-export const PARK_AFTER_MS = 7 * 86_400_000;
+/** Without a check-in (current licence, from the box's own address) for this long, the address is parked. */
+export const PARK_AFTER_MS = 72 * 3_600_000;
 
 export type MonitorBox = {
   id: string;
@@ -23,40 +21,59 @@ export type MonitorBox = {
   email: string;
   status: string;
   plan_status: string;
+  first_paid_at: Date | null;
   extras_paused_at: Date | null;
   dns_state: string;
+  generation: number;
   last_heartbeat_at: Date | null;
+  ready_at: Date | null;
   health_failures: number;
   down_alerted_at: Date | null;
   heartbeat_alerted_at: Date | null;
   created_at: Date;
+  /** The "address goes soon" email is settled (sent or given up on); null: never queued. */
+  warned: boolean | null;
 };
+
+export type Email = "down" | "up" | "silent" | "dns_soon" | "dns_removed" | "parked";
 
 export type Decision = {
   probe: boolean; // check the dashboard over HTTPS
   patch: Partial<Pick<MonitorBox, "health_failures" | "down_alerted_at" | "heartbeat_alerted_at">> & { health_checked_at?: Date };
-  emails: ("down" | "up" | "silent" | "dns_soon" | "dns_removed" | "parked")[];
-  removeDns: boolean;
+  emails: Email[];
+  removeDns: null | { reason: "parked" | "grace"; gen: number; pausedAt?: Date };
 };
 
 const DAY = 86_400_000;
 
 /** What to do for one box. probeOk is the HTTPS check's result (undefined: not checked). */
 export function decide(b: MonitorBox, now: Date, probeOk?: boolean): Decision {
-  const d: Decision = { probe: false, patch: {}, emails: [], removeDns: false };
-  if (b.status !== "active" || !b.name) return d;
-  if (b.extras_paused_at && !EXTRAS_ON.has(b.plan_status)) {
-    // Extras paused: no monitoring, and the address goes after the grace period.
+  const d: Decision = { probe: false, patch: {}, emails: [], removeDns: null };
+  if ((b.status !== "active" && b.status !== "cert_pending") || !b.name) return d;
+  const gen = Number(b.generation);
+
+  // Parking: by check-ins alone, paid or not.
+  const last = (b.last_heartbeat_at ?? b.ready_at ?? b.created_at).getTime();
+  if (b.dns_state === "live" && now.getTime() - last > PARK_AFTER_MS) {
+    d.removeDns = { reason: "parked", gen };
+    d.emails.push("parked");
+    return d;
+  }
+
+  const on = extrasOn(b.plan_status, Boolean(b.first_paid_at));
+  if (b.extras_paused_at && !on) {
+    // Extras paused: no monitoring, and the address goes after the grace
+    // period, never before its warning went out.
     const end = b.extras_paused_at.getTime() + DNS_GRACE_DAYS * DAY;
-    if (b.dns_state === "live" && now.getTime() >= end) {
-      d.removeDns = true;
+    if (b.dns_state !== "live") return d;
+    if (now.getTime() >= end - WARN_BEFORE_DAYS * DAY && b.warned === null) d.emails.push("dns_soon");
+    if (now.getTime() >= end && b.warned === true) {
+      d.removeDns = { reason: "grace", gen, pausedAt: b.extras_paused_at };
       d.emails.push("dns_removed");
-    } else if (b.dns_state === "live" && now.getTime() >= end - WARN_BEFORE_DAYS * DAY) {
-      d.emails.push("dns_soon");
     }
     return d;
   }
-  if (!EXTRAS_ON.has(b.plan_status)) return d;
+  if (!on || b.status !== "active") return d;
   if (b.dns_state === "live") {
     d.probe = probeOk === undefined;
     if (probeOk !== undefined) {
@@ -77,13 +94,6 @@ export function decide(b: MonitorBox, now: Date, probeOk?: boolean): Decision {
       }
     }
   }
-  const last = (b.last_heartbeat_at ?? b.created_at).getTime();
-  const failures = d.patch.health_failures ?? b.health_failures;
-  if (b.dns_state === "live" && failures >= DOWN_AFTER && now.getTime() - last > PARK_AFTER_MS && b.down_alerted_at && now.getTime() - b.down_alerted_at.getTime() > PARK_AFTER_MS) {
-    d.removeDns = true;
-    d.emails.push("parked");
-    return d;
-  }
   if (now.getTime() - last > SILENT_AFTER_MS && !b.heartbeat_alerted_at) {
     d.emails.push("silent");
     d.patch.heartbeat_alerted_at = now;
@@ -99,4 +109,31 @@ export async function probe(url: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ---- check-ins ----
+
+/** IPv4 as is; IPv6 as its /64 (a server's outgoing address may be any of its /64). */
+function ipKey(ip: string): string | null {
+  let s = ip.trim().toLowerCase();
+  if (s.startsWith("[") && s.endsWith("]")) s = s.slice(1, -1);
+  if (s.startsWith("::ffff:") && /^\d+\.\d+\.\d+\.\d+$/.test(s.slice(7))) s = s.slice(7);
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(s)) return s.split(".").every((p) => Number(p) <= 255) ? `4:${s.split(".").map(Number).join(".")}` : null;
+  if (!s.includes(":") || s.includes("%")) return null;
+  const [head, tail, extra] = s.split("::");
+  if (extra !== undefined) return null;
+  const h = head ? head.split(":") : [];
+  const t = tail !== undefined && tail ? tail.split(":") : [];
+  const fill = tail === undefined ? 0 : 8 - h.length - t.length;
+  if (fill < 0 || (tail === undefined && h.length !== 8)) return null;
+  const all = [...h, ...Array(fill).fill("0"), ...t];
+  if (all.length !== 8 || !all.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  return `6:${all.slice(0, 4).map((g) => parseInt(g, 16)).join(":")}`;
+}
+
+/** Whether a check-in came from the box's own address (its IPv4, or its IPv6 /64). */
+export function fromBox(ip: string | null | undefined, ipv4: string | null, ipv6: string | null): boolean {
+  const k = ip ? ipKey(ip) : null;
+  if (!k) return false;
+  return (ipv4 != null && ipKey(ipv4) === k) || (ipv6 != null && ipKey(ipv6) === k);
 }

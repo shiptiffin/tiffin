@@ -78,7 +78,38 @@ export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BA
       }
     },
     createCheckout(params: Record<string, unknown>, idempotencyKey: string) {
-      return req<{ id: string; url: string }>("POST", "/checkout/sessions", params, idempotencyKey);
+      return req<{ id: string; url: string; expires_at?: number }>("POST", "/checkout/sessions", params, idempotencyKey);
+    },
+    expireCheckout(id: string) {
+      return req<any>("POST", `/checkout/sessions/${encodeURIComponent(id)}/expire`);
+    },
+    /** The subscription as Stripe has it now (the latest invoice expanded), or null when it doesn't exist. */
+    async getSubscription(id: string): Promise<StripeSubscription | null> {
+      try {
+        return await req<StripeSubscription>("GET", `/subscriptions/${encodeURIComponent(id)}`, { expand: ["latest_invoice"] });
+      } catch (e) {
+        if (e instanceof StripeError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    getInvoice(id: string) {
+      return req<any>("GET", `/invoices/${encodeURIComponent(id)}`, { expand: ["payments"] });
+    },
+    listInvoices(subscription: string) {
+      return req<{ data: any[] }>("GET", "/invoices", { subscription, limit: 100 });
+    },
+    /** The invoice a charge paid, in both API shapes (charge.invoice, or the invoice payment of its payment intent). */
+    async invoiceForCharge(charge: any): Promise<string | null> {
+      const direct = typeof charge?.invoice === "string" ? charge.invoice : charge?.invoice?.id;
+      if (direct) return direct;
+      const pi = typeof charge?.payment_intent === "string" ? charge.payment_intent : charge?.payment_intent?.id;
+      if (!pi) return null;
+      const r = await req<{ data: { invoice: string | { id: string } }[] }>("GET", "/invoice_payments", { payment: { type: "payment_intent", payment_intent: pi }, limit: 1 });
+      const inv = r.data[0]?.invoice;
+      return typeof inv === "string" ? inv : (inv?.id ?? null);
+    },
+    refund(params: { payment_intent?: string; charge?: string; metadata?: Record<string, string> }, idempotencyKey: string) {
+      return req<{ id: string; status: string; amount: number }>("POST", "/refunds", params, idempotencyKey);
     },
     getCheckout(id: string) {
       return req<any>("GET", `/checkout/sessions/${encodeURIComponent(id)}`);
@@ -92,7 +123,61 @@ export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BA
     cancelNow(subscription: string) {
       return req<any>("DELETE", `/subscriptions/${encodeURIComponent(subscription)}`);
     },
+    /**
+     * Cancels a subscription now and refunds its first invoice in full: a
+     * duplicate subscription for a box, or the 14-day money-back guarantee.
+     * Safe to repeat (Stripe idempotency keys; an ended subscription and a
+     * refunded payment are left as they are). Returns what it did.
+     */
+    async cancelAndRefund(subscription: string, key: string, metadata: Record<string, string>): Promise<{ canceled: boolean; refund: string | null; amount: number }> {
+      let canceled = false;
+      try {
+        const sub = await req<any>("GET", `/subscriptions/${encodeURIComponent(subscription)}`);
+        if (sub.status !== "canceled" && sub.status !== "incomplete_expired") {
+          await req<any>("DELETE", `/subscriptions/${encodeURIComponent(subscription)}`, undefined, `cancel:${key}`);
+          canceled = true;
+        }
+      } catch (e) {
+        if (!(e instanceof StripeError && e.status === 404)) throw e;
+      }
+      const invoices = await req<{ data: any[] }>("GET", "/invoices", { subscription, limit: 100 });
+      const first = invoices.data.find((i) => i.billing_reason === "subscription_create") ?? invoices.data.at(-1);
+      if (!first || !(first.amount_paid > 0)) return { canceled, refund: null, amount: 0 };
+      const inv = await req<any>("GET", `/invoices/${encodeURIComponent(first.id)}`, { expand: ["payments"] });
+      const pi = paymentIntentOf(inv);
+      const charge = typeof inv.charge === "string" ? inv.charge : null;
+      if (!pi && !charge) throw new StripeError(`invoice ${first.id} has no payment to refund`, 500);
+      try {
+        const r = await req<{ id: string; amount: number }>("POST", "/refunds", { ...(pi ? { payment_intent: pi } : { charge: charge! }), metadata }, `refund:${key}`);
+        return { canceled, refund: r.id, amount: r.amount };
+      } catch (e) {
+        if (e instanceof StripeError && e.code === "charge_already_refunded") return { canceled, refund: "already", amount: 0 };
+        throw e;
+      }
+    },
   };
+}
+
+export type StripeSubscription = {
+  id: string;
+  status: string;
+  customer: string | { id: string };
+  metadata?: Record<string, string>;
+  cancel_at_period_end?: boolean;
+  current_period_end?: number;
+  items?: { data?: { current_period_end?: number }[] };
+  latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number } | null;
+};
+
+/** An invoice's payment intent, in both API shapes. */
+export function paymentIntentOf(inv: any): string | null {
+  const direct = typeof inv?.payment_intent === "string" ? inv.payment_intent : inv?.payment_intent?.id;
+  if (direct) return direct;
+  for (const p of inv?.payments?.data ?? []) {
+    const pi = p?.payment?.payment_intent;
+    if (pi && (p.status === "paid" || p.status === undefined)) return typeof pi === "string" ? pi : pi.id;
+  }
+  return null;
 }
 
 /**

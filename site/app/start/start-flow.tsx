@@ -141,9 +141,9 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
   const [job, setJob] = useState<Job>(initialJob);
   const [checked, setChecked] = useState<{ token: string; r: Extract<CheckResult, { ok: true }> } | null>(null);
 
-  // Live progress while the worker runs.
+  // Live progress while the worker runs, and while the certificate is pending.
   useEffect(() => {
-    if (status !== "provisioning") return;
+    if (status !== "provisioning" && status !== "cert_pending") return;
     let stop = false;
     const tick = async () => {
       try {
@@ -154,7 +154,7 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
           setJob(j.job ?? null);
         }
       } catch {}
-      if (!stop) setTimeout(tick, 2000);
+      if (!stop) setTimeout(tick, status === "cert_pending" ? 15_000 : 2000);
     };
     const t = setTimeout(tick, 1500);
     return () => {
@@ -163,7 +163,7 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
     };
   }, [status, box.id]);
 
-  if (status === "provisioning" || status === "active") {
+  if (status === "provisioning" || status === "cert_pending" || status === "active") {
     return <Progress box={box} status={status} job={job} />;
   }
   return (
@@ -173,8 +173,9 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
           <h2>Setup stopped</h2>
           <p className="cp-sub">{job?.error ?? "Something went wrong."}</p>
           <p className="cp-hint">
-            Your Hetzner key was forgotten when it stopped. Paste it again to clean up what the first try left in your project and
-            start over. Nothing else in your Hetzner account is touched.
+            We removed the box&rsquo;s address and deleted what this try made in your Hetzner project (only what carries this
+            box&rsquo;s shiptiffin-box label; nothing else in your account is touched), and forgot your key. Paste it again to start
+            over.
           </p>
         </div>
       )}
@@ -254,8 +255,8 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
       <p className="cp-ok">Key checked: read &amp; write, prices from your account.</p>
       {r.servers > 0 && (
         <p className="cp-hint">
-          This project already has {r.servers} server{r.servers > 1 ? "s" : ""}. We only touch what we create (labelled tiffin-box), but
-          a new, empty project keeps the key away from everything else.
+          This project already has {r.servers} server{r.servers > 1 ? "s" : ""}. We only ever touch what we create for this box (labelled
+          shiptiffin-box with its id), but a new, empty project keeps the key away from everything else.
         </p>
       )}
       <div className="cp-field">
@@ -286,7 +287,7 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
       <label className="cp-check">
         <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
         <span>
-          Keep my key so I can resize in one click. <span className="cp-hint">Stored encrypted; remove it any time. Unticked, we forget it once the box is up.</span>
+          Keep my key so I can resize in one click. <span className="cp-hint">Stored sealed (only our setup worker can open it); remove it any time. Unticked, we forget it once the box is up.</span>
         </span>
       </label>
       <div className="cp-row">
@@ -306,10 +307,17 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
 function Progress({ box, status, job }: { box: Box; status: string; job: Job }) {
   const steps = job?.steps ?? [];
   const live = status === "provisioning";
+  const pending = status === "cert_pending";
   return (
     <div className="cp-card" aria-live="polite">
-      <h2>{live ? `Creating ${box.name}.${ZONE}` : `${box.name}.${ZONE} is ready`}</h2>
+      <h2>{live ? `Creating ${box.name}.${ZONE}` : pending ? `${box.name}.${ZONE}: certificate pending` : `${box.name}.${ZONE} is ready`}</h2>
       {live && <p className="cp-hint">This takes about five minutes. You can close this page; we email you when it&rsquo;s done.</p>}
+      {pending && (
+        <p className="cp-hint" role="status">
+          Tiffin is installed, but the dashboard doesn&rsquo;t answer over HTTPS with a valid certificate yet (Let&rsquo;s Encrypt can take a while,
+          or be rate-limited). We check every minute and email you when it&rsquo;s ready. You can close this page.
+        </p>
+      )}
       <ul className="cp-progress">
         {steps.length === 0 && <li data-live>Waiting for a worker</li>}
         {steps.map((s, i) => (
@@ -318,7 +326,7 @@ function Progress({ box, status, job }: { box: Box; status: string; job: Job }) 
           </li>
         ))}
       </ul>
-      {!live && (
+      {!live && !pending && (
         <>
           <div className="cp-row">
             <a className="btn btn-primary" href={`/api/cloud/boxes/${box.id}/open`}>
@@ -328,7 +336,10 @@ function Progress({ box, status, job }: { box: Box; status: string; job: Job }) 
               Your account
             </a>
           </div>
-          <p className="cp-hint">The first time, add a passkey in the dashboard so you can sign in on your own later.</p>
+          <p className="cp-hint">
+            This first time signs you in with a one-time link your box made (it works once, within 24 hours). Add a passkey in the dashboard
+            then: after that, you sign in on the box itself.
+          </p>
         </>
       )}
     </div>

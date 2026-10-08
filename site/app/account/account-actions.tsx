@@ -60,7 +60,8 @@ type Box = {
   cancelAtPeriodEnd: boolean;
   hasSubscription: boolean;
   keyStored: boolean;
-  ownerKey: boolean;
+  signinLink: boolean;
+  renewable: boolean;
   serverType: string | null;
   sizes: string[];
 };
@@ -89,9 +90,26 @@ export function BoxActions({ box }: { box: Box }) {
             Open dashboard
           </a>
         )}
-        {(box.status === "paid" || box.status === "failed" || box.status === "provisioning") && (
+        {box.renewable && (
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              const r = await post("/api/cloud/checkout", { renew: box.id });
+              if (r.ok && r.url) window.location.href = r.url;
+              else {
+                setBusy(false);
+                setMsg({ ok: false, text: r.message ?? "Payment isn't available right now." });
+              }
+            }}
+          >
+            Renew the subscription
+          </button>
+        )}
+        {(box.status === "paid" || box.status === "failed" || box.status === "provisioning" || box.status === "cert_pending") && (
           <a className="btn btn-primary btn-sm" href="/start">
-            {box.status === "provisioning" ? "See progress" : "Continue setup"}
+            {box.status === "provisioning" || box.status === "cert_pending" ? "See progress" : "Continue setup"}
           </a>
         )}
         {running && box.active && box.sizes.length > 0 && (
@@ -99,7 +117,7 @@ export function BoxActions({ box }: { box: Box }) {
             Resize
           </button>
         )}
-        {box.status !== "released" && (
+        {box.status !== "released" && box.status !== "deleting" && (
           <button className="btn btn-quiet btn-sm" onClick={() => setOpen(open === "key" ? "" : "key")}>
             Hetzner key
           </button>
@@ -111,18 +129,18 @@ export function BoxActions({ box }: { box: Box }) {
             onClick={() =>
               box.cancelAtPeriodEnd
                 ? act({ action: "resume" })
-                : act({ action: "cancel" }, "Cancel at the end of this period? Your server and apps keep running; updates and the extras stop.")
+                : act({ action: "cancel" }, "Cancel at the end of this period? Your server and apps keep running; updates and the extras stop, and the address stays 30 days.")
             }
           >
             {box.cancelAtPeriodEnd ? "Keep subscription" : "Cancel subscription"}
           </button>
         )}
-        {box.status !== "released" && box.status !== "awaiting_payment" && box.name && (
+        {box.status !== "released" && box.status !== "deleting" && box.status !== "awaiting_payment" && box.name && (
           <>
             <button className="cp-link" onClick={() => setOpen(open === "release" ? "" : "release")}>
               Release from ShipTiffin
             </button>
-            {box.status === "active" || box.status === "failed" ? (
+            {box.status === "active" || box.status === "cert_pending" || box.status === "failed" ? (
               <button className="cp-link cp-danger" onClick={() => setOpen(open === "delete" ? "" : "delete")}>
                 Delete the server
               </button>
@@ -138,7 +156,7 @@ export function BoxActions({ box }: { box: Box }) {
           name={box.name!}
           busy={busy}
           button="Release"
-          text="We stop managing this box: the subscription ends now, its shiptiffin.app address goes, and we keep no key. The server and apps in your Hetzner project are untouched and keep running; it no longer gets updates from us."
+          text="We stop managing this box: the subscription ends now, its shiptiffin.app address goes, and we keep no key or sign-in link. The server and apps in your Hetzner project are untouched and keep running; it no longer gets updates from us."
           onConfirm={(confirm) => act({ action: "release", confirm })}
         />
       )}
@@ -204,7 +222,7 @@ function KeyPanel({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
     <div className="cp-card">
       {box.keyStored ? (
         <>
-          <p className="cp-sub">Your Hetzner key is stored, encrypted with a key kept outside our database. We use it only when you click Resize.</p>
+          <p className="cp-sub">Your Hetzner key is stored, sealed so that only our setup worker can open it (not this website). We use it only when you click Resize.</p>
           <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "forget-key" })}>
             Remove the stored key
           </button>
@@ -218,13 +236,13 @@ function KeyPanel({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
           </button>
         </>
       )}
-      {box.ownerKey && (
+      {box.signinLink && (
         <>
           <p className="cp-hint">
-            We also hold this box&rsquo;s setup sign-in key for a short while, so &ldquo;Open dashboard&rdquo; can sign you in. Once you have a passkey on the box, let it go.
+            We also hold the one-time sign-in link your box made at setup (it works once, for 24 hours), so your first &ldquo;Open dashboard&rdquo; signs you in.
           </p>
-          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "forget-signin" }, "Forget the setup sign-in key? You then sign in to the box with your own passkey.")}>
-            Forget the setup sign-in key
+          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "forget-signin" }, "Forget the sign-in link? You then sign in on the box itself.")}>
+            Forget the sign-in link
           </button>
         </>
       )}
@@ -260,7 +278,7 @@ function DeleteServer({ box, busy, act }: { box: Box; busy: boolean; act: Act })
       name={box.name!}
       busy={busy || token.trim().length < 20}
       button="Delete the server"
-      text="This deletes the server, its firewall and anything else we labelled for this box in your Hetzner project, and ends the subscription. We only do it with a key you paste now. The data volume stays unless you tick the box: it is your apps' data."
+      text="This removes the box's shiptiffin.app address, then deletes the server, its firewall and anything else we made for this box in your Hetzner project (only what carries its shiptiffin-box label), and ends the subscription. We only do it with a key you paste now. The data volume stays unless you tick the box: it is your apps' data."
       onConfirm={(confirm) => act({ action: "delete-server", confirm, token: token.trim(), deleteData: data })}
     >
       <TokenInput value={token} onChange={setToken} label="Hetzner key (used for this, then forgotten)" />

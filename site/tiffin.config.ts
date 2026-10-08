@@ -1,41 +1,37 @@
 import { defineConfig } from "@shiptiffin/sdk";
 
-// shiptiffin.com: the public website and ShipTiffin's control plane.
+// shiptiffin.com: the public website and the customer side of ShipTiffin's
+// control plane (project "website").
 //
 // - web: the Next.js site (home, sign-up list, privacy, terms) and the customer
 //   pages (/start, /account, /sign-in, /managed, /abuse, /admin) with their API:
-//   Stripe Checkout and webhooks, the Hetzner key check, managed boxes' daily
-//   check-in, the monitor cron.
-// - cloud: the control plane worker (cmd/tiffin-cloud, Go). It creates boxes in
-//   customers' own Hetzner projects and keeps their <name>.shiptiffin.app
-//   records. Built from its Dockerfile with the repository's top as context;
-//   no previews, so a pull request never runs it.
+//   Stripe Checkout and webhooks, the Hetzner key check, managed boxes'
+//   check-ins, the monitor cron.
 //
-// Both use the project's Postgres (the worker makes the cloud_* tables). Mail
-// goes through the box; accounts use the box's sign-in (services.auth). The box
-// deploys from GitHub: a push to main that touches an app's watch paths.
+// The worker that touches infrastructure is a separate project, "cloud"
+// (cmd/tiffin-cloud/tiffin.config.ts), so the Cloudflare token, the licence
+// signing key and the key that opens customers' Hetzner tokens never reach
+// this app. The website's Postgres holds the cloud_* tables; the worker
+// reaches it with this project's DATABASE_URL as its CONTROL_DATABASE_URL.
+// Mail goes through the box; accounts use the box's sign-in (services.auth).
+// Previews are off: a pull request's code would get this project's secrets.
 //
 // Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_COUPON_FOUNDING,
 // STRIPE_PRICE_MONTHLY (optional; else the price with lookup key box_monthly_v1),
-// CLOUD_KEK, CLOUD_LICENCE_KEY, CLOUDFLARE_API_TOKEN (shiptiffin.app zone only),
-// CLOUD_ADMIN_EMAILS, CLOUD_ABUSE_NOTIFY (optional), EARLY_ACCESS_NOTIFY
-// (optional). Until the Stripe and CLOUD_ ones are set, /start shows the
-// sign-up list. SITE_URL overrides https://shiptiffin.com in email links.
+// STRIPE_CHECKOUT_LINK (optional, "1": offer Link in Checkout besides cards),
+// CLOUD_SEAL_PUBLIC and CLOUD_LICENCE_PUBLIC (public keys only),
+// CLOUD_ADMIN_USER_IDS (account ids allowed into /admin), CLOUD_ABUSE_NOTIFY
+// (optional), EARLY_ACCESS_NOTIFY (optional). Until the Stripe and CLOUD_ ones
+// are set, /start shows the sign-up list. SITE_URL overrides
+// https://shiptiffin.com in email links.
 export default defineConfig({
   project: "website",
   apps: {
     web: {
       framework: "next",
       routes: ["website", "shiptiffin.com"],
-      git: { repo: "shiptiffin/tiffin", branch: "main", path: "site" },
+      git: { repo: "shiptiffin/tiffin", branch: "main", path: "site", previews: "off" },
       watch: ["site/**"],
-    },
-    cloud: {
-      role: "worker",
-      builder: "dockerfile",
-      dockerfile: "cmd/tiffin-cloud/Dockerfile",
-      git: { repo: "shiptiffin/tiffin", branch: "main", previews: "off" },
-      watch: ["cmd/tiffin-cloud/**", "internal/**", "go.mod", "go.sum", "!**/*_test.go", "!**/*.md"],
     },
   },
   services: {

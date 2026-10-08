@@ -1,14 +1,17 @@
-// POST /api/box/heartbeat: a managed box's daily check-in (internal/mod/managed).
-// Authorization: Bearer <licence>. The box sends its version and the names of
-// failing checks; the answer says whether automatic updates may install.
+// POST /api/box/heartbeat: a managed box's check-in, every six hours
+// (internal/mod/managed). Authorization: Bearer <licence>. The box sends its
+// version and the names of failing checks; the answer says whether automatic
+// updates may install. A check-in counts (keeps the address, brings it back)
+// only with the current setup's licence, sent from the box's own address.
+import { clientIP } from "@shiptiffin/sdk/analytics";
 import { heartbeat } from "@/lib/cloud/actions";
 import { tablesReady } from "@/lib/cloud/db";
-import { publicKeyFromSeed, verifyLicence } from "@/lib/cloud/licence";
+import { licencePublicFrom, verifyLicence } from "@/lib/cloud/licence";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const pub = publicKeyFromSeed(process.env.CLOUD_LICENCE_KEY);
+  const pub = licencePublicFrom(process.env.CLOUD_LICENCE_PUBLIC);
   if (!pub || !(await tablesReady())) return new Response("not ready", { status: 503 });
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   const l = verifyLicence(pub, token);
@@ -20,5 +23,6 @@ export async function POST(request: Request) {
     report = JSON.parse(text || "{}");
   } catch {}
   if (typeof report.boxID === "string" && report.boxID !== l.box) return new Response("licence and box differ", { status: 400 });
-  return Response.json(await heartbeat(l.box, report), { headers: { "Cache-Control": "no-store" } });
+  // The address the box's edge saw (the last X-Forwarded-For entry is the edge's own).
+  return Response.json(await heartbeat(l, clientIP(request), report), { headers: { "Cache-Control": "no-store" } });
 }

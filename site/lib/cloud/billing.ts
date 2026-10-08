@@ -1,15 +1,37 @@
-// What Stripe's webhooks do to a box. Stripe is the source of truth for
-// billing; this keeps our copy in step. Each event is handled once (its id
-// is recorded in the same transaction as its writes, so a retried delivery
-// changes nothing), and an older event never overwrites a newer status.
+// What Stripe's webhooks do to a box. Stripe is the source of truth: every
+// event only says "look again", and the handler, holding the box's row lock,
+// retrieves the subscription from Stripe and applies its status as it is
+// now. So events arriving late, twice or out of order (Stripe's timestamps
+// have one-second precision) can't leave an old state behind, and paying an
+// old invoice of a cancelled subscription changes nothing. Each event is
+// handled once (its id is recorded in the same transaction as its writes).
+//
+// A box is bound to one subscription. A second live subscription for the
+// same box (two Checkout tabs) is cancelled at once and its first invoice
+// refunded; events of any other subscription are ignored. Once the bound
+// subscription has ended, a new one for the box (Renew) takes its place.
 //
 // Billing only ever switches the managed extras (automatic updates,
 // monitoring alerts, the shiptiffin.app address after a grace period). The
 // customer's server and apps are theirs and are never touched.
 
-export const EXTRAS_ON = new Set(["active", "trialing", "past_due"]);
 /** Days the shiptiffin.app address stays after the extras pause. */
 export const DNS_GRACE_DAYS = 30;
+
+/** Subscription statuses that are not over (the box's bound subscription can't be replaced). */
+export const LIVE = new Set(["active", "trialing", "past_due", "unpaid", "paused"]);
+/** Ended: Renew starts a new subscription for the box. */
+export const ENDED = new Set(["canceled", "incomplete_expired"]);
+
+/**
+ * Whether the managed extras are on: active or trialing; past_due too (Stripe
+ * is still retrying) but only once a first payment went through, so a box
+ * never runs on a payment that never happened.
+ */
+export function extrasOn(planStatus: string, firstPaid: boolean): boolean {
+  if (planStatus === "active" || planStatus === "trialing") return firstPaid;
+  return planStatus === "past_due" && firstPaid;
+}
 
 export type BoxBilling = {
   id: string;
@@ -18,125 +40,193 @@ export type BoxBilling = {
   name: string | null;
   status: string;
   planStatus: string;
-  planStatusAt: Date | null;
+  firstPaidAt: Date | null;
   extrasPausedAt: Date | null;
   dnsState: string;
+  generation: number;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   founding: boolean;
 };
 
 export type BillingPatch = Partial<
-  Pick<BoxBilling, "status" | "planStatus" | "planStatusAt" | "extrasPausedAt" | "stripeCustomerId" | "stripeSubscriptionId" | "founding">
-> & { cancelAtPeriodEnd?: boolean; currentPeriodEnd?: Date | null; checkoutSessionId?: string };
+  Pick<BoxBilling, "status" | "planStatus" | "firstPaidAt" | "extrasPausedAt" | "stripeCustomerId" | "stripeSubscriptionId" | "founding">
+> & { cancelAtPeriodEnd?: boolean; currentPeriodEnd?: Date | null; refundedAt?: Date };
 
 export interface BillingRepo {
   transaction<T>(fn: (r: BillingRepo) => Promise<T>): Promise<T>;
   /** Records the event; false when it was handled before. */
   firstTime(id: string, type: string, created: Date): Promise<boolean>;
-  findBox(q: { boxId?: string | null; subscriptionId?: string | null }): Promise<BoxBilling | null>;
+  /** Finds and locks the box (for the rest of the transaction): by id, else by subscription. */
+  lockBox(q: { boxId?: string | null; subscriptionId?: string | null }): Promise<BoxBilling | null>;
   update(boxId: string, patch: BillingPatch): Promise<void>;
   claimFounding(boxId: string): Promise<void>;
   saveCustomer(userId: string, email: string, customerId: string): Promise<void>;
   enqueue(boxId: string, kind: "dns_set" | "dns_remove", args?: Record<string, unknown>): Promise<void>;
-  /** True the first time (box, kind, key) is asked: an email goes once. */
-  emailOnce(boxId: string, kind: string, key: string): Promise<boolean>;
+  /** Queues an email or a Stripe action once per (box, kind, key); true the first time. */
+  outbox(boxId: string, kind: string, key: string, params?: Record<string, unknown>): Promise<boolean>;
+  log(boxId: string, what: string, subscriptionId: string | null, detail?: Record<string, unknown>): Promise<void>;
 }
 
-/** An email to send once the transaction committed. */
-export type Notice = { box: BoxBilling; kind: "paid" | "extras_paused" | "extras_resumed" | "payment_failed"; until?: Date };
+/** The Stripe calls billing needs (the real client, or a fake in tests). */
+export interface BillingStripe {
+  getSubscription(id: string): Promise<SubscriptionNow | null>;
+  getInvoice(id: string): Promise<any>;
+  invoiceForCharge(charge: any): Promise<string | null>;
+}
+
+export type SubscriptionNow = {
+  id: string;
+  status: string;
+  customer: string | { id: string };
+  metadata?: Record<string, string>;
+  cancel_at_period_end?: boolean;
+  current_period_end?: number;
+  items?: { data?: { current_period_end?: number }[] };
+  latest_invoice?: string | { id: string; status: string; billing_reason?: string } | null;
+};
 
 export type StripeEvent = { id: string; type: string; created: number; data: { object: any } };
 
-const subId = (s: unknown): string | null => (typeof s === "string" ? s : s && typeof s === "object" && "id" in s ? String((s as any).id) : null);
+const idOf = (s: unknown): string | null => (typeof s === "string" ? s : s && typeof s === "object" && "id" in s ? String((s as any).id) : null);
 
 /** The subscription an invoice belongs to (old and new API shapes). */
 export function invoiceSubscription(inv: any): string | null {
-  return subId(inv?.subscription) ?? subId(inv?.parent?.subscription_details?.subscription) ?? null;
+  return idOf(inv?.subscription) ?? idOf(inv?.parent?.subscription_details?.subscription) ?? null;
+}
+
+function invoiceBox(inv: any): string | null {
+  return inv?.parent?.subscription_details?.metadata?.box_id ?? inv?.subscription_details?.metadata?.box_id ?? null;
 }
 
 /** The end of the current period (old and new API shapes). */
-function periodEnd(sub: any): Date | null {
-  const t = sub?.current_period_end ?? sub?.items?.data?.[0]?.current_period_end;
+function periodEnd(sub: SubscriptionNow): Date | null {
+  const t = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;
   return typeof t === "number" ? new Date(t * 1000) : null;
 }
 
-/** The box changes that follow a new plan status, with the notices they send. */
-async function applyStatus(r: BillingRepo, box: BoxBilling, status: string, at: Date, extra: BillingPatch, notices: Notice[]) {
-  if (box.planStatusAt && at < box.planStatusAt) return; // an older event: what we have is newer
-  const patch: BillingPatch = { ...extra, planStatus: status, planStatusAt: at };
-  const on = EXTRAS_ON.has(status);
-  if (on && box.status === "awaiting_payment") patch.status = "paid";
-  if (on && box.extrasPausedAt) {
-    patch.extrasPausedAt = null;
-    if (box.dnsState === "removed" && box.status === "active") await r.enqueue(box.id, "dns_set");
-    if (await r.emailOnce(box.id, "extras_resumed", at.toISOString().slice(0, 10))) notices.push({ box, kind: "extras_resumed" });
-  }
-  // Paused only once the box was paid for: an abandoned first payment pauses nothing.
-  if (!on && !box.extrasPausedAt && box.status !== "awaiting_payment") {
-    patch.extrasPausedAt = at;
-    const until = new Date(at.getTime() + DNS_GRACE_DAYS * 86_400_000);
-    if (await r.emailOnce(box.id, "extras_paused", at.toISOString())) notices.push({ box, kind: "extras_paused", until });
-  }
-  await r.update(box.id, patch);
+/** Whether the subscription's latest invoice is paid: its first payment went through (card only, so no delayed methods). */
+function latestPaid(sub: SubscriptionNow): boolean {
+  const inv = sub.latest_invoice;
+  return Boolean(inv && typeof inv === "object" && inv.status === "paid");
 }
 
-/** Handles one verified event. Returns the emails to send after it committed. */
-export async function handleEvent(repo: BillingRepo, ev: StripeEvent): Promise<{ handled: boolean; notices: Notice[] }> {
+/** Handles one verified event. Emails and Stripe actions it asks for go to the outbox, sent once it committed. */
+export async function handleEvent(repo: BillingRepo, stripe: BillingStripe, ev: StripeEvent, now = new Date()): Promise<{ handled: boolean }> {
   return repo.transaction(async (r) => {
-    const at = new Date(ev.created * 1000);
-    if (!(await r.firstTime(ev.id, ev.type, at))) return { handled: false, notices: [] };
+    if (!(await r.firstTime(ev.id, ev.type, new Date(ev.created * 1000)))) return { handled: false };
     const o = ev.data.object;
-    const notices: Notice[] = [];
+    let subId: string | null = null;
+    let boxHint: string | null = null;
+    let refundedInvoice: any = null;
     switch (ev.type) {
-      case "checkout.session.completed": {
-        if (o.mode !== "subscription") break;
-        const box = await r.findBox({ boxId: o.metadata?.box_id ?? o.client_reference_id });
-        if (!box) break;
-        const customer = subId(o.customer);
-        const subscription = subId(o.subscription);
-        const discounted = Number(o.total_details?.amount_discount ?? 0) > 0 || (Array.isArray(o.discounts) && o.discounts.length > 0);
-        const extra: BillingPatch = { stripeCustomerId: customer, stripeSubscriptionId: subscription, checkoutSessionId: o.id };
-        if (discounted && !box.founding) {
-          extra.founding = true;
-          await r.claimFounding(box.id);
-        }
-        if (customer) await r.saveCustomer(box.userId, box.email, customer);
-        const paid = o.payment_status === "paid" || o.payment_status === "no_payment_required";
-        if (paid) {
-          if (box.status === "awaiting_payment" && (await r.emailOnce(box.id, "paid", ""))) notices.push({ box, kind: "paid" });
-          await applyStatus(r, box, "active", at, extra, notices);
-        } else await r.update(box.id, extra);
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded":
+      case "checkout.session.async_payment_failed":
+        if (o.mode !== "subscription") return { handled: true };
+        subId = idOf(o.subscription);
+        boxHint = o.metadata?.box_id ?? o.client_reference_id ?? null;
         break;
-      }
       case "customer.subscription.created":
       case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
-        const box = await r.findBox({ boxId: o.metadata?.box_id, subscriptionId: o.id });
-        if (!box) break;
-        const status = ev.type === "customer.subscription.deleted" ? "canceled" : String(o.status);
-        await applyStatus(r, box, status, at, {
-          stripeSubscriptionId: box.stripeSubscriptionId ?? o.id,
-          stripeCustomerId: box.stripeCustomerId ?? subId(o.customer),
-          cancelAtPeriodEnd: Boolean(o.cancel_at_period_end),
-          currentPeriodEnd: periodEnd(o),
-        }, notices);
+      case "customer.subscription.deleted":
+      case "customer.subscription.paused":
+      case "customer.subscription.resumed":
+        subId = idOf(o.id);
+        boxHint = o.metadata?.box_id ?? null;
+        break;
+      case "invoice.paid":
+      case "invoice.payment_succeeded":
+      case "invoice.payment_failed":
+        subId = invoiceSubscription(o);
+        boxHint = invoiceBox(o);
+        break;
+      case "charge.refunded": {
+        const invId = await stripe.invoiceForCharge(o);
+        if (!invId) return { handled: true };
+        refundedInvoice = await stripe.getInvoice(invId);
+        subId = invoiceSubscription(refundedInvoice);
+        boxHint = invoiceBox(refundedInvoice);
         break;
       }
-      case "invoice.paid": {
-        const sub = invoiceSubscription(o);
-        const box = await r.findBox({ subscriptionId: sub, boxId: o.parent?.subscription_details?.metadata?.box_id ?? o.subscription_details?.metadata?.box_id });
-        if (!box) break;
-        if (!EXTRAS_ON.has(box.planStatus) || box.status === "awaiting_payment") await applyStatus(r, box, "active", at, {}, notices);
-        break;
+      default:
+        return { handled: true };
+    }
+    if (!subId) return { handled: true };
+    const box = await r.lockBox({ boxId: boxHint, subscriptionId: subId });
+    if (!box) return { handled: true };
+    // Under the box's lock: the subscription as it is now.
+    const sub = await stripe.getSubscription(subId);
+    if (!sub || (sub.metadata?.box_id && sub.metadata.box_id !== box.id)) return { handled: true };
+
+    const patch: BillingPatch = {};
+    if (box.stripeSubscriptionId && box.stripeSubscriptionId !== sub.id) {
+      const bound = await stripe.getSubscription(box.stripeSubscriptionId);
+      if (bound && LIVE.has(bound.status)) {
+        // A second subscription for a box that has one: cancel it now and
+        // refund its first invoice (the outbox does it, retrying until done).
+        if (LIVE.has(sub.status) || sub.status === "incomplete") {
+          if (await r.outbox(box.id, "stripe_cancel_refund", `duplicate:${sub.id}`, { subscription: sub.id, why: "duplicate" })) {
+            await r.log(box.id, "duplicate subscription: cancelling it and refunding its first invoice", sub.id, { bound: bound.id });
+            await r.outbox(box.id, "duplicate_refunded", sub.id);
+          }
+        }
+        return { handled: true };
       }
-      case "invoice.payment_failed": {
-        const box = await r.findBox({ subscriptionId: invoiceSubscription(o), boxId: o.parent?.subscription_details?.metadata?.box_id });
-        if (!box) break;
-        if (await r.emailOnce(box.id, "payment_failed", String(o.id))) notices.push({ box, kind: "payment_failed" });
-        break;
+      // The bound subscription is over: a live new one replaces it (Renew); anything else is ignored.
+      if (!LIVE.has(sub.status)) return { handled: true };
+      patch.stripeSubscriptionId = sub.id;
+      await r.log(box.id, "renewed: a new subscription replaces the ended one", sub.id, { previous: box.stripeSubscriptionId });
+    } else if (!box.stripeSubscriptionId) {
+      patch.stripeSubscriptionId = sub.id;
+    }
+
+    const customer = idOf(sub.customer);
+    if (customer && customer !== box.stripeCustomerId) {
+      patch.stripeCustomerId = customer;
+      await r.saveCustomer(box.userId, box.email, customer);
+    }
+    if (ev.type === "checkout.session.completed") {
+      const discounted = Number(o.total_details?.amount_discount ?? 0) > 0 || (Array.isArray(o.discounts) && o.discounts.length > 0);
+      if (discounted && !box.founding) {
+        patch.founding = true;
+        await r.claimFounding(box.id);
       }
     }
-    return { handled: true, notices };
+
+    const firstPaid = Boolean(box.firstPaidAt) || (latestPaid(sub) && (sub.status === "active" || sub.status === "trialing"));
+    if (firstPaid && !box.firstPaidAt) patch.firstPaidAt = now;
+    const on = extrasOn(sub.status, firstPaid);
+    patch.planStatus = sub.status;
+    patch.cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
+    patch.currentPeriodEnd = periodEnd(sub);
+
+    if (on && box.status === "awaiting_payment") {
+      patch.status = "paid";
+      await r.outbox(box.id, "paid", "");
+    }
+    if (on && box.extrasPausedAt) {
+      patch.extrasPausedAt = null;
+      // Back on: the address returns once the box checks in from its own address (the worker checks).
+      if ((box.dnsState === "removed" || box.dnsState === "parked") && (box.status === "active" || box.status === "cert_pending")) {
+        await r.enqueue(box.id, "dns_set", { reason: "renewed", gen: box.generation });
+      }
+      await r.outbox(box.id, "extras_resumed", `${sub.id}:${now.toISOString().slice(0, 10)}`);
+    }
+    // Paused only once the box was paid for: an abandoned first payment pauses nothing.
+    if (!on && !box.extrasPausedAt && (box.firstPaidAt || firstPaid)) {
+      patch.extrasPausedAt = now;
+      await r.outbox(box.id, "extras_paused", sub.id, { until: new Date(now.getTime() + DNS_GRACE_DAYS * 86_400_000).toISOString() });
+    }
+    if (ev.type === "invoice.payment_failed") await r.outbox(box.id, "payment_failed", String(o.id));
+
+    // A full refund of the first payment (ours, or made in Stripe's dashboard) ends the subscription.
+    if (refundedInvoice && o.refunded === true && refundedInvoice.billing_reason === "subscription_create") {
+      patch.refundedAt = now;
+      await r.log(box.id, "first payment refunded", sub.id, { charge: o.id, amount: o.amount_refunded });
+      if (LIVE.has(sub.status)) await r.outbox(box.id, "stripe_cancel", `refunded:${sub.id}`, { subscription: sub.id });
+    }
+    await r.update(box.id, patch);
+    return { handled: true };
   });
 }
