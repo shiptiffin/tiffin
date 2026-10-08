@@ -221,7 +221,11 @@ sudo systemctl daemon-reload; sudo mount /mnt/HC_Volume_123`)
 		if tp.ID != "hono" {
 			continue
 		}
-		raw, _ := json.Marshal(map[string]any{"project": "shop", "apps": tp.Fragment.Apps, "services": tp.Fragment.Services})
+		doc := map[string]any{"project": "shop", "apps": tp.Fragment.Apps}
+		if tp.Fragment.Services != nil { // the always-there services leave it out
+			doc["services"] = tp.Fragment.Services
+		}
+		raw, _ := json.Marshal(doc)
 		b.apply("shop", string(raw))
 		b.waitReady("service/postgres")
 		d := b.ok("deploys", "template", "shop", tp.App, "--template", tp.ID)
