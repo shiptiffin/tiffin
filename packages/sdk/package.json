@@ -1,12 +1,20 @@
 {
   "name": "@shiptiffin/sdk",
   "version": "0.2.0",
-  "description": "The SDK for apps on Tiffin, the agent-first app-in-a-box platform: config, KV, storage, queues, workflows, auth, email, analytics and Next.js helpers.",
+  "description": "The SDK for apps on a Tiffin box: config, KV (Valkey), file storage, queues, durable workflows, sign-in, email, analytics and Next.js helpers, with nothing to set up.",
   "license": "Apache-2.0",
-  "keywords": ["tiffin", "self-hosting", "nextjs", "valkey", "s3", "better-auth"],
+  "author": "ShipTiffin <hello@shiptiffin.com> (https://shiptiffin.com)",
+  "homepage": "https://shiptiffin.com",
+  "repository": { "type": "git", "url": "git+https://github.com/shiptiffin/tiffin.git", "directory": "packages/sdk" },
+  "bugs": { "url": "https://github.com/shiptiffin/tiffin/issues", "email": "hello@shiptiffin.com" },
+  "keywords": [
+    "tiffin", "shiptiffin", "self-hosted", "nextjs", "bun", "valkey", "redis", "kv", "s3", "storage",
+    "queue", "background-jobs", "workflow", "better-auth", "auth", "email", "react-email", "analytics", "web-vitals"
+  ],
   "type": "module",
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./config": { "types": "./dist/config.d.ts", "default": "./dist/config.js" },
