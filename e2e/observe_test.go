@@ -284,7 +284,7 @@ systemd-run --unit=obs-hook python3 /tmp/hook.py >/dev/null 2>&1; sleep 1`)
 		t.Fatalf("webhook got: %s", hook)
 	}
 	_, inbox := run("email", "messages", "list", "shop")
-	if !strings.Contains(inbox, "[FIRING] disk-full") {
+	if !strings.Contains(inbox, "Firing: disk-full") {
 		t.Fatalf("dev inbox: %s", inbox)
 	}
 	ok("alerts", "rules", "put", "disk-full", "--body", `{"kind":"disk","threshold":85}`)
