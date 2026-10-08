@@ -976,7 +976,7 @@ function DeployRuntimeLogs({ project, app, dep, name }: { project: string; app: 
           : inFlight(dep.status)
             ? "It hasn’t started yet. Once it’s built and running, everything your app prints shows up here, live."
             : dep.status === "skipped"
-              ? "Skipped: a newer push to the same branch came in while it waited, so only the newest was built. It never ran."
+              ? "Skipped: a newer version of this app was already on its way or live, so this one never went live and never ran."
               : "It never started, so your app printed nothing. The build log says why."}
       </p>
     );
