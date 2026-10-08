@@ -73,4 +73,23 @@ make e2e        # every acceptance test, each on a fresh VM (slow)
 make release    # macOS and Linux binaries for arm64 and amd64
 ```
 
-Apache-2.0. See [NOTICE](NOTICE) for third-party components.
+## Licensing
+
+The Tiffin platform (the `tiffin` binary, the box, the dashboard and the auth engine) is
+free software under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`). If you run a changed copy as a service for others, offer them its source.
+
+What ends up inside your apps is [Apache-2.0](packages/sdk/LICENSE), so your apps stay
+yours under whatever licence you choose:
+
+- the SDK: `packages/sdk` and its embedded copy in `internal/sdkpkg/files/shiptiffin-sdk`
+- the starters, templates and examples: `internal/starters/files`, `templates`, `examples`
+- the analytics tracker: `packages/tracker` and `internal/mod/analytics/script.js`
+- the build glue the box writes into builds: `nextadapter.js`, `reactrouterserve.js`,
+  `workflowinstr.js` and `workflowsetup.mjs` in `internal/mod/runtime`
+- the agent files `tiffin init` writes: `internal/cli/scaffold` and `skills/tiffin`
+
+Each of these has its own `LICENSE` file or an `SPDX-License-Identifier` line.
+[NOTICE](NOTICE) and [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) list the third-party
+software inside the binary and its licences; `tiffin licenses` prints them.
+Contributions: [CONTRIBUTING.md](CONTRIBUTING.md#licensing).

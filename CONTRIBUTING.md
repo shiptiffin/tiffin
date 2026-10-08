@@ -20,6 +20,20 @@ Tooling and the `make` targets are in the README's "Developing" section.
   codes, hints), plain-words output, honest docs. Test what you build; no stubs that
   pretend to work.
 
+## Licensing
+
+Tiffin is AGPL-3.0-only, except the parts that end up inside people's apps, which are
+Apache-2.0: the SDK, the starters, templates and examples, the tracker, the build glue in
+`internal/mod/runtime` and the agent files `tiffin init` writes (README, Licensing, lists
+them; each has its own `LICENSE` file or an `SPDX-License-Identifier` line).
+
+Inbound = outbound: by sending a contribution you agree that it is licensed under the
+licence of the part it touches (AGPL-3.0-only for the platform, Apache-2.0 for the parts
+above), and that you have the right to license it that way. Keep the `LICENSE` files and
+SPDX lines of those parts. A new dependency must be compatible with AGPL-3.0, or with
+Apache-2.0 when it goes into one of the Apache-2.0 parts. Run `make notices` after
+adding or updating one and commit `THIRD_PARTY_NOTICES`.
+
 ## The contract
 
 A module lives in `internal/mod/<name>/`, registers in `init()`
