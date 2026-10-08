@@ -319,7 +319,7 @@ func (m *Manager) Create(ctx context.Context, by *Principal, req CreateRequest) 
 		t.ExpiresAt = &exp
 	}
 	secret := newSecret()
-	if err := m.insert(ctx, t, secret, ""); err != nil {
+	if err := m.insert(ctx, m.db.SQL(), t, secret, ""); err != nil {
 		return "", nil, err
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "token.create", t.ID, map[string]any{"name": t.Name, "kind": t.Kind, "scopes": t.Scopes, "projects": t.Projects, "expiresAt": t.ExpiresAt})
@@ -346,7 +346,7 @@ var ErrRevokedMaker = fmt.Errorf("%w: the session or key making this was signed 
 // (with role, when role is set). It is one statement, and revocations are one
 // statement too (Revoke, endSessions), so a credential made while its maker
 // is revoked is either caught by the revocation or never stored.
-func (m *Manager) insert(ctx context.Context, t *Token, secret, role string) error {
+func (m *Manager) insert(ctx context.Context, q dbtx, t *Token, secret, role string) error {
 	scopes, _ := json.Marshal(t.Scopes)
 	projects, _ := json.Marshal(t.Projects)
 	var grants any
@@ -354,7 +354,7 @@ func (m *Manager) insert(ctx context.Context, t *Token, secret, role string) err
 		b, _ := json.Marshal(t.Grants)
 		grants = string(b)
 	}
-	res, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person, grants)
+	res, err := q.ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person, grants)
 		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
 		WHERE NOT EXISTS (SELECT 1 FROM tokens WHERE id = ?7 AND revoked_at IS NOT NULL)
 		AND (?10 IS NULL OR EXISTS (SELECT 1 FROM people WHERE id = ?10 AND disabled_at IS NULL AND (?12 = '' OR role = ?12)))`,
@@ -371,8 +371,20 @@ func (m *Manager) insert(ctx context.Context, t *Token, secret, role string) err
 	return nil
 }
 
-// Authenticate resolves a secret to a principal.
+// Authenticate resolves a secret to a principal, as a use of it: an owner
+// session's first one closes the managed hand-off (closeHandoff).
 func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, error) {
+	return m.authenticate(ctx, secret, true)
+}
+
+// Inspect resolves a secret like Authenticate without counting as its use:
+// for the request that just created the session, whose answer may never
+// reach the browser.
+func (m *Manager) Inspect(ctx context.Context, secret string) (*Principal, error) {
+	return m.authenticate(ctx, secret, false)
+}
+
+func (m *Manager) authenticate(ctx context.Context, secret string, use bool) (*Principal, error) {
 	secret = strings.TrimSpace(strings.TrimPrefix(secret, "Bearer "))
 	if !strings.HasPrefix(secret, secretPrefix) {
 		return nil, ErrUnauthenticated
@@ -391,7 +403,13 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 	if t.RevokedAt != nil || (t.ExpiresAt != nil && !now.Before(*t.ExpiresAt)) {
 		return nil, ErrUnauthenticated
 	}
-	if t.LastUsedAt == nil || now.Sub(*t.LastUsedAt) > time.Minute {
+	switch {
+	case !use:
+	case t.LastUsedAt == nil && t.Kind == KindHuman && t.Person == OwnerPerson:
+		// The owner is signed in for real: the hand-off is over. If that
+		// can't be recorded now, the next request tries again.
+		_ = m.closeHandoff(ctx, t.ID, now)
+	case t.LastUsedAt == nil || now.Sub(*t.LastUsedAt) > time.Minute:
 		_, _ = m.db.SQL().ExecContext(ctx, `UPDATE tokens SET last_used_at = ? WHERE id = ?`, ts(&now), t.ID)
 	}
 	person := t.Person

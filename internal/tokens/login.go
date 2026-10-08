@@ -49,13 +49,90 @@ func (m *Manager) BootstrapLink(ctx context.Context, by *Principal, ttl time.Dur
 	return m.insertLink(ctx, by.TokenID, OwnerPerson, ttl)
 }
 
-// HandoffDone reports whether the owner has ever signed in with a link
-// (a bootstrap link, their own `tiffin login`, an emailed one): the box is
-// in its owner's hands, and the control plane's one-time authority is over.
+// The hand-off is closed once and for good: a kv row, so pruning old
+// sessions never reopens it.
+const handoffNS, handoffKey = "tokens", "handoff_done"
+
+// HandoffDone reports whether the owner has signed in for real: a session
+// of the owner's (from a bootstrap link, their own `tiffin login`, an emailed
+// link, a passkey) has made an authenticated request after the one that
+// created it. Only then is the box in its owner's hands and the control
+// plane's one-time authority over. A redeemed link whose answer never reached
+// the browser doesn't count, so a replacement link can still be made.
 func (m *Manager) HandoffDone(ctx context.Context) (bool, error) {
+	return handoffDone(ctx, m.db.SQL())
+}
+
+// dbtx is what both *sql.DB and *sql.Tx offer.
+type dbtx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func handoffDone(ctx context.Context, q dbtx) (bool, error) {
 	var n int
-	err := m.db.SQL().QueryRowContext(ctx, `SELECT count(*) FROM login_links WHERE used_at IS NOT NULL AND (person = ? OR person IS NULL)`, OwnerPerson).Scan(&n)
+	// The second count: boxes whose owner signed in before the marker existed.
+	err := q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM kv WHERE ns = ? AND key = ?)
+		+ (SELECT count(*) FROM tokens WHERE kind = ? AND person = ? AND last_used_at IS NOT NULL)`,
+		handoffNS, handoffKey, KindHuman, OwnerPerson).Scan(&n)
 	return n > 0, err
+}
+
+// expireHandoffLinks ends every unspent bootstrap (hand-off) link: the
+// owner token's links for the owner that last longer than a `tiffin login`
+// one (those are the owner's own, minutes long, and stay).
+func (m *Manager) expireHandoffLinks(ctx context.Context, q dbtx, now time.Time) error {
+	rows, err := q.QueryContext(ctx, `SELECT l.hash, l.created_at, l.expires_at FROM login_links l JOIN tokens t ON t.id = l.created_by
+		WHERE t.kind = ? AND l.used_at IS NULL AND (l.person = ? OR l.person IS NULL)`, KindOwner, OwnerPerson)
+	if err != nil {
+		return err
+	}
+	var old [][]byte
+	for rows.Next() {
+		var h []byte
+		var created, expires string
+		if err := rows.Scan(&h, &created, &expires); err != nil {
+			rows.Close()
+			return err
+		}
+		if e := parseTS(expires); e.After(now) && e.Sub(parseTS(created)) > LoginLinkTTL {
+			old = append(old, h)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, h := range old {
+		if _, err := q.ExecContext(ctx, `UPDATE login_links SET expires_at = ? WHERE hash = ?`, ts(&now), h); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// closeHandoff records the owner's first real sign-in (session id's first
+// authenticated request after the one that made it) and ends every
+// outstanding hand-off link, in one transaction. Hand-off links are minted
+// in a transaction too (HandoffLink), and writers serialize: a link minted
+// just before this is ended by it, one asked for after it is refused.
+func (m *Manager) closeHandoff(ctx context.Context, id string, now time.Time) error {
+	tx, err := m.db.SQL().BeginTx(ctx, nil) // immediate: writers serialize here
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE tokens SET last_used_at = ? WHERE id = ?`, ts(&now), id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO kv(ns, key, value) VALUES (?, ?, ?) ON CONFLICT(ns, key) DO NOTHING`,
+		handoffNS, handoffKey, []byte(id+" "+ts(&now).(string))); err != nil {
+		return err
+	}
+	if err := m.expireHandoffLinks(ctx, tx, now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ErrHandoffDone refuses a hand-off link once the owner has signed in.
@@ -66,43 +143,39 @@ var ErrHandoffDone = fmt.Errorf("%w: the owner has signed in already; no more ha
 // customer: when the dashboard first answers over HTTPS, or when they ask
 // for a new one. Only until the owner first signs in (HandoffDone); and the
 // earlier hand-off links that were never used stop working, so only the
-// newest one does.
+// newest one does. The check and the mint are one transaction, serialized
+// with closeHandoff, so no link outlives the hand-off.
 func (m *Manager) HandoffLink(ctx context.Context, ttl time.Duration) (string, time.Time, error) {
-	if done, err := m.HandoffDone(ctx); err != nil {
+	if ttl <= 0 || ttl > BootstrapTTL {
+		return "", time.Time{}, fmt.Errorf("%w: a bootstrap link lasts at most %s", ErrInvalid, BootstrapTTL)
+	}
+	tx, err := m.db.SQL().BeginTx(ctx, nil) // immediate: writers serialize here
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer tx.Rollback()
+	if done, err := handoffDone(ctx, tx); err != nil {
 		return "", time.Time{}, err
 	} else if done {
 		return "", time.Time{}, ErrHandoffDone
 	}
 	var ownerID string
-	if err := m.db.SQL().QueryRowContext(ctx, `SELECT id FROM tokens WHERE kind = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`, KindOwner).Scan(&ownerID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM tokens WHERE kind = ? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`, KindOwner).Scan(&ownerID); err != nil {
 		return "", time.Time{}, fmt.Errorf("the box has no owner token: %w", err)
 	}
 	now := m.now().UTC()
-	rows, err := m.db.SQL().QueryContext(ctx, `SELECT l.hash, l.created_at, l.expires_at FROM login_links l JOIN tokens t ON t.id = l.created_by
-		WHERE t.kind = ? AND l.used_at IS NULL AND (l.person = ? OR l.person IS NULL)`, KindOwner, OwnerPerson)
+	if err := m.expireHandoffLinks(ctx, tx, now); err != nil {
+		return "", time.Time{}, err
+	}
+	code, exp, err := m.addLink(ctx, tx, ownerID, OwnerPerson, ttl)
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	var old [][]byte
-	for rows.Next() {
-		var h []byte
-		var created, expires string
-		if err := rows.Scan(&h, &created, &expires); err != nil {
-			rows.Close()
-			return "", time.Time{}, err
-		}
-		// Bootstrap links only (a day long), not a `tiffin login` link (minutes).
-		if e := parseTS(expires); e.After(now) && e.Sub(parseTS(created)) > LoginLinkTTL {
-			old = append(old, h)
-		}
+	if err := tx.Commit(); err != nil {
+		return "", time.Time{}, err
 	}
-	rows.Close()
-	for _, h := range old {
-		if _, err := m.db.SQL().ExecContext(ctx, `UPDATE login_links SET expires_at = ? WHERE hash = ?`, ts(&now), h); err != nil {
-			return "", time.Time{}, err
-		}
-	}
-	return m.BootstrapLink(ctx, &Principal{TokenID: ownerID, Kind: KindOwner}, ttl)
+	_ = m.db.Audit(ctx, ownerID, "login_link.create", OwnerPerson, map[string]any{"expiresAt": exp, "handoff": true})
+	return code, exp, nil
 }
 
 // RedeemLoginLink spends a login code (once) and mints a dashboard session for
@@ -114,6 +187,9 @@ func (m *Manager) HandoffLink(ctx context.Context, ttl time.Duration) (string, t
 //
 // Whoever made the link must still be allowed to (see linkAuthority): an
 // invite outlives the session that sent it, but not its sender's access.
+//
+// Spending the link and creating the session are one transaction: a link is
+// never used up without the session it was for.
 func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *Token, string, error) {
 	code = strings.TrimSpace(code)
 	if !strings.HasPrefix(code, loginPrefix) {
@@ -122,12 +198,13 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 	now := m.now().UTC()
 	var createdBy string
 	var personID sql.NullString
-	// Mark used in the same statement that checks it, so a code works once.
-	err := m.db.SQL().QueryRowContext(ctx, `UPDATE login_links SET used_at = ?
-		WHERE hash = ? AND used_at IS NULL AND expires_at > ? RETURNING created_by, person`,
-		ts(&now), hash(code), ts(&now)).Scan(&createdBy, &personID)
-	if err != nil {
+	if err := m.db.SQL().QueryRowContext(ctx, `SELECT created_by, person FROM login_links WHERE hash = ? AND used_at IS NULL AND expires_at > ?`,
+		hash(code), ts(&now)).Scan(&createdBy, &personID); err != nil {
 		return "", nil, "", ErrUnauthenticated
+	}
+	// A link refused for who it's for or who made it is spent all the same.
+	burn := func() {
+		_, _ = m.db.SQL().ExecContext(ctx, `UPDATE login_links SET used_at = ? WHERE hash = ? AND used_at IS NULL`, ts(&now), hash(code))
 	}
 	pid := personID.String
 	if pid == "" {
@@ -135,26 +212,48 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 	}
 	person, err := m.GetPerson(ctx, pid)
 	if err != nil || person.DisabledAt != nil {
+		burn()
 		return "", nil, "", ErrUnauthenticated
 	}
-	if createdBy == emailLinkCreator {
-		// Asked for by email: the person proved they read that inbox.
-		secret, t, err := m.mintSession(ctx, person, MethodEmail)
-		return secret, t, MethodEmail, err
+	method := MethodEmail // asked for by email: the person proved they read that inbox
+	if createdBy != emailLinkCreator {
+		creator, err := m.Get(ctx, createdBy)
+		if err != nil || !m.linkAuthority(ctx, creator, person.ID) {
+			burn()
+			return "", nil, "", ErrUnauthenticated
+		}
+		// The owner token signing the owner in (their own `tiffin login`) is as
+		// strong as a passkey: that token adds passkeys and keys without asking.
+		// A link made by a session (even the owner's) or for anyone else is not.
+		method = MethodLink
+		if creator.Kind == KindOwner && person.ID == OwnerPerson {
+			method = MethodTerminal
+		}
 	}
-	creator, err := m.Get(ctx, createdBy)
-	if err != nil || !m.linkAuthority(ctx, creator, person.ID) {
+	tx, err := m.db.SQL().BeginTx(ctx, nil) // immediate: writers serialize here
+	if err != nil {
+		return "", nil, "", err
+	}
+	defer tx.Rollback()
+	// Mark used in the statement that checks it, so a code works once.
+	res, err := tx.ExecContext(ctx, `UPDATE login_links SET used_at = ?
+		WHERE hash = ? AND used_at IS NULL AND expires_at > ? AND created_by = ?`,
+		ts(&now), hash(code), ts(&now), createdBy)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
 		return "", nil, "", ErrUnauthenticated
 	}
-	// The owner token signing the owner in (their own `tiffin login`) is as
-	// strong as a passkey: that token adds passkeys and keys without asking.
-	// A link made by a session (even the owner's) or for anyone else is not.
-	method := MethodLink
-	if creator.Kind == KindOwner && person.ID == OwnerPerson {
-		method = MethodTerminal
+	secret, t := m.newSession(person)
+	if err := m.insert(ctx, tx, t, secret, person.Role); err != nil {
+		return "", nil, "", err
 	}
-	secret, t, err := m.mintSession(ctx, person, method)
-	return secret, t, method, err
+	if err := tx.Commit(); err != nil {
+		return "", nil, "", err
+	}
+	m.sessionMinted(ctx, t, method)
+	return secret, t, method, nil
 }
 
 // linkAuthority reports whether a link's maker may still sign target in when

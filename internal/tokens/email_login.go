@@ -95,20 +95,30 @@ func (m *Manager) CancelEmailLinks(ctx context.Context, personID string) error {
 // mintSession creates a dashboard session for a person with no sponsor
 // (a passkey, or a link they asked for by email). via goes in the audit log.
 func (m *Manager) mintSession(ctx context.Context, person *Person, via string) (string, *Token, error) {
+	secret, t := m.newSession(person)
+	// Only while they still have that role: a session minted as a demotion
+	// lands would otherwise keep the old role's power.
+	if err := m.insert(ctx, m.db.SQL(), t, secret, person.Role); err != nil {
+		return "", nil, err
+	}
+	m.sessionMinted(ctx, t, via)
+	return secret, t, nil
+}
+
+// newSession makes (but doesn't store) a dashboard session for person.
+func (m *Manager) newSession(person *Person) (string, *Token) {
 	now := m.now().UTC()
 	exp := now.Add(SessionTTL)
 	t := &Token{ID: ids.New("tok"), Name: person.Name, Kind: KindHuman, Scopes: ScopesFor(person.Role), Projects: []string{"*"},
 		CreatedAt: now, ExpiresAt: &exp, Person: person.ID}
-	secret := newSecret()
-	// Only while they still have that role: a session minted as a demotion
-	// lands would otherwise keep the old role's power.
-	if err := m.insert(ctx, t, secret, person.Role); err != nil {
-		return "", nil, err
-	}
+	return newSecret(), t
+}
+
+// sessionMinted is the bookkeeping after a session is stored.
+func (m *Manager) sessionMinted(ctx context.Context, t *Token, via string) {
 	_ = m.db.Audit(ctx, t.ID, "token.create", t.ID, map[string]any{"name": t.Name, "kind": t.Kind, "scopes": t.Scopes, "projects": t.Projects, "expiresAt": t.ExpiresAt, "via": via})
 	// Each sign-in adds a session; the ones past Sign-ins' history go now.
 	_, _ = m.PruneSessions(ctx)
-	return secret, t, nil
 }
 
 // checkEmail validates an optional person address.

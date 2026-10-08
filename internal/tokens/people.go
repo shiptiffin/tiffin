@@ -300,16 +300,25 @@ func (m *Manager) LoginLinkFor(ctx context.Context, by *Principal, person string
 
 // insertLink stores a one-time sign-in link made by token creator for person.
 func (m *Manager) insertLink(ctx context.Context, creator, person string, ttl time.Duration) (string, time.Time, error) {
+	code, exp, err := m.addLink(ctx, m.db.SQL(), creator, person, ttl)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	_ = m.db.Audit(ctx, creator, "login_link.create", person, map[string]any{"expiresAt": exp})
+	return code, exp, nil
+}
+
+// addLink stores a new sign-in link with q (the database or a transaction).
+func (m *Manager) addLink(ctx context.Context, q dbtx, creator, person string, ttl time.Duration) (string, time.Time, error) {
 	var b [20]byte
 	_, _ = rand.Read(b[:])
 	code := loginPrefix + strings.ToLower(b32.EncodeToString(b[:]))
 	now := m.now().UTC()
 	exp := now.Add(ttl)
-	if _, err := m.db.SQL().ExecContext(ctx, `INSERT INTO login_links(hash, created_by, created_at, expires_at, person) VALUES (?, ?, ?, ?, ?)`,
+	if _, err := q.ExecContext(ctx, `INSERT INTO login_links(hash, created_by, created_at, expires_at, person) VALUES (?, ?, ?, ?, ?)`,
 		hash(code), creator, ts(&now), ts(&exp), person); err != nil {
 		return "", time.Time{}, err
 	}
-	_ = m.db.Audit(ctx, creator, "login_link.create", person, map[string]any{"expiresAt": exp})
 	return code, exp, nil
 }
 

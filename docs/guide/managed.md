@@ -85,8 +85,11 @@ A box made with `tiffin up` is not managed and none of this runs on it.
   while it waits for your first sign-in). No SSH is involved. We keep the link until your
   box tells us you signed in (so a first click that didn't get through can be tried
   again), and delete it then, when it expires, or when you click *Forget the sign-in link*
-  (which also tells us never to ask for another). Once you have signed in, your box makes
-  no more links for us: we have no way to sign in to your box.
+  (which also tells us never to ask for another). You count as signed in once your new
+  session makes its first request after the sign-in itself (a sign-in whose answer never
+  reached your browser doesn't count, so a new link can still be made). From then on your
+  box makes no more links for us, and any it made that are still unused stop working: we
+  have no way to sign in to your box.
 - **Updates are pulled, never pushed.** The box reads the signed release manifest itself
   and installs new releases in its maintenance window, 03:00 server time (UTC) unless you
   move it ([Tiffin's own updates](quickstart.md#tiffins-own-updates)); ShipTiffin never

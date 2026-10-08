@@ -912,7 +912,9 @@ func (a *API) registerBox() {
 		if err != nil {
 			return nil, problem(401, "unauthenticated", "this login link is invalid, used or expired; run `tiffin login` for a new one")
 		}
-		p, err := a.deps.Tokens.Authenticate(ctx, secret)
+		// Not a use of the session: this answer may never reach the browser,
+		// and an owner's first real use is what closes a managed hand-off.
+		p, err := a.deps.Tokens.Inspect(ctx, secret)
 		if err != nil {
 			return nil, err
 		}
