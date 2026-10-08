@@ -50,9 +50,10 @@ const secs = (n: number) => (n < 0.1 ? "under 0.1\u202Fs" : n < 10 ? `${dec(n, 1
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s).replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, (t) => full(t));
 
 /**
- * Backups: when the box was last backed up and when it will be next, the
- * schedule as levers, the space it takes, restores (through the guard that
- * makes you read what is overwritten), and the history.
+ * Backups: when the box was last backed up and when it will be next, then
+ * the history with its restores (through the guard that makes you read what
+ * is overwritten), copies off the box, and, one step away, the schedule, the
+ * space it takes and the restore drill.
  */
 export function BackupsPage() {
   useTitle("Backups");
@@ -142,40 +143,6 @@ export function BackupsPage() {
         </p>
       )}
 
-      <OffsiteBlock o={d.offsite} owner={owner} now={now} />
-
-      <ScheduleLevers sch={sch} owner={owner} />
-
-      <Group label="Space" id="space">
-        <Rows>
-          <li className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_9rem]">
-            <div>
-              <p className="text-[0.875rem] text-ink">Data disk</p>
-              <p className="ident text-[0.71875rem] text-ink-3">{(d.destinations ?? [])[0]?.replace(/^local: /, "")}</p>
-            </div>
-            {disk ? (
-              <div className="col-span-2 row-start-2 max-w-[26rem] sm:col-span-1 sm:row-start-auto">
-                <SegMeter value={disk.usedPercent} warnAt={0.8} fullAt={0.95} scale label="Data disk in use" valueText={`${dec(disk.usedPercent, 0)} percent`} />
-                <p className="mt-1.5 text-[0.8125rem] text-ink-3">
-                  The disk is {dec(disk.usedPercent, 0)}&#8239;% full with {bytes(disk.freeBytes)} free; backups are {pct(d.repoBytes / disk.totalBytes, d.repoBytes / disk.totalBytes < 0.01 ? 1 : 0)} of
-                  it, with the log Postgres needs to replay between them.
-                </p>
-              </div>
-            ) : (
-              <p className="col-span-2 row-start-2 text-[0.8125rem] text-ink-3 sm:col-span-1 sm:row-start-auto">Compressed and deduplicated: each backup stores only what changed.</p>
-            )}
-            <p className="col-start-2 row-start-1 text-right text-[0.875rem] text-ink tnum sm:col-start-auto sm:row-start-auto">
-              {bytes(d.repoBytes)}
-              <span className="block text-xs text-ink-3">for {countWords(ok.length, "backup")}</span>
-            </p>
-          </li>
-        </Rows>
-      </Group>
-
-      <Group label="Restore drill" id="drill" aside={restores.length ? `last real restore ${relative(restores[0].startedAt, now)}` : undefined}>
-        <DrillBlock last={ld} owner={owner} hasBackup={!!ok[0]} />
-      </Group>
-
       <Group label="History" id="history" aside={list.length ? `keeps ${words(sch.retainFull)} full backups and what they need` : undefined}>
         {list.length === 0 ? (
           <Calm art="backups" title="Nothing backed up yet." className="border-y border-rule">
@@ -233,6 +200,43 @@ export function BackupsPage() {
         )}
       </Group>
 
+      <OffsiteBlock o={d.offsite} owner={owner} now={now} />
+
+      {/* The settings, one step away. Open from the start when something there needs a look: a drill running or failed, a nearly full disk. */}
+      <SettingsFold open={ld?.status === "running" || ld?.status === "failed" || (!!disk && disk.usedPercent >= 80)}>
+        <ScheduleLevers sch={sch} owner={owner} className="mt-6" />
+
+        <Group label="Space" id="space">
+          <Rows>
+            <li className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_9rem]">
+              <div>
+                <p className="text-[0.875rem] text-ink">Data disk</p>
+                <p className="ident text-[0.71875rem] text-ink-3">{(d.destinations ?? [])[0]?.replace(/^local: /, "")}</p>
+              </div>
+              {disk ? (
+                <div className="col-span-2 row-start-2 max-w-[26rem] sm:col-span-1 sm:row-start-auto">
+                  <SegMeter value={disk.usedPercent} warnAt={0.8} fullAt={0.95} scale label="Data disk in use" valueText={`${dec(disk.usedPercent, 0)} percent`} />
+                  <p className="mt-1.5 text-[0.8125rem] text-ink-3">
+                    The disk is {dec(disk.usedPercent, 0)}&#8239;% full with {bytes(disk.freeBytes)} free; backups are {pct(d.repoBytes / disk.totalBytes, d.repoBytes / disk.totalBytes < 0.01 ? 1 : 0)} of
+                    it, with the log Postgres needs to replay between them.
+                  </p>
+                </div>
+              ) : (
+                <p className="col-span-2 row-start-2 text-[0.8125rem] text-ink-3 sm:col-span-1 sm:row-start-auto">Compressed and deduplicated: each backup stores only what changed.</p>
+              )}
+              <p className="col-start-2 row-start-1 text-right text-[0.875rem] text-ink tnum sm:col-start-auto sm:row-start-auto">
+                {bytes(d.repoBytes)}
+                <span className="block text-xs text-ink-3">for {countWords(ok.length, "backup")}</span>
+              </p>
+            </li>
+          </Rows>
+        </Group>
+
+        <Group label="Restore drill" id="drill" aside={restores.length ? `last real restore ${relative(restores[0].startedAt, now)}` : undefined}>
+          <DrillBlock last={ld} owner={owner} hasBackup={!!ok[0]} />
+        </Group>
+      </SettingsFold>
+
       <HazardDialog<Preview, BackupRestored>
         key={restoring?.id + targets.join()}
         open={!!restoring}
@@ -280,8 +284,25 @@ export function BackupsPage() {
   );
 }
 
+/**
+ * Schedule, space and the restore drill, behind one closed disclosure. `open`
+ * is read once, when the page mounts, so a drill finishing doesn't fold it
+ * away under you.
+ */
+function SettingsFold({ open, children }: { open: boolean; children: ReactNode }) {
+  const [initial] = useState(open);
+  return (
+    <details className="group mt-11" open={initial}>
+      <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+        <span className="inline-block transition-transform group-open:rotate-90">›</span> Schedule, space and restore drills
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 /** The schedule as levers: a breaker for automatic backups, detents for how often and how many. Applies straight away, with Undo. */
-function ScheduleLevers({ sch, owner }: { sch: Schedule; owner: boolean }) {
+function ScheduleLevers({ sch, owner, className }: { sch: Schedule; owner: boolean; className?: string }) {
   const qc = useQueryClient();
   const set = useMutation({
     mutationFn: (next: Partial<Schedule>) => mod.setSchedule({ ...sch, ...next }),
@@ -311,7 +332,7 @@ function ScheduleLevers({ sch, owner }: { sch: Schedule; owner: boolean }) {
   });
   const dis = !owner || set.isPending;
   return (
-    <Group label="Schedule" id="schedule" aside={owner ? undefined : "The owner sets the schedule"}>
+    <Group label="Schedule" id="schedule" className={className} aside={owner ? undefined : "The owner sets the schedule"}>
       <Rows>
         <Lever
           lever={<Breaker label="Automatic backups" state={sch.enabled ? "on" : "off"} disabled={dis} onFlip={(v) => set.mutate({ enabled: v === "on" })} />}
@@ -446,10 +467,7 @@ function DrillBlock({ last, owner, hasBackup }: { last?: BackupDrill | null; own
   return (
     <div className="border-y border-rule py-3.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-[44rem] text-[0.84375rem] text-ink-2">
-          A backup you’ve never restored is a hope. A drill restores the newest one into a scratch copy, starts a private Postgres on it, counts every table of
-          every database, then throws the copy away. Nothing live is touched.
-        </p>
+        <p className="max-w-[44rem] text-[0.84375rem] text-ink-2">Restores the newest backup into a scratch copy and counts every table. Nothing live is touched.</p>
         {owner && hasBackup && !runningNow && (
           <Button size="md" onClick={() => start.mutate()} disabled={start.isPending}>
             {start.isPending ? "Starting…" : "Run a restore drill"}

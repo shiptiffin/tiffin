@@ -73,9 +73,6 @@ export function JobsArea({ project, tab, search, children, actions }: { project:
           editable ? (
             (actions ?? (
               <>
-                <Button onClick={() => open("send")} title="Send a test job (T)" aria-keyshortcuts="t">
-                  Send a test job
-                </Button>
                 <Button variant="primary" onClick={() => open("schedule")} title="New schedule (N)" aria-keyshortcuts="n">
                   New schedule
                 </Button>

@@ -14,6 +14,7 @@ import { Legend } from "@/components/charts/bars";
 import { SeriesTable, TimeSeries, type Series } from "@/components/charts/time-series";
 import { WorldMap } from "@/components/charts/world-map";
 import { useTitle } from "@/components/favicon";
+import { InfoTip } from "@/components/info-tip";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Segmented } from "@/components/segmented";
@@ -150,7 +151,10 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
           onCompare={(on) => go({ compare: on ? undefined : "off" }, true)}
         />
         <FilterMenu filters={filters} onPick={setAll} />
-        <span className="ml-auto">{rt.data && <LiveNow rt={rt.data} />}</span>
+        <span className="ml-auto flex items-center gap-1">
+          {rt.data && <LiveNow rt={rt.data} />}
+          <InfoTip label="About these numbers">Days are UTC. Each visitor counts once a day, without cookies. This page updates every minute.</InfoTip>
+        </span>
       </div>
       {anyFilter && (
         <div className="mt-3">
@@ -272,6 +276,7 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
               <WebVitals
                 v={vitals.data}
                 code={setup.data?.vitals}
+                onSetup={setup.data ? () => setGuide(true) : undefined}
                 vital={search.vital ?? "LCP"}
                 onVital={(x: Vital) => go({ vital: x }, true)}
                 selected={filters.page}
@@ -280,10 +285,6 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
               />
             </div>
           )}
-
-          <p className="mt-6 text-[0.75rem] text-ink-3">
-            Days are UTC. Each visitor counts once a day, without cookies. This page updates every minute.
-          </p>
         </div>
       )}
 
@@ -562,7 +563,8 @@ function Events({ data, pending, visitors, onSetup }: { data: AnalyticsEvent[]; 
         ) : data.length === 0 ? (
           <div className="px-2.5 py-5 text-[0.84375rem] text-ink-3">
             <p>
-              No events yet. Call <code className="font-mono text-[0.78rem] text-ink-2">tiffin.track("Signup")</code> in the browser or <code className="font-mono text-[0.78rem] text-ink-2">track()</code> on the server to count sign-ups, checkouts or anything else.
+              No events yet. Count sign-ups, checkouts or anything else{" "}
+              {onSetup ? "from your app." : <>with <code className="font-mono text-[0.78rem] text-ink-2">tiffin.track("Signup")</code>.</>}
             </p>
             {onSetup && (
               <button type="button" onClick={onSetup} className="mt-2 text-[0.8125rem] font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">

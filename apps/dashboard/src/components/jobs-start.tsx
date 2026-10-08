@@ -100,13 +100,14 @@ export function likelyApp(apps: Record<string, { role?: string }> | undefined): 
   return names.find((n) => apps?.[n]?.role === "worker") ?? names[0] ?? "web";
 }
 
-function CodeFile({ name, code, n }: { name: string; code: string; n: number }) {
+function CodeFile({ name, code, n, step }: { name: string; code: string; n: number; step?: string }) {
   return (
     <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3">
-      <span aria-hidden className="mt-1.5 grid size-6 place-items-center rounded-full border border-rule-2 text-xs text-ink-3 tnum">
+      <span aria-hidden className="grid size-6 place-items-center rounded-full border border-rule-2 text-xs text-ink-3 tnum">
         {n}
       </span>
-      <div className="min-w-0 overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk">
+      {step && <p className="self-center text-[0.8125rem] text-ink-2">{step}</p>}
+      <div className={cn("min-w-0 overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk", step && "col-start-2 mt-1.5")}>
         <div className="flex items-center justify-between border-b border-rule py-1 pr-1 pl-3.5">
           <span className="truncate font-mono text-[0.72rem] text-ink-3">{name}</span>
           <CopyButton value={code} label={`Copy ${name}`} />
@@ -120,54 +121,51 @@ function CodeFile({ name, code, n }: { name: string; code: string; n: number }) 
 }
 
 /**
- * "Nothing has run yet", and the code to change that. `focus` picks the
- * first recipe (Schedules opens on Schedule); `actions` are the page's own
- * buttons (New schedule…), for people who'd rather click.
+ * "Nothing has run yet", one line on what it's for, and the page's own
+ * buttons (New schedule…) as the way in. The code to define one sits behind
+ * "Show the code", open from the start only where there's no button, so the
+ * code is the one way in. `focus` picks the first recipe (Schedules opens on
+ * Schedule).
  */
 export function JobsStart({ title, app, focus = "queue", actions, className }: { title: ReactNode; app: string; focus?: StartKind; actions?: ReactNode; className?: string }) {
   const all = recipes(app);
   const [kind, setKind] = useState<StartKind>(focus);
   const r = all.find((x) => x.kind === kind) ?? all[0];
   return (
-    <section className={cn("grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]", className)} aria-label="How to define a job">
-      <div>
-        <span className="art-plate block size-[88px]">
-          <img src={emptyJobs} alt="" width={88} height={88} className="block size-full select-none" draggable={false} />
-        </span>
-        <h2 className="mt-4 text-[1.0625rem] font-[550] text-ink">{title}</h2>
-        <p className="mt-1.5 text-[0.875rem] leading-[1.375rem] text-ink-2">{r.lede}</p>
-        <ol className="mt-4 grid gap-1.5 text-[0.8125rem] text-ink-3">
-          {r.steps.map((s, i) => (
-            <li key={s} className="flex gap-2">
-              <span className="w-4 text-right tnum">{i + 1}.</span>
-              {s}
-            </li>
-          ))}
-        </ol>
-        {actions && <div className="mt-5 flex flex-wrap gap-2">{actions}</div>}
-      </div>
-      <T.Root value={kind} onValueChange={(v) => setKind(v as StartKind)} className="min-w-0">
-        <T.List aria-label="Define a" className="mb-4 inline-flex gap-0.5 rounded-[8px] border border-rule-2 bg-paper-sunk p-0.5">
+    <section className={cn("max-w-[46rem]", className)} aria-label="How to define a job">
+      <span className="art-plate block size-[88px]">
+        <img src={emptyJobs} alt="" width={88} height={88} className="block size-full select-none" draggable={false} />
+      </span>
+      <h2 className="mt-4 text-[1.0625rem] font-[550] text-ink">{title}</h2>
+      <p className="mt-1.5 max-w-[34rem] text-[0.875rem] leading-[1.375rem] text-ink-2">{r.lede}</p>
+      {actions && <div className="mt-5 flex flex-wrap gap-2">{actions}</div>}
+      <details className="group mt-6" open={!actions}>
+        <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+          <span className="inline-block transition-transform group-open:rotate-90">›</span> Show the code
+        </summary>
+        <T.Root value={kind} onValueChange={(v) => setKind(v as StartKind)} className="mt-3 min-w-0">
+          <T.List aria-label="Define a" className="mb-4 inline-flex gap-0.5 rounded-[8px] border border-rule-2 bg-paper-sunk p-0.5">
+            {all.map((x) => (
+              <T.Trigger
+                key={x.kind}
+                value={x.kind}
+                className="h-7 rounded-[6px] px-3 text-[0.8125rem] text-ink-3 transition-colors hover:text-ink data-[state=active]:bg-paper-lift data-[state=active]:font-[550] data-[state=active]:text-ink data-[state=active]:shadow-[var(--top-light)]"
+              >
+                {x.label}
+              </T.Trigger>
+            ))}
+          </T.List>
           {all.map((x) => (
-            <T.Trigger
-              key={x.kind}
-              value={x.kind}
-              className="h-7 rounded-[6px] px-3 text-[0.8125rem] text-ink-3 transition-colors hover:text-ink data-[state=active]:bg-paper-lift data-[state=active]:font-[550] data-[state=active]:text-ink data-[state=active]:shadow-[var(--top-light)]"
-            >
-              {x.label}
-            </T.Trigger>
+            <T.Content key={x.kind} value={x.kind} className="outline-hidden">
+              <ol className="grid gap-4">
+                {x.files.map((f, i) => (
+                  <CodeFile key={f.name} name={f.name} code={f.code} n={i + 1} step={x.steps[i]} />
+                ))}
+              </ol>
+            </T.Content>
           ))}
-        </T.List>
-        {all.map((x) => (
-          <T.Content key={x.kind} value={x.kind} className="outline-hidden">
-            <ol className="grid gap-3">
-              {x.files.map((f, i) => (
-                <CodeFile key={f.name} name={f.name} code={f.code} n={i + 1} />
-              ))}
-            </ol>
-          </T.Content>
-        ))}
-      </T.Root>
+        </T.Root>
+      </details>
     </section>
   );
 }

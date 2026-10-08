@@ -167,21 +167,12 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
           <p className="mt-1 max-w-[30rem] text-base text-ink-3">
             When {project} sends a sign-up link or a receipt, it shows up here the moment it's sent, rendered the way the recipient would see it.
           </p>
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
-            {canSend && st.data && (
-              <Button onClick={() => setComposing(true)}>
-                <Send />
-                Send a test
-              </Button>
-            )}
-            {st.data && !relay && admin && (
-              <Button asChild variant="ghost">
-                <Link to="/settings" hash="email">
-                  Connect a mail service
-                </Link>
-              </Button>
-            )}
-          </div>
+          {canSend && st.data && (
+            <Button className="mt-5" onClick={() => setComposing(true)}>
+              <Send />
+              Send a test
+            </Button>
+          )}
           {st.data && !relay && !admin && <p className="mt-3 text-sm text-ink-3">To send for real, the box’s owner connects a mail service in Settings.</p>}
         </div>
       ) : (
@@ -190,7 +181,7 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
             <div className="mt-7 flex min-h-8 items-center justify-between gap-4">
               <MailFilters messages={all} value={filter} onChange={setFilter} />
               <p className="shrink-0 text-xs text-ink-3 max-md:hidden" aria-live="polite">
-                {live === false ? <span className="text-warn-ink">Not connected. Refresh to see new mail.</span> : "Live: new mail shows up as it’s sent."}
+                {live === false && <span className="text-warn-ink">Not connected. Refresh to see new mail.</span>}
               </p>
             </div>
             <div className="mt-2 grid border-y border-rule lg:h-[calc(100dvh-17.5rem)] lg:min-h-[32rem] lg:grid-cols-[minmax(19rem,25rem)_minmax(0,1fr)]">
@@ -661,7 +652,6 @@ export function EmailSettingsPage({ project }: { project: string }) {
           />
         }
         title="Email settings"
-        lede="How mail leaves the box, the domain it comes from, the credentials your apps use, and the addresses this project won't write to."
       />
       <div className="mt-10 grid gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         <RelaySummary admin={admin} />

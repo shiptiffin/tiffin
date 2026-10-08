@@ -16,7 +16,7 @@ import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { countWords, int, pct } from "@/lib/format";
+import { countWords, int } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { useShortcut } from "@/lib/shortcuts";
 import { clock, dayKey, full, relative } from "@/lib/time";
@@ -154,7 +154,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
           <>
             The people who sign in to {project}’s apps. The box’s own team is under{" "}
             <Link to="/settings/people" className="text-brass-ink underline decoration-brass/40 underline-offset-[3px] hover:decoration-brass">
-              Access
+              Settings › People
             </Link>
             .
           </>
@@ -171,7 +171,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
       {overview.isError && <ProblemNote className="mt-8" error={overview.error} title="Couldn’t load sign-in for this project" />}
       {overview.isPending && (
         <div className="mt-8 grid grid-cols-2 gap-6 border-b border-rule pb-7 lg:grid-cols-4" aria-busy>
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1].map((i) => (
             <Skeleton key={i} className="h-14" />
           ))}
         </div>
@@ -179,12 +179,6 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
       {st && (
         <Readings className="grid-cols-2 lg:grid-cols-4">
           <Reading label="People" value={int(st.users)} sub={st.bannedUsers ? `${int(st.bannedUsers)} suspended` : st.users ? "None suspended" : "Nobody yet"} />
-          <Reading label="New this week" value={int(st.signups7d)} sub={st.users ? `${pct(st.signups7d / st.users)} of everyone` : undefined} />
-          <Reading
-            label="Verified email"
-            value={st.users ? pct(st.verifiedUsers / st.users) : "—"}
-            sub={st.users ? `${int(st.verifiedUsers)} of ${int(st.users)}` : undefined}
-          />
           <Reading
             label="Signed in now"
             value={int(st.activeSessions)}
@@ -198,7 +192,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
 
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search users" placeholder="Search by name or email" />
-        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && (search ? `${int(total)} found` : `${int(total)} in all`)}</span>
+        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && search ? `${int(total)} found` : null}</span>
       </div>
       {list.isError && <ProblemNote className="mt-4" error={list.error} />}
       <div className="mt-4">

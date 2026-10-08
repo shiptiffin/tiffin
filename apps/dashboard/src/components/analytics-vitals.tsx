@@ -43,6 +43,7 @@ const rate = (name: Vital, v: number) => (v <= about[name].good ? "good" : v <= 
 export function WebVitals({
   v,
   code,
+  onSetup,
   vital,
   onVital,
   selected,
@@ -51,6 +52,8 @@ export function WebVitals({
 }: {
   v: AnalyticsVitals;
   code?: string;
+  /** Opens the page's setup guide; without it, the code folds out here instead. */
+  onSetup?: () => void;
   vital: Vital;
   onVital: (x: Vital) => void;
   selected?: string;
@@ -90,13 +93,22 @@ export function WebVitals({
       </div>
 
       {list.length === 0 ? (
-        <div className="grid gap-x-10 gap-y-4 px-4 py-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <div className="text-[0.875rem] text-ink-2">
-            <p className="font-[550] text-ink">No speed readings yet</p>
-            <p className="mt-1.5">Web Vitals come from your visitors’ browsers: how fast the main content showed, how quickly taps answered and how much the layout jumped. In a Next.js app, render one component in the root layout.</p>
-            <p className="mt-2 text-ink-3">Elsewhere, call reportWebVitals() from @shiptiffin/sdk/vitals in browser code.</p>
-          </div>
-          <CodeBox name="app/layout.tsx" code={nextVitals(code)} />
+        <div className="px-4 py-5 text-[0.875rem] text-ink-2">
+          <p className="font-[550] text-ink">No speed readings yet</p>
+          <p className="mt-1.5">They come from your visitors’ browsers once your app reports them.</p>
+          {onSetup ? (
+            <button type="button" onClick={onSetup} className="mt-2 text-[0.8125rem] font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+              See how
+            </button>
+          ) : (
+            <details className="group mt-2">
+              <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+                <span className="inline-block transition-transform group-open:rotate-90">›</span> Show the code for a Next.js app
+              </summary>
+              <CodeBox className="mt-2 max-w-[40rem]" name="app/layout.tsx" code={nextVitals(code)} />
+              <p className="mt-2 text-[0.8125rem] text-ink-3">Elsewhere, call reportWebVitals() from @shiptiffin/sdk/vitals in browser code.</p>
+            </details>
+          )}
         </div>
       ) : (
         <>

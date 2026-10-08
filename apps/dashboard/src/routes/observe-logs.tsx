@@ -288,7 +288,6 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
               ? `What ${scope}’s apps print and the requests they serve.`
               : "What the box’s own services write: Tiffin, the stores, the system."
         }
-        actions={settings.data?.logsRetention && <Retention now={settings.data.logsRetention} />}
       />
 
       <div style={{ ["--logs-time" as string]: withDate ? "9rem" : "5.75rem" }}>
@@ -439,7 +438,7 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
                       </>
                     )}
                   </p>
-                  <p className="text-xs text-ink-4 max-sm:hidden">{isLive ? "Following new lines every 2 seconds" : "Click a column to zoom in, or drag across several"}</p>
+                  {isLive && <p className="text-xs text-ink-4 max-sm:hidden">Following new lines every 2 seconds</p>}
                 </div>
                 <LogsHistogram
                   className="mt-2"
@@ -514,6 +513,13 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
           </>
         )}
       </div>
+
+      {/* How long logs are kept: a setting, so it sits quietly under the lines. */}
+      {settings.data?.logsRetention && (
+        <div className="mt-4 flex justify-end">
+          <Retention now={settings.data.logsRetention} />
+        </div>
+      )}
 
       <LogsContext
         line={context}
