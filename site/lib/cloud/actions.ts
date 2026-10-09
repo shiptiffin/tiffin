@@ -3,7 +3,7 @@
 import { ENDED, extrasOn, handleEvent } from "./billing";
 import { foundingCoupon, sealPublic } from "./config";
 import * as q from "./db";
-import { deliver, SITE } from "./emails";
+import { abuseMail, deliver, SITE } from "./emails";
 import { checkToken, EU_LOCATIONS, EU_TYPES, family, RESIZE_TYPES, US_LOCATIONS, US_TYPES } from "./hetzner";
 import type { Licence } from "./licence";
 import { checkoutUrl } from "./checkout";
@@ -437,7 +437,7 @@ export async function reportAbuse(target: string, email: string | null, details:
   const [box] = m ? await q.db()`select id from cloud_boxes where name = ${m[1]!}` : [];
   await q.db()`insert into cloud_abuse_reports (target, box_id, reporter_email, details) values (${t}, ${(box?.id as string) ?? null}, ${email?.slice(0, 254) || null}, ${details.slice(0, 4000)})`;
   const notify = process.env.CLOUD_ABUSE_NOTIFY?.trim() || process.env.EARLY_ACCESS_NOTIFY?.trim();
-  if (notify) await deliver({ to: notify, subject: `Abuse report: ${t}`, text: `Target: ${t}\nBox: ${box?.id ?? "unknown"}\nFrom: ${email ?? "anonymous"}\n\n${details}\n\nAct on it: ${SITE}/admin` });
+  if (notify) await deliver(await abuseMail(notify, { target: t, box: (box?.id as string) ?? null, from: email ?? null, details }));
 }
 
 export type AdminInput = { action: "kill" | "restore" | "report" | "refund" | "resolve"; boxId?: string; reason?: string; reportId?: number; status?: string };

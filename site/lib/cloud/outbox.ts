@@ -7,7 +7,7 @@
 // (CLOUD_ABUSE_NOTIFY, else EARLY_ACCESS_NOTIFY), once per action.
 // Billing, the monitor and the provisioner (ready, setup failed) all write
 // here; the website drains it after each webhook and on every monitor run.
-import { deliver, render, SITE, type Mail } from "./emails";
+import { deliver, render, stuckMail as stuck, type Mail } from "./emails";
 
 export type OutboxRow = {
   id: number;
@@ -53,12 +53,9 @@ export function backoff(attempts: number, now = new Date(), cap = 6 * 60): Date 
 const isStripe = (kind: string) => kind.startsWith("stripe_");
 
 /** The admin's alert about a Stripe action that is stuck. */
-export function stuckMail(to: string, row: Pick<OutboxRow, "box_id">, params: Record<string, any>): Mail {
-  return {
-    to,
-    subject: `Stuck: ${params.kind} for ${row.box_id}`,
-    text: `A Stripe action has not gone through for over an hour, and is still being retried.\n\nBox: ${row.box_id}\nAction: ${params.kind} (${params.key})\nSubscription: ${params.subscription ?? "?"}\nQueued: ${params.since}\nAttempts so far: ${params.attempts}\nLast error: ${params.error}\n\nA customer may be paying twice until it does. Look in Stripe, and at ${SITE}/admin.`,
-  };
+export function stuckMail(to: string, row: Pick<OutboxRow, "box_id">, params: Record<string, any>): Promise<Mail> {
+  const s = (v: unknown) => (v === undefined || v === null ? "?" : String(v));
+  return stuck(to, { box: row.box_id, kind: s(params.kind), key: s(params.key), subscription: s(params.subscription), since: s(params.since), attempts: s(params.attempts), error: s(params.error) });
 }
 
 export async function drain(
@@ -79,10 +76,10 @@ export async function drain(
         await opts.stripe(row);
       } else if (row.kind === "admin_stuck") {
         if (!admin) throw new Error("no admin address (CLOUD_ABUSE_NOTIFY)");
-        const r = await send(stuckMail(admin, row, row.params ?? {}));
+        const r = await send(await stuckMail(admin, row, row.params ?? {}));
         if (!r.ok) error = r.error;
       } else {
-        const m = render(row.kind, { email: row.email, name: row.name, last_heartbeat_at: row.last_heartbeat_at, extras_paused_at: row.extras_paused_at, kill_reason: row.kill_reason }, row.params ?? {}, opts.now);
+        const m = await render(row.kind, { id: row.box_id, email: row.email, name: row.name, last_heartbeat_at: row.last_heartbeat_at, extras_paused_at: row.extras_paused_at, kill_reason: row.kill_reason }, row.params ?? {}, opts.now);
         if (!m) throw new Error(`no email called ${row.kind}`);
         const r = await send(m);
         if (!r.ok) error = r.error;

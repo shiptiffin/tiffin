@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const acct = await currentAccount({ fresh: true });
   const { id } = await params;
-  if (!acct) return Response.redirect(new URL(`/sign-in?next=/account`, request.url), 303);
+  // Signed out (the "Open your dashboard" button in the box-ready email): sign in, then come back here.
+  const next = /^[\w-]{1,64}$/.test(id) ? `/api/cloud/boxes/${id}/open` : "/account";
+  if (!acct) return Response.redirect(new URL(`/sign-in?next=${encodeURIComponent(next)}`, request.url), 303);
   try {
     const url = await openDashboard(acct, id);
     return new Response(null, { status: 303, headers: { Location: url, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });

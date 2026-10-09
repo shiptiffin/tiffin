@@ -276,7 +276,7 @@ export async function signUp(p: Extract<Parsed, { ok: true }>, d: Deps): Promise
   if (what === "quiet") return { kind: "quiet", mailed: false, details: details.token };
   let mailed = false;
   try {
-    await d.send(confirmEmail(p.answers.email, p.answers.name, links(d.baseUrl, t.token)));
+    await d.send(await confirmEmail(p.answers.email, p.answers.name, links(d.baseUrl, t.token)));
     mailed = true;
   } catch (err) {
     d.log?.("invite request: confirmation email not sent", err);
@@ -301,7 +301,7 @@ export async function confirm(token: string, d: Deps): Promise<"confirmed" | "al
   if (!r) return "invalid";
   if (r.first && d.notifyTo) {
     try {
-      await d.send(ownerEmail(d.notifyTo, r.request));
+      await d.send(await ownerEmail(d.notifyTo, r.request));
     } catch (err) {
       d.log?.("invite request: owner notification not sent", err);
     }
