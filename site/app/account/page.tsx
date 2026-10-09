@@ -1,8 +1,8 @@
 // /account: your boxes, one card each (box-card.tsx): status, address,
 // subscription, the everyday changes, the log of every call we made with
-// your Hetzner key, and the two ways out (stop managing, delete). A box
-// being deleted shows its progress; deleted boxes sit at the bottom, one
-// quiet line each.
+// your Hetzner key, and the one way out (Cancel subscription: keep the
+// server, or delete it). A box being deleted shows its progress; deleted
+// boxes sit at the bottom, one quiet line each.
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";

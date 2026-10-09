@@ -109,12 +109,13 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     ),
   },
   {
-    q: "What happens to my payment if I delete or stop my box?",
+    q: "What happens to my payment if I cancel or delete my box?",
     a: (
       <p>
-        The subscription ends immediately and you won&rsquo;t be charged again. The month already paid isn&rsquo;t
-        refunded, as it&rsquo;s a monthly service. Within 14 days of your first payment you can ask for the money-back
-        guarantee at hello@shiptiffin.com.
+        If you cancel and keep the server, the subscription runs to the end of the month you paid for, then stops.
+        If you delete the server in your account, it ends immediately. Either way you won&rsquo;t be charged again,
+        and the month already paid isn&rsquo;t refunded, as it&rsquo;s a monthly service. Within 14 days of your first
+        payment you can ask for the money-back guarantee at hello@shiptiffin.com.
       </p>
     ),
   },

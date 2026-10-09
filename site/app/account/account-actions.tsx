@@ -149,10 +149,14 @@ function TokenInput({ id, value, onChange, hint }: { id: string; value: string; 
 
 const tokenOk = (t: string) => /^[A-Za-z0-9]{20,128}$/.test(t.trim());
 
-/** The main button, the everyday changes, and the first sign-in. */
+/**
+ * The main button, the everyday changes, the first sign-in, and the one way
+ * out: Cancel subscription, which asks what happens to the server (keep it,
+ * or delete it). With no subscription left to cancel, Delete server instead.
+ */
 export function BoxActions({ box }: { box: BoxView }) {
   const { msg, setMsg, busy, setBusy, act } = useAct(box.id);
-  const [open, setOpen] = useState<"" | "resize" | "cancel" | "forget">("");
+  const [open, setOpen] = useState<"" | "resize" | "cancel" | "delete" | "forget">("");
   const close = () => {
     if (busy) return;
     setOpen("");
@@ -164,6 +168,10 @@ export function BoxActions({ box }: { box: BoxView }) {
   const setup = box.status === "paid" || box.status === "failed" || box.status === "provisioning" || box.status === "cert_pending";
   const canResize = running && box.active && box.sizes.length > 0;
   const canCancel = box.hasSubscription && box.active && managed;
+  // A server we can delete: set up, or a setup that stopped part way.
+  const canDelete = Boolean(box.name) && (running || box.status === "cert_pending" || box.status === "failed");
+  const name = box.name ?? "";
+  const addr = box.domain ?? "its address";
 
   // Billing (Stripe's portal) and Renew (Checkout) leave the page.
   async function leave(url: string, body: unknown, fallback: string) {
@@ -177,7 +185,7 @@ export function BoxActions({ box }: { box: BoxView }) {
     }
   }
 
-  if (!(running || box.renewable || setup || canResize || box.hasCustomer || canCancel || box.signin)) return null;
+  if (!(running || box.renewable || setup || canResize || box.hasCustomer || canCancel || canDelete || box.signin)) return null;
   return (
     <>
       <div className="cp-box-actions">
@@ -220,6 +228,11 @@ export function BoxActions({ box }: { box: BoxView }) {
               Cancel subscription
             </button>
           ))}
+        {canDelete && (!canCancel || box.cancelAtPeriodEnd) && (
+          <button className="btn btn-quiet btn-sm cp-danger-outline" disabled={busy} onClick={() => setOpen("delete")}>
+            Delete server…
+          </button>
+        )}
       </div>
 
       {box.signin && (
@@ -253,19 +266,10 @@ export function BoxActions({ box }: { box: BoxView }) {
         <ResizeForm box={box} busy={busy} msg={msg} act={act} onBack={close} />
       </Dialog>
 
-      <Dialog open={open === "cancel"} onClose={close} title="Cancel the subscription?" busy={busy}>
-        <ul className="cp-dialog-list">
-          <li>It ends on {box.periodEnd || "the last day you paid for"}. Until then nothing changes.</li>
-          <li>After that, your server and apps keep running; updates and monitoring stop.</li>
-          <li>{box.domain ?? "The address"} stays for 30 more days.</li>
-          <li>You can keep the subscription any time before it ends.</li>
-        </ul>
-        <Status msg={msg} />
-        <DialogButtons back="Keep subscription" busy={busy} onBack={close}>
-          <button className="btn btn-quiet btn-sm cp-danger-outline" disabled={busy} onClick={() => act({ action: "cancel" })}>
-            {busy ? "Cancelling…" : "Cancel subscription"}
-          </button>
-        </DialogButtons>
+      <CancelDialog open={open === "cancel"} onClose={close} box={box} canDelete={canDelete} busy={busy} msg={msg} setMsg={setMsg} act={act} />
+
+      <Dialog open={open === "delete"} onClose={close} title={`Delete ${name}’s server`} busy={busy}>
+        <DeleteForm name={name} addr={addr} price={box.price} busy={busy} msg={msg} act={act} onBack={close} />
       </Dialog>
 
       <Dialog open={open === "forget"} onClose={close} title="Sign in on the box instead?" busy={busy}>
@@ -320,59 +324,131 @@ function ResizeForm({ box, busy, msg, act, onBack }: { box: BoxView; busy: boole
   );
 }
 
-/** The two ways out, folded away at the bottom of the card. */
-export function BoxExits({ box }: { box: BoxView }) {
-  const { msg, setMsg, busy, act } = useAct(box.id);
-  const [open, setOpen] = useState<"" | "release" | "delete">("");
-  const close = () => {
-    if (busy) return;
-    setOpen("");
+/**
+ * Cancel subscription: one dialog, two choices, both of which cancel. Keep the
+ * server (the default) cancels at the period's end; Delete the server goes on
+ * to the delete form (a Hetzner token and the typed name), which ends the
+ * subscription now. A box with no server to delete gets the first only.
+ */
+function CancelDialog({
+  open,
+  onClose,
+  box,
+  canDelete,
+  busy,
+  msg,
+  setMsg,
+  act,
+}: {
+  open: boolean;
+  onClose: () => void;
+  box: BoxView;
+  canDelete: boolean;
+  busy: boolean;
+  msg: Msg;
+  setMsg: (m: Msg) => void;
+  act: Act;
+}) {
+  const id = useId();
+  const [choice, setChoice] = useState<"keep" | "delete">("keep");
+  const [step, setStep] = useState<"choose" | "delete">("choose");
+  const body = useRef<HTMLElement>(null);
+  const moved = useRef(false);
+  useEffect(() => {
+    if (open) {
+      setChoice("keep");
+      setStep("choose");
+    }
+  }, [open]);
+  // Between the two steps, focus goes to the new step's first field (showModal places it on opening).
+  useEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    body.current?.querySelector<HTMLInputElement>(step === "choose" ? "input:checked" : "input")?.focus();
+  }, [step]);
+  const go = (to: "choose" | "delete") => {
     setMsg(null);
+    moved.current = true;
+    setStep(to);
   };
-  if (!box.name || UNMANAGED.has(box.status) || box.status === "awaiting_payment") return null;
-  const canDelete = box.status === "active" || box.status === "cert_pending" || box.status === "failed";
-  const name = box.name;
-  const addr = box.domain ?? "its address";
-  return (
-    <>
-      <details className="cp-fold cp-exits">
-        <summary>Stop or delete this box</summary>
-        <div className="cp-exit">
-          <div>
-            <h3>Stop managed service, keep the server</h3>
-            <p>Ends the subscription and removes {addr}. The server keeps running in your Hetzner account.</p>
-          </div>
-          <button className="btn btn-quiet btn-sm" onClick={() => setOpen("release")}>
-            Stop managing…
-          </button>
+  const name = box.name ?? "";
+  const addr = box.domain ?? "The address";
+  const end = box.periodEnd || "the last day you paid for";
+  const keep = (
+    <ul className="cp-dialog-list">
+      <li>The subscription ends on {end}. Until then nothing changes.</li>
+      <li>After that, the server and apps keep running in your Hetzner account. Updates, monitoring and off-site backups stop.</li>
+      <li>{addr} goes 30 days later.</li>
+      <li>You can undo this until {end}.</li>
+    </ul>
+  );
+  if (step === "delete") {
+    return (
+      <Dialog open={open} onClose={onClose} title={`Delete ${name}’s server`} busy={busy}>
+        <div ref={body as React.RefObject<HTMLDivElement>}>
+          <DeleteForm name={name} addr={box.domain ?? "its address"} price={box.price} busy={busy} msg={msg} act={act} onBack={() => !busy && go("choose")} />
         </div>
-        {canDelete && (
-          <div className="cp-exit">
-            <div>
-              <h3>Delete the server</h3>
-              <p>Removes {addr}, deletes the server and ends the subscription. Needs a Hetzner token.</p>
-            </div>
-            <button className="btn btn-quiet btn-sm cp-danger-outline" onClick={() => setOpen("delete")}>
-              Delete server…
-            </button>
-          </div>
+      </Dialog>
+    );
+  }
+  return (
+    <Dialog open={open} onClose={onClose} title="Cancel your subscription?" busy={busy}>
+      <form
+        ref={body as React.RefObject<HTMLFormElement>}
+        className="cp-dialog-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (busy) return;
+          if (canDelete && choice === "delete") go("delete");
+          else act({ action: "cancel" });
+        }}
+      >
+        <p className="cp-dialog-text">
+          {canDelete ? "Both choices cancel" : "This cancels"} your ShipTiffin subscription{box.price ? ` (${box.price})` : ""}.
+        </p>
+        {canDelete ? (
+          <fieldset className="cp-choices">
+            <legend>What happens to the server?</legend>
+            <label className="cp-option">
+              <input type="radio" name={`${id}-choice`} value="keep" checked={choice === "keep"} onChange={() => setChoice("keep")} />
+              <b>Keep the server</b>
+              {keep}
+            </label>
+            <label className="cp-option" data-tone="danger">
+              <input type="radio" name={`${id}-choice`} value="delete" checked={choice === "delete"} onChange={() => setChoice("delete")} />
+              <b>Delete the server</b>
+              <ul className="cp-dialog-list">
+                <li>The server is deleted now, with its data if you choose, and {box.domain ?? "its address"} is removed.</li>
+                <li>The subscription ends now. The month already paid isn&rsquo;t refunded.</li>
+                <li>Next, you paste a Hetzner token and type the box&rsquo;s name.</li>
+              </ul>
+            </label>
+          </fieldset>
+        ) : (
+          keep
         )}
-      </details>
-      <Dialog open={open === "release"} onClose={close} title={`Stop managing ${name}`} busy={busy}>
-        <ReleaseForm name={name} addr={addr} price={box.price} busy={busy} msg={msg} act={act} onBack={close} />
-      </Dialog>
-      <Dialog open={open === "delete"} onClose={close} title={`Delete ${name}’s server`} busy={busy}>
-        <DeleteForm name={name} addr={addr} price={box.price} busy={busy} msg={msg} act={act} onBack={close} />
-      </Dialog>
-    </>
+        <Status msg={msg} />
+        <DialogButtons back="Don’t cancel" busy={busy} onBack={onClose}>
+          {canDelete && choice === "delete" ? (
+            <button type="submit" className="btn btn-quiet btn-sm cp-danger-outline" disabled={busy}>
+              Delete the server…
+            </button>
+          ) : (
+            <button type="submit" className="btn btn-quiet btn-sm cp-danger-outline" disabled={busy}>
+              {busy ? "Cancelling…" : "Cancel subscription"}
+            </button>
+          )}
+        </DialogButtons>
+      </form>
+    </Dialog>
   );
 }
 
 type FormProps = { name: string; addr: string; price: string | null; busy: boolean; msg: Msg; act: Act; onBack: () => void };
 
 /** The money, where it can't be missed (above the name field and the button): the subscription ends now, no refund, the guarantee. */
-function Money({ price, doing }: { price: string | null; doing: "Deleting" | "Stopping" }) {
-  const w = endsNowWords(price, doing);
+function Money({ price }: { price: string | null }) {
+  const w = endsNowWords(price);
   return (
     <div className="cp-money" role="note">
       <svg className="cp-money-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
@@ -397,36 +473,6 @@ function TypeName({ id, name, value, onChange }: { id: string; name: string; val
       </label>
       <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} />
     </div>
-  );
-}
-
-function ReleaseForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
-  const id = useId();
-  const [typed, setTyped] = useState("");
-  const ready = typed.trim() === name;
-  return (
-    <form
-      className="cp-dialog-form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (ready && !busy) act({ action: "release", confirm: typed.trim() });
-      }}
-    >
-      <ul className="cp-dialog-list">
-        <li>{addr} is removed.</li>
-        <li>The server, its data and your apps keep running in your Hetzner account. Tiffin still updates itself.</li>
-        <li>Hetzner goes on billing you for the server.</li>
-        <li>Its off-site backups in our storage are deleted after 7 days. To keep copying them, set a bucket of your own in the dashboard first.</li>
-      </ul>
-      <Money price={price} doing="Stopping" />
-      <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
-      <Status msg={msg} />
-      <DialogButtons busy={busy} onBack={onBack}>
-        <button type="submit" className="btn btn-sm btn-danger" disabled={busy || !ready}>
-          {busy ? "Stopping…" : `Stop managing ${name}`}
-        </button>
-      </DialogButtons>
-    </form>
   );
 }
 
@@ -457,7 +503,7 @@ function DeleteForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
         <input type="checkbox" checked={data} onChange={(e) => setData(e.target.checked)} />
         <span>Also delete the data volume: everything your apps stored. This can&rsquo;t be undone.</span>
       </label>
-      <Money price={price} doing="Deleting" />
+      <Money price={price} />
       <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
       <Status msg={msg} />
       <DialogButtons busy={busy} onBack={onBack}>

@@ -47,13 +47,13 @@ export function endedWords(b: MoneyRow, endedFallback: Date | null, now = new Da
 }
 
 /**
- * What ending the subscription now means for money, in the delete and stop
- * dialogs and the deleted email. Never a refund on delete: the 14-day
+ * What ending the subscription now means for money, in the delete dialog and
+ * the deleted email. Never a refund on delete: the 14-day
  * money-back guarantee is a refund an admin makes on request (/admin).
  */
-export function endsNowWords(price: string | null, doing: "Deleting" | "Stopping"): { title: string; body: string } {
+export function endsNowWords(price: string | null): { title: string; body: string } {
   if (!price) return { title: "Your ShipTiffin subscription has already ended.", body: "Nothing more is billed." };
-  return { title: `${doing} cancels your ShipTiffin subscription (${price}) now.`, body: "You won't be charged again, and the current month isn't refunded." };
+  return { title: `Deleting cancels your ShipTiffin subscription (${price}) now.`, body: "You won't be charged again, and the current month isn't refunded." };
 }
 export const GUARANTEE = "Within 14 days of your first payment, ask us at hello@shiptiffin.com for the money-back guarantee.";
 export const NO_REFUND = `Payments already made aren't refunded. ${GUARANTEE}`;

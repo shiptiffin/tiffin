@@ -147,9 +147,8 @@ Every backup set is also copied off the server, as on any box with
 - **Your choice wins.** Set a bucket of your own (*Backups › Use my own bucket*, or
   `tiffin backups offsite set`) and the box copies there instead; turn copies off and
   they stay off until `tiffin backups offsite managed` (or the dashboard's button).
-- **Deleted 7 days after the box.** Deleting the server, or stopping the managed service,
-  marks the box's folder; 7 days later the worker empties it, with credentials for that
-  folder alone.
+- **Deleted 7 days after the box.** Deleting the server marks the box's folder; 7 days
+  later the worker empties it, with credentials for that folder alone.
 
 On the box, `tiffin restore <id> --from offsite` restores a copy like a local backup.
 After losing the server, write to hello@shiptiffin.com: the copies are in the lost box's
@@ -191,20 +190,24 @@ parked (you get an email): if its server was deleted, Hetzner may give the IP to
 else, who must not get your name with it. Start the server and the address comes back at
 its next check-in.
 
-**Stop managed service** (in your account, under *Stop or delete this box*) ends the
-subscription at once, removes the address and any key we hold, and leaves the server exactly
-as it is: an ordinary Tiffin box of yours, which goes on installing updates by itself. Your
-account shows it as *Not managed*.
+**Cancel subscription** (in your account) asks what happens to the server. Both choices
+cancel the subscription.
 
-**Delete the server** (same place; it asks for a Hetzner token) removes the address first,
-then deletes the server, its firewall and, if you tick it, its data volume: only what
-carries the box's `shiptiffin-box` label. Its off-site backups are deleted 7 days later
-(stopping the managed service does the same). It ends the subscription at once. Your account
-shows the progress, then a single *Deleted* line, and you get an email saying what went.
-A deleted box stays deleted; a data volume you kept stays in your Hetzner project, billed
-by Hetzner, until you delete it there.
+- **Keep the server** (the default): the subscription runs to the end of the month you paid
+  for, then ends as described above. The server and apps keep running in your Hetzner
+  account; updates, monitoring and off-site backups stop; the address goes 30 days later.
+  Until the month ends, **Keep subscription** undoes it.
+- **Delete the server** (it asks for a Hetzner token) removes the address first, then
+  deletes the server, its firewall and, if you tick it, its data volume: only what carries
+  the box's `shiptiffin-box` label. Its off-site backups are deleted 7 days later. It ends
+  the subscription at once. Your account shows the progress, then a single *Deleted* line,
+  and you get an email saying what went. A deleted box stays deleted; a data volume you
+  kept stays in your Hetzner project, billed by Hetzner, until you delete it there.
 
-**What you pay when you stop or delete.** The subscription ends immediately and you won't be
+A box whose subscription has ended, or is set to end, has **Delete server** on its card
+instead, for the same delete.
+
+**What you pay when you delete.** The subscription ends immediately and you won't be
 charged again. The month already paid isn't refunded (it's a monthly service); within 14
 days of your first payment, ask for the money-back guarantee at hello@shiptiffin.com.
 

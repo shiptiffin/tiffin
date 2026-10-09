@@ -1,6 +1,6 @@
 // One box on /account, as a card: name, address and status; one main
-// button; a few facts; what needs your attention; the everyday changes;
-// the Hetzner activity; and, folded away at the bottom, the two ways out.
+// button; a few facts; what needs your attention; the everyday changes
+// and the way out (Cancel subscription); and the Hetzner activity.
 // A box being deleted is a live progress card instead (deleting.tsx); a
 // deleted one, a quiet row under "Deleted" (DeletedRow). Pure (no
 // database): the page passes the rows in.
@@ -9,7 +9,7 @@ import { DNS_GRACE_DAYS, ENDED, extrasOn, UNMANAGED } from "@/lib/cloud/billing"
 import type { BoxRow, CallRow, JobRow } from "@/lib/cloud/db";
 import { family, RESIZE_TYPES } from "@/lib/cloud/hetzner";
 import { boxDomain, dashboardUrl } from "@/lib/cloud/names";
-import { BoxActions, BoxExits, PastInvoices, type BoxView } from "./account-actions";
+import { BoxActions, PastInvoices, type BoxView } from "./account-actions";
 import { Deleting } from "./deleting";
 import { goneLines, releasedLine } from "./words";
 import { dayWords, endedWords, priceWords } from "@/lib/cloud/money";
@@ -266,8 +266,6 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
           </div>
         )}
       </details>
-
-      <BoxExits box={view} />
     </article>
   );
 }

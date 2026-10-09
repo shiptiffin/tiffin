@@ -1021,40 +1021,6 @@
   font-weight: 400;
   color: var(--ink-3);
 }
-.cp-exit {
-  display: grid;
-  gap: 10px;
-  padding: 14px 0;
-  border-top: 1px solid var(--rule);
-}
-.cp-exits > .cp-exit:first-of-type {
-  border-top: 0;
-  padding-top: 4px;
-}
-.cp .cp-exits > .cp-exit + .cp-exit {
-  margin-top: 0;
-}
-.cp-exit h3 {
-  font-size: 0.96rem;
-  font-weight: 600;
-}
-.cp-exit p {
-  margin-top: 2px;
-  font-size: 0.9rem;
-  line-height: 1.45;
-  color: var(--ink-3);
-  max-width: 34em;
-}
-.cp-exit .btn {
-  justify-self: start;
-}
-@media (min-width: 640px) {
-  .cp-exit {
-    grid-template-columns: 1fr auto;
-    align-items: center;
-    gap: 24px;
-  }
-}
 .cp .cp-danger-outline {
   color: var(--danger);
   border-color: color-mix(in oklch, var(--danger) 40%, transparent);
@@ -1122,6 +1088,36 @@
   padding-left: 1.2em;
   display: grid;
   gap: 6px;
+}
+/* Cancel subscription's two choices: .cp-option cards, a list under each title */
+.cp-choices {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.cp-choices legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.cp-choices .cp-option {
+  grid-template-columns: auto 1fr;
+}
+.cp-choices .cp-option .cp-dialog-list {
+  grid-column: 2;
+  font-size: 0.9rem;
+  gap: 4px;
+}
+.cp-choices .cp-option[data-tone="danger"]:has(input:checked) {
+  border-color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 7%, var(--paper));
+}
+.cp-choices .cp-option[data-tone="danger"] input {
+  accent-color: var(--danger);
 }
 .cp-dialog-buttons {
   display: flex;
@@ -1326,7 +1322,7 @@ summary.cp-gone-head {
   color: var(--ink-2);
 }
 
-/* the money, in the delete and stop dialogs: a warning that can't be missed */
+/* the money, in the delete dialog: a warning that can't be missed */
 .cp-money {
   display: grid;
   grid-template-columns: 20px 1fr;
