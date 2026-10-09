@@ -48,7 +48,7 @@ import (
 // restore them. Copies run after the local set, never inside it: a failing
 // bucket shows in the status and alerts, while local backups carry on.
 const (
-	nsOffsite     = "backup.offsite" // "config", "status", "pruned", "notBefore"
+	nsOffsite     = "backup.offsite" // "config", "status", "pruned", "notBefore", "grant", "managedOff"
 	offConfPath   = "/etc/pgbackrest/tiffin-offsite.conf"
 	offsiteCAPath = "/etc/pgbackrest/tiffin-offsite-ca.pem"
 	// shipPath is where WAL segments wait between the two repositories.
@@ -85,6 +85,14 @@ type OffsiteConfig struct {
 	State         string    `json:"state"`
 	SetAt         time.Time `json:"setAt"`
 	Sealed        []byte    `json:"sealed"`
+	// Managed: the storage that comes with a ShipTiffin managed box. Its
+	// temporary credentials (ExpiresAt) are renewed at check-ins
+	// (offsite_managed.go).
+	Managed   bool      `json:"managed,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt,omitzero"`
+	// PassphraseUnsaved: the box set the destination up by itself and made
+	// the passphrase; the owner has not said they saved it yet.
+	PassphraseUnsaved bool `json:"passphraseUnsaved,omitempty"`
 }
 
 // offsiteSecrets are sealed in OffsiteConfig.Sealed.
@@ -354,6 +362,9 @@ func repo2Options(c *OffsiteConfig, s *offsiteSecrets) [][2]string {
 		{"repo2-bundle-size", "2MiB"},
 		{"repo2-block", "y"},
 	}
+	if s.SessionToken != "" {
+		kv = append(kv, [2]string{"repo2-s3-token", s.SessionToken})
+	}
 	if port != "" && port != "443" {
 		kv = append(kv, [2]string{"repo2-storage-port", port})
 	}
@@ -621,7 +632,7 @@ func knownChunks(ctx context.Context, v *vault, fc *fileCache) (map[string]bool,
 func refsPath(id string) string { return filepath.Join(offsiteRoot, "refs2", id) }
 
 func openVault(c *OffsiteConfig, s *offsiteSecrets) (*vault, error) {
-	st, err := newS3(c, s.SecretAccessKey)
+	st, err := newS3For(c, s)
 	if err != nil {
 		return nil, err
 	}
@@ -646,6 +657,9 @@ func CopyOffsite(ctx context.Context, p *platform.Platform, b *Backup) (*BackupO
 	}
 	if c.State != OffsiteActive {
 		return nil, fmt.Errorf("copies are paused: %s", foreignWords)
+	}
+	if why := expired(c, time.Now()); why != "" {
+		return nil, errors.New(why)
 	}
 	cp := &BackupOffsiteCopy{Backup: b.ID, Destination: c.where(), Status: "running", StartedAt: time.Now().UTC()}
 	off.mu.Lock()
@@ -950,12 +964,13 @@ func offsiteLoop(ctx context.Context, p *platform.Platform) {
 		case <-off.poke:
 		}
 		timer.Reset(5 * time.Minute)
+		takeGrant(ctx, p, time.Now())
 		c, _ := current()
 		if c != nil && c.State == OffsiteForeign {
 			recheck(ctx, p)
 			c, _ = current()
 		}
-		if c == nil || c.State != OffsiteActive {
+		if c == nil || c.State != OffsiteActive || expired(c, time.Now()) != "" {
 			continue
 		}
 		list, err := List(ctx, p)
@@ -1059,6 +1074,7 @@ func startOffsite(ctx context.Context, p *platform.Platform) {
 		off.poke = make(chan struct{}, 1)
 	}
 	off.mu.Unlock()
+	platform.HandleOffsiteGrants(func(ctx context.Context, g *platform.OffsiteGrant) error { return keepGrant(ctx, p, g) })
 	c, s, err := loadOffsite(ctx, p)
 	if err != nil {
 		p.Log.Error("backup: reading the off-box settings", "err", err)
@@ -1078,22 +1094,26 @@ const foreignWords = "this bucket prefix holds the backups of another Postgres c
 
 // BackupOffsite is the off-box copy setting and how it is going.
 type BackupOffsite struct {
-	Enabled       bool               `json:"enabled" doc:"Copies off the box are on"`
-	State         string             `json:"state" enum:"off,active,foreign" doc:"off; active (copies run); foreign (the destination holds another cluster's backups: restore them, or choose another prefix)"`
-	Endpoint      string             `json:"endpoint,omitempty"`
-	Region        string             `json:"region,omitempty"`
-	Bucket        string             `json:"bucket,omitempty"`
-	Prefix        string             `json:"prefix,omitempty"`
-	AccessKeyID   string             `json:"accessKeyId,omitempty"`
-	URIStyle      string             `json:"uriStyle,omitempty"`
-	CustomCA      bool               `json:"customCa,omitempty"`
-	RetentionDays int                `json:"retentionDays,omitempty"`
-	SetAt         *time.Time         `json:"setAt,omitempty"`
-	Copying       string             `json:"copying,omitempty" doc:"The set being copied now"`
-	LastCopy      *BackupOffsiteCopy `json:"lastCopy" doc:"The newest copy attempt"`
-	LastOK        *BackupOffsiteCopy `json:"lastOk" doc:"The newest successful copy"`
-	LastOKAt      *time.Time         `json:"lastOkAt" doc:"When the newest successful copy finished"`
-	Message       string             `json:"message" doc:"How it is going, in plain words"`
+	Enabled           bool               `json:"enabled" doc:"Copies off the box are on"`
+	State             string             `json:"state" enum:"off,active,foreign" doc:"off; active (copies run); foreign (the destination holds another cluster's backups: restore them, or choose another prefix)"`
+	Endpoint          string             `json:"endpoint,omitempty"`
+	Region            string             `json:"region,omitempty"`
+	Bucket            string             `json:"bucket,omitempty"`
+	Prefix            string             `json:"prefix,omitempty"`
+	AccessKeyID       string             `json:"accessKeyId,omitempty"`
+	URIStyle          string             `json:"uriStyle,omitempty"`
+	CustomCA          bool               `json:"customCa,omitempty"`
+	RetentionDays     int                `json:"retentionDays,omitempty"`
+	SetAt             *time.Time         `json:"setAt,omitempty"`
+	Copying           string             `json:"copying,omitempty" doc:"The set being copied now"`
+	LastCopy          *BackupOffsiteCopy `json:"lastCopy" doc:"The newest copy attempt"`
+	LastOK            *BackupOffsiteCopy `json:"lastOk" doc:"The newest successful copy"`
+	LastOKAt          *time.Time         `json:"lastOkAt" doc:"When the newest successful copy finished"`
+	Message           string             `json:"message" doc:"How it is going, in plain words"`
+	Managed           bool               `json:"managed" doc:"The destination is the storage that comes with a ShipTiffin managed box: a folder of its own in ShipTiffin's backup bucket, reached with temporary credentials renewed at check-ins"`
+	ManagedAvailable  bool               `json:"managedAvailable,omitempty" doc:"This managed box has ShipTiffin's backup storage to use (tiffin backups offsite managed)"`
+	CredentialsExpire *time.Time         `json:"credentialsExpire,omitempty" doc:"When the managed storage's temporary credentials run out (check-ins renew them)"`
+	PassphraseUnsaved bool               `json:"passphraseUnsaved,omitempty" doc:"The box set up the managed storage by itself and made the passphrase: the owner should save it (tiffin backups offsite passphrase), then say so (passphrase-saved)"`
 	// Only in the answer to `offsite set`, once.
 	Passphrase     string `json:"passphrase,omitempty" doc:"Shown once, when a new destination is set: keep it somewhere safe, off this box"`
 	PassphraseNote string `json:"passphraseNote,omitempty"`
@@ -1103,12 +1123,24 @@ func offsiteView(ctx context.Context, p *platform.Platform) *BackupOffsite {
 	c, _ := current()
 	v := &BackupOffsite{State: OffsiteOff, Message: "Off: backups are only on this server. Losing the server loses them; set a destination with `tiffin backups offsite set`."}
 	if c == nil {
+		if g, _ := loadGrant(ctx, p); g != nil && g.ExpiresAt.After(time.Now()) {
+			v.ManagedAvailable = true
+			v.Message = "Off: backups are only on this server. This box comes with ShipTiffin's backup storage: turn it on with `tiffin backups offsite managed`."
+			if note := grantNote(); note != "" {
+				v.Message = "Off: " + note
+			}
+		}
 		return v
 	}
 	st := getStatus(ctx, p)
 	t := c.SetAt
 	v.Enabled, v.State, v.Endpoint, v.Region, v.Bucket, v.Prefix, v.AccessKeyID, v.URIStyle = true, c.State, c.Endpoint, c.Region, c.Bucket, c.Prefix, c.AccessKeyID, c.URIStyle
 	v.CustomCA, v.RetentionDays, v.SetAt, v.LastCopy, v.LastOK = c.CACert != "", c.RetentionDays, &t, st.Last, st.LastOK
+	v.Managed, v.PassphraseUnsaved = c.Managed, c.PassphraseUnsaved
+	if c.Managed {
+		exp := c.ExpiresAt
+		v.CredentialsExpire = &exp
+	}
 	off.mu.Lock()
 	v.Copying = off.running
 	off.mu.Unlock()
@@ -1124,7 +1156,13 @@ func offsiteWords(c *OffsiteConfig, st offsiteStatus, now time.Time) string {
 	if c.State == OffsiteForeign {
 		return "Paused: " + foreignWords + "."
 	}
+	if why := expired(c, now); why != "" {
+		return "Paused: " + why
+	}
 	where := c.where()
+	if c.Managed {
+		where = "ShipTiffin's backup storage"
+	}
 	switch {
 	case st.LastOK == nil && st.Last != nil && st.Last.Status == "failed":
 		return "On, copying to " + where + ", but no copy has succeeded yet: " + st.Last.Error
@@ -1155,7 +1193,7 @@ func offsiteCheck(ctx context.Context, p *platform.Platform, now time.Time) plat
 	st := getStatus(ctx, p)
 	ch.Detail = offsiteWords(c, st, now)
 	switch {
-	case c.State == OffsiteForeign:
+	case c.State == OffsiteForeign, expired(c, now) != "":
 		ch.OK = false
 	case st.LastOK != nil:
 		ch.OK = now.Sub(st.LastOK.FinishedAt) <= OffsiteMaxAge

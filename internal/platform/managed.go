@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -77,6 +79,10 @@ type ManagedState struct {
 	MemoryMB int `json:"memoryMB,omitempty"`
 	// LastAnswerAt is when the control plane last answered.
 	LastAnswerAt time.Time `json:"lastAnswerAt"`
+	// OffsiteSealed is the newest off-site grant (OffsiteGrant), sealed to
+	// the box's key, and OffsiteExpiresAt when its credentials expire.
+	OffsiteSealed    string    `json:"offsiteSealed,omitempty"`
+	OffsiteExpiresAt time.Time `json:"offsiteExpiresAt,omitzero"`
 }
 
 // LoadManagedState reads the last state (zero when none).
@@ -117,4 +123,65 @@ func ManagedUpdatesPaused() (bool, string) {
 		msg = "Automatic updates are paused: this box's ShipTiffin subscription is not active. Your apps keep running. Renew at shiptiffin.com/account."
 	}
 	return true, msg
+}
+
+// OffsiteGrant is the off-site backup storage that comes with a managed
+// box: a folder of its own in ShipTiffin's backup bucket, and temporary
+// credentials that reach only that folder. The control plane mints them
+// (Cloudflare R2 temporary credentials), seals them to the box's key and
+// hands them over at check-ins, before they expire, while the subscription
+// is active. The box encrypts what it copies there with a passphrase only
+// its owner holds.
+type OffsiteGrant struct {
+	Endpoint        string    `json:"endpoint"` // https://<account>.r2.cloudflarestorage.com
+	Bucket          string    `json:"bucket"`
+	Prefix          string    `json:"prefix"` // the box's folder: its id
+	AccessKeyID     string    `json:"accessKeyId"`
+	SecretAccessKey string    `json:"secretAccessKey"`
+	SessionToken    string    `json:"sessionToken"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	RetentionDays   int       `json:"retentionDays"`
+}
+
+// OffsiteGrantAAD binds a sealed grant to its box.
+func OffsiteGrantAAD(boxID string) string { return "offsite:" + boxID }
+
+// Validate checks a grant before the box uses it.
+func (g *OffsiteGrant) Validate(boxID string, now time.Time) error {
+	u, err := url.Parse(g.Endpoint)
+	switch {
+	case err != nil || u.Scheme != "https" || u.Host == "":
+		return fmt.Errorf("off-site grant: endpoint %q is not https", g.Endpoint)
+	case g.Bucket == "" || g.AccessKeyID == "" || g.SecretAccessKey == "":
+		return errors.New("off-site grant: bucket and credentials are required")
+	case strings.Trim(g.Prefix, "/") != boxID:
+		return fmt.Errorf("off-site grant: the folder %q is not this box's", g.Prefix)
+	case !g.ExpiresAt.After(now):
+		return errors.New("off-site grant: expired")
+	}
+	return nil
+}
+
+var offsiteGrants struct {
+	sync.Mutex
+	fn func(ctx context.Context, g *OffsiteGrant) error
+}
+
+// HandleOffsiteGrants sets what takes the grants a managed box receives
+// (the backup module).
+func HandleOffsiteGrants(fn func(ctx context.Context, g *OffsiteGrant) error) {
+	offsiteGrants.Lock()
+	offsiteGrants.fn = fn
+	offsiteGrants.Unlock()
+}
+
+// GiveOffsiteGrant hands a grant from the control plane to the backup module.
+func GiveOffsiteGrant(ctx context.Context, g *OffsiteGrant) error {
+	offsiteGrants.Lock()
+	fn := offsiteGrants.fn
+	offsiteGrants.Unlock()
+	if fn == nil {
+		return errors.New("off-site grant: the backup module is not running")
+	}
+	return fn(ctx, g)
 }

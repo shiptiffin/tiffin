@@ -92,7 +92,7 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 			return nil, offsiteProblem(409, "precondition", ErrOffsiteOff, "set one with `tiffin backups offsite set`")
 		}
 		out := &BackupOffsiteTest{Destination: c.where()}
-		store, err := newS3(c, s.SecretAccessKey)
+		store, err := newS3For(c, s)
 		if err == nil {
 			out.Steps, err = probe(ctx, store, c.Prefix)
 		}
@@ -108,6 +108,8 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 		out.OK = err == nil
 		return &struct{ Body *BackupOffsiteTest }{out}, nil
 	}))
+
+	registerManaged(a, p, tag)
 
 	of := api.Op("backups-offsite-off", http.MethodDelete, "/v1/backups/offsite", "backups offsite off", api.RiskWrite,
 		"Stop copying backups off the box",
@@ -127,13 +129,18 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 		}
 		defer work.Unlock()
 		prev, _ := current()
-		if err := writeOffConf(nil, nil); err != nil {
+		if err := writeConf(nil, nil); err != nil {
 			return nil, err
 		}
 		for _, k := range []string{"config", "status", "pruned"} {
 			if err := p.DB.KVDelete(ctx, nsOffsite, k); err != nil {
 				return nil, err
 			}
+		}
+		// A managed box sets up ShipTiffin's storage by itself only until
+		// its owner turns copies off (`backups offsite managed` turns it on again).
+		if err := p.DB.KVPut(ctx, nsOffsite, "managedOff", []byte(time.Now().UTC().Format(time.RFC3339))); err != nil {
+			return nil, err
 		}
 		remember(nil, nil)
 		_ = os.RemoveAll(offsiteRoot)
@@ -245,102 +252,6 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 		}
 		return &struct{ Body []BackupOffsiteSet }{list}, nil
 	}))
-}
-
-// setOffsite checks and stores a destination; the caller holds work.
-func setOffsite(ctx context.Context, p *platform.Platform, in OffsiteInput) (*BackupOffsite, error) {
-	prev, prevSec := current()
-	c, err := normalize(in, prev)
-	if err != nil {
-		return nil, api.NewProblem(422, "validation", err.Error())
-	}
-	same := prev != nil && prev.dest() == c.dest()
-	secret := in.SecretAccessKey
-	if secret == "" {
-		if !same || prev.AccessKeyID != c.AccessKeyID {
-			return nil, api.NewProblem(422, "validation", "secretAccessKey is required for a new destination or access key")
-		}
-		secret = prevSec.SecretAccessKey
-	}
-	store, err := newS3(c, secret)
-	if err != nil {
-		return nil, api.NewProblem(422, "validation", err.Error())
-	}
-	if _, err := probe(ctx, store, c.Prefix); err != nil {
-		return nil, offsiteProblem(422, "validation", fmt.Errorf("the destination did not work: %w", err),
-			"check the endpoint, region, bucket (it must exist) and the key's permissions (read, write, list and delete objects)")
-	}
-	v := &vault{st: store, prefix: vaultPrefix(c.Prefix)}
-	raw, err := store.Get(ctx, v.keyKey(), maxKeyObject)
-	pass, reveal := in.Passphrase, ""
-	var keys *offsiteKeys
-	switch {
-	case err == nil:
-		if pass == "" && same {
-			pass = prevSec.Passphrase
-		}
-		if pass == "" {
-			return nil, offsiteProblem(409, "precondition", errors.New("this bucket prefix already holds Tiffin's encrypted off-box copies"),
-				"pass the passphrase shown when they were set up (--passphrase) to use them, for example to restore a lost box; or choose another prefix")
-		}
-		if keys, err = openKeys(raw, pass); err != nil {
-			return nil, api.NewProblem(422, "validation", err.Error())
-		}
-	case errors.Is(err, errNoObject):
-		if pass == "" {
-			pass, reveal = newPassphrase(), "yes"
-		} else if len(pass) < 12 {
-			return nil, api.NewProblem(422, "validation", "a passphrase of your own must be at least 12 characters (or leave it out to have one generated)")
-		}
-		if keys, err = newKeys(hostname()); err != nil {
-			return nil, err
-		}
-		sealed, err := sealKeys(keys, pass)
-		if err != nil {
-			return nil, err
-		}
-		if err := store.Put(ctx, v.keyKey(), sealed); err != nil {
-			return nil, offsiteProblem(422, "validation", fmt.Errorf("writing the key bundle: %w", err), "")
-		}
-	default:
-		return nil, offsiteProblem(422, "validation", fmt.Errorf("reading the bucket: %w", err), "")
-	}
-	sec := &offsiteSecrets{SecretAccessKey: secret, Passphrase: pass, Keys: keys}
-	c.SetAt = time.Now().UTC()
-	if same {
-		c.SetAt = prev.SetAt
-	}
-	// pgBackRest: create (or check) the stanza in repo2 with these settings.
-	undo := func() {
-		remember(prev, prevSec)
-		_ = writeOffConf(prev, prevSec)
-	}
-	if err := writeOffConf(c, sec); err != nil {
-		undo()
-		return nil, err
-	}
-	remember(c, sec)
-	state, err := activate(ctx)
-	if err != nil {
-		undo()
-		return nil, offsiteProblem(422, "validation", err, "the objects test passed, so check region and uriStyle (pgBackRest signs requests itself)")
-	}
-	c.State = state
-	if err := saveOffsite(ctx, p, c, sec); err != nil {
-		undo()
-		return nil, err
-	}
-	if !same {
-		_ = p.DB.KVDelete(ctx, nsOffsite, "status")
-		_ = p.DB.KVDelete(ctx, nsOffsite, "pruned")
-		_ = os.RemoveAll(offsiteRoot)
-	}
-	pokeOffsite()
-	out := offsiteView(ctx, p)
-	if reveal != "" {
-		out.Passphrase, out.PassphraseNote = pass, passphraseNote
-	}
-	return out, nil
 }
 
 // boxContext is the box's lifetime context (background work outlives requests).

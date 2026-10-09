@@ -654,7 +654,7 @@ func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSched
 	}
 	c, _ := current()
 	copied := lastCopied(list, c)
-	source := nextDrillSource(last, c != nil && c.State == OffsiteActive && copied != nil)
+	source := nextDrillSource(last, c != nil && c.State == OffsiteActive && expired(c, time.Now()) == "" && copied != nil)
 	b := lastOK(list, "")
 	if source == SourceOffsite {
 		b = copied

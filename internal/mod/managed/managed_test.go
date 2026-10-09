@@ -63,7 +63,7 @@ func TestCheckInSendsOnlyVersionAndHealth(t *testing.T) {
 	}
 	for _, k := range keys {
 		switch k {
-		case "boxID", "version", "uptimeSeconds", "checks", "failedChecks", "failing", "handoff", "signin":
+		case "boxID", "version", "uptimeSeconds", "checks", "failedChecks", "failing", "handoff", "signin", "backupKey":
 		default:
 			t.Errorf("the check-in sends %q; only version and health may go out", k)
 		}

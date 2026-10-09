@@ -17,6 +17,13 @@
 // decides whether the box installs Tiffin updates by itself. Nothing here
 // ever stops or slows the customer's apps, whatever the answer.
 //
+// Off-site backups: the box makes an X25519 key pair of its own and sends
+// the public half with every check-in. While the subscription is active the
+// answer carries temporary credentials for the box's folder in ShipTiffin's
+// backup bucket, sealed to that key (the website passes them on and cannot
+// read them); the box opens them and hands them to the backup module, which
+// copies every backup there, encrypted with a passphrase only the owner holds.
+//
 // After a resize (the control plane changes the server type through the
 // Hetzner API, without logging in) the box notices its memory changed and
 // provisions again, so Postgres, Valkey and the apps' share are retuned.
@@ -25,11 +32,13 @@ package managed
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	mrand "math/rand/v2"
 	"net/http"
 	"os"
 	"os/exec"
@@ -38,6 +47,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/licence"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/sealbox"
 	"github.com/btahir/tiffin/internal/tokens"
 )
 
@@ -62,6 +72,10 @@ type Module struct {
 	client  *http.Client
 	started time.Time
 	links   Handoff
+	// key opens the off-site grants sealed to the box (nil: none can be).
+	key *ecdh.PrivateKey
+	// given: the expiry of the grant last handed to the backup module.
+	given time.Time
 }
 
 // Handoff is the box's side of handing it to its owner (tokens.Manager).
@@ -97,6 +111,11 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	if p.Tokens != nil {
 		m.links = p.Tokens
 	}
+	if p.Secrets != nil {
+		if m.key, err = offsiteKey(ctx, p); err != nil {
+			p.Log.Warn("managed: the off-site backup key", "err", err)
+		}
+	}
 	go m.retune(ctx, p)
 	go func() {
 		for !p.Started() {
@@ -104,7 +123,9 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 				return
 			}
 		}
-		wait := rand.N(FirstWithin)
+		// A grant from an earlier answer still holds until a check-in brings a newer one.
+		m.giveGrant(ctx, p, cfg, platform.LoadManagedState())
+		wait := mrand.N(FirstWithin)
 		for sleep(ctx, wait) {
 			st, soon := m.checkIn(ctx, p, cfg)
 			switch {
@@ -114,7 +135,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 			case soon > 0:
 				wait = soon
 			default:
-				wait = Every - Jitter + rand.N(2*Jitter)
+				wait = Every - Jitter + mrand.N(2*Jitter)
 			}
 		}
 	}()
@@ -149,6 +170,9 @@ type Report struct {
 	// Handoff: "pending" (the owner hasn't signed in yet) or "done".
 	Handoff string  `json:"handoff,omitempty"`
 	Signin  *Signin `json:"signin,omitempty"`
+	// BackupKey is the public half of the box's X25519 key: off-site
+	// credentials are sealed to it.
+	BackupKey string `json:"backupKey,omitempty"`
 }
 
 // Signin is a one-time owner sign-in link the box made for its hand-off.
@@ -167,6 +191,15 @@ type Answer struct {
 	Signin bool `json:"signin,omitempty"`
 	// CheckInSeconds asks for the next check-in sooner (at least MinCheckIn).
 	CheckInSeconds int `json:"checkInSeconds,omitempty"`
+	// Offsite is the off-site backup grant, sealed to BackupKey (only
+	// while the subscription is active).
+	Offsite *SealedGrant `json:"offsite,omitempty"`
+}
+
+// SealedGrant is a platform.OffsiteGrant sealed to the box's key.
+type SealedGrant struct {
+	Sealed    string    `json:"sealed"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 func (m *Module) checkIn(ctx context.Context, p *platform.Platform, cfg *platform.ManagedConfig) (platform.ManagedState, time.Duration) {
@@ -177,11 +210,80 @@ func (m *Module) checkIn(ctx context.Context, p *platform.Platform, cfg *platfor
 		checks = p.Checks(ctx)
 	}
 	r := report(cfg.BoxID, p.Version, time.Since(m.started), checks)
+	if m.key != nil {
+		r.BackupKey = sealbox.KeyText(m.key.PublicKey().Bytes())
+	}
 	st, soon := CheckIn(ctx, m.httpClient(), cfg, r, m.links, platform.LoadManagedState(), time.Now())
 	if err := platform.SaveManagedState(st); err != nil {
 		p.Log.Warn("managed: saving the state", "err", err)
 	}
+	m.giveGrant(ctx, p, cfg, st)
 	return st, soon
+}
+
+// ---- off-site backups ----
+
+const (
+	nsManaged     = "managed"
+	offsiteKeyKey = "offsite-key"
+)
+
+// offsiteKey is the box's X25519 key for off-site grants, made once and
+// kept sealed with the box key.
+func offsiteKey(ctx context.Context, p *platform.Platform) (*ecdh.PrivateKey, error) {
+	if raw, ok, err := p.DB.KVGet(ctx, nsManaged, offsiteKeyKey); err != nil {
+		return nil, err
+	} else if ok {
+		plain, err := p.Secrets.Unseal(raw)
+		if err != nil {
+			return nil, err
+		}
+		return ecdh.X25519().NewPrivateKey(plain)
+	}
+	k, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	sealed, err := p.Secrets.Seal(k.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	if err := p.DB.KVPut(ctx, nsManaged, offsiteKeyKey, sealed); err != nil {
+		return nil, err
+	}
+	return k, nil
+}
+
+// OpenGrant opens a sealed grant and checks it is for this box and current.
+func OpenGrant(key *ecdh.PrivateKey, boxID, sealed string, now time.Time) (*platform.OffsiteGrant, error) {
+	plain, err := sealbox.Open(key, sealed, platform.OffsiteGrantAAD(boxID))
+	if err != nil {
+		return nil, fmt.Errorf("off-site grant: %w", err)
+	}
+	var g platform.OffsiteGrant
+	if err := json.Unmarshal(plain, &g); err != nil {
+		return nil, fmt.Errorf("off-site grant: %w", err)
+	}
+	if err := g.Validate(boxID, now); err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+// giveGrant hands the newest grant to the backup module, once.
+func (m *Module) giveGrant(ctx context.Context, p *platform.Platform, cfg *platform.ManagedConfig, st platform.ManagedState) {
+	if m.key == nil || st.OffsiteSealed == "" || st.OffsiteExpiresAt.Equal(m.given) {
+		return
+	}
+	g, err := OpenGrant(m.key, cfg.BoxID, st.OffsiteSealed, time.Now())
+	if err == nil {
+		err = platform.GiveOffsiteGrant(ctx, g)
+	}
+	if err != nil {
+		p.Log.Warn("managed: off-site backup credentials", "err", err)
+		return
+	}
+	m.given = st.OffsiteExpiresAt
 }
 
 // CheckIn sends one report with the hand-off's state and, when the answer
@@ -255,6 +357,14 @@ func exchange(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, 
 		// box made with tiffin up; it updates as it did before.
 		st.Active, st.Updates = false, true
 	}
+	switch {
+	case ans.Offsite != nil && ans.Offsite.Sealed != "":
+		st.OffsiteSealed, st.OffsiteExpiresAt = ans.Offsite.Sealed, ans.Offsite.ExpiresAt.UTC()
+	case !st.Active:
+		// The storage comes with the subscription; the credentials the
+		// backup module holds run out by themselves.
+		st.OffsiteSealed, st.OffsiteExpiresAt = "", time.Time{}
+	}
 	return st, ans
 }
 
@@ -275,7 +385,7 @@ func post(ctx context.Context, c *http.Client, cfg *platform.ManagedConfig, r Re
 		return nil, fmt.Errorf("check in: %w", err)
 	}
 	defer res.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(res.Body, 16<<10))
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
 	if res.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("check in: the control plane answered %s", res.Status)
 	}

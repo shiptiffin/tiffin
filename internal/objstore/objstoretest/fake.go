@@ -97,6 +97,13 @@ func (f *Fake) Keys(prefix string) []string {
 	return out
 }
 
+// Seen is how many requests the bucket has answered.
+func (f *Fake) Seen() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.Requests)
+}
+
 // Put stores an object directly (no request).
 func (f *Fake) Put(key string, body []byte) {
 	f.mu.Lock()
