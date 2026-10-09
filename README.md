@@ -134,6 +134,7 @@ per box ($12 for the first 100 customers, locked for 24 months) for:
 
 - setup in your Hetzner account, then updates;
 - monitoring from outside the box, with an email when it stops answering;
+- backups copied off your server every 6 hours, encrypted with a key only you hold; kept 30 days;
 - a free `name.shiptiffin.app` address with HTTPS;
 - resizing from your account;
 - support by email.

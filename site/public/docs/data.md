@@ -349,6 +349,19 @@ tiffin backups offsite list          # the sets in the bucket
 tiffin backups offsite off           # stop; the copies in the bucket stay
 ```
 
+**On a ShipTiffin managed box** this is set up by itself: copies go to the box's own
+folder in ShipTiffin's backup storage, with short-lived credentials its check-ins renew
+([managed boxes](https://shiptiffin.com/docs/managed.md#off-site-backups)). The box makes the passphrase and the
+dashboard shows it until you say you saved it:
+
+```bash
+tiffin backups offsite passphrase         # show it (only until you say it's saved)
+tiffin backups offsite passphrase-saved   # saved: the box stops showing it
+tiffin backups offsite managed            # back to ShipTiffin's storage (after `off`, or your own bucket)
+```
+
+`set` with a bucket of your own replaces it; `off` keeps copies off until `managed`.
+
 An R2 endpoint signs for region `auto` by default; others default to `us-east-1`.
 Other endpoints: `https://s3.<region>.amazonaws.com` (`--region <region>`),
 `https://<location>.your-objectstorage.com` (`--region <location>`), or your MinIO's
@@ -418,6 +431,9 @@ are not in backups: deploy the apps again (`tiffin deploy`).
 | `POST /v1/backups/offsite/copy` | copies a set (`backup`, default the newest), waits up to `timeoutSeconds` → copy |
 | `GET /v1/backups/offsite/sets` | the sets in the bucket, newest first, with `restorable` |
 | `DELETE /v1/backups/offsite` | stops copying |
+| `POST /v1/backups/offsite/managed` | a managed box: copy to ShipTiffin's storage (`passphrase` for copies already there) |
+| `POST /v1/backups/offsite/passphrase` | the passphrase the box made, until it is saved |
+| `POST /v1/backups/offsite/passphrase/saved` | the owner saved it: never shown again |
 | `POST /v1/backups/{id}/restore` | `from: "offsite"`; `id` may be `latest`; `targets` may be `platform` or `all`; `time` (local copy, `id` latest) for a point-in-time restore |
 | `GET /v1/backups` | also has `offsite`; each set has `offsite` (its copy) |
 

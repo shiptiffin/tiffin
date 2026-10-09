@@ -7,6 +7,8 @@ managed extras:
 
 - Tiffin installed, then kept up to date (the box installs signed releases itself);
 - monitoring from outside, with an email when the box stops answering;
+- backups copied off your server every 6 hours, encrypted with a key only you hold; kept 30
+  days ([below](#off-site-backups));
 - a free `<name>.shiptiffin.app` address with HTTPS;
 - resizing from your account;
 - support by email.
@@ -100,7 +102,8 @@ A box made with `tiffin up` is not managed and none of this runs on it.
   it opens nothing on the box). No project names, data, logs or visitors. The answer says
   whether the subscription is active; until the owner first signs in it may also ask for a
   fresh sign-in link (above) and for the next check-in within minutes. A check-in counts only with the licence of the box's latest setup, sent from the
-  box's own address.
+  box's own address. It also carries the public half of the box's off-site backup key, and
+  the answer the credentials sealed to it (below).
 - **Support access** is yours to grant: support never logs in by default, and there is no
   button for it yet. Write to hello@shiptiffin.com and we arrange it with you by email: you
   add a temporary SSH key and open port 22 for us, and remove both afterwards.
@@ -112,6 +115,42 @@ A box made with `tiffin up` is not managed and none of this runs on it.
   even if your subscription ended meanwhile. If we hold no key by then (a resize key is
   forgotten after two hours), your account says so and we email you to start the server in
   the Hetzner console.
+
+## Off-site backups
+
+Every backup set is also copied off the server, as on any box with
+[copies off the box](https://shiptiffin.com/docs/data.md#copies-off-the-box), to ShipTiffin's backup storage
+(Cloudflare R2): one bucket, a folder per box, named by its box id. Nothing to set up:
+
+- **Encrypted with a key only you hold.** The box makes the passphrase itself the first
+  time and encrypts everything with it before it leaves (Postgres with aes-256-cbc, the
+  rest as encrypted chunks). We never see it. The dashboard shows it under *Backups* until
+  you say you saved it: keep it in a password manager, because a new box needs it to
+  restore the copies (`tiffin backups offsite passphrase`, then
+  `tiffin backups offsite passphrase-saved`, from the CLI).
+- **Short-lived keys for one folder.** The box holds no long-lived bucket key. Our worker
+  mints Cloudflare R2 temporary credentials limited to the box's folder (read and write
+  objects under `<box id>/`, nothing else), lasting 48 hours and renewed when less than 36
+  are left. It seals them to a key the box made (X25519; the box sends the public half
+  with its check-ins) and the website hands them over in the check-in's answer without
+  being able to read them.
+- **Every 6 hours, kept 30 days.** A copy follows each backup (every 6 hours by default),
+  and Postgres's WAL follows every few minutes. Sets older than 30 days are deleted.
+- **Only while the subscription is active.** When it ends, no new credentials come; the
+  ones the box holds run out within two days and copies pause, saying why (the
+  `offsite-backups` check fails). The copies already made stay; renew and copying
+  resumes at the next check-in.
+- **Your choice wins.** Set a bucket of your own (*Backups › Use my own bucket*, or
+  `tiffin backups offsite set`) and the box copies there instead; turn copies off and
+  they stay off until `tiffin backups offsite managed` (or the dashboard's button).
+- **Deleted 7 days after the box.** Deleting the server, or stopping the managed service,
+  marks the box's folder; 7 days later the worker empties it, with credentials for that
+  folder alone.
+
+On the box, `tiffin restore <id> --from offsite` restores a copy like a local backup.
+After losing the server, write to hello@shiptiffin.com: the copies are in the lost box's
+folder, and a new box gets a folder of its own, so bringing them over is not self-serve
+yet. Keep the passphrase either way: nothing restores without it.
 
 ## The address
 
@@ -155,7 +194,8 @@ account shows it as *Not managed*.
 
 **Delete the server** (same place; it asks for a Hetzner token) removes the address first,
 then deletes the server, its firewall and, if you tick it, its data volume: only what
-carries the box's `shiptiffin-box` label. It ends the subscription at once. Your account
+carries the box's `shiptiffin-box` label. Its off-site backups are deleted 7 days later
+(stopping the managed service does the same). It ends the subscription at once. Your account
 shows the progress, then a single *Deleted* line, and you get an email saying what went.
 A deleted box stays deleted; a data volume you kept stays in your Hetzner project, billed
 by Hetzner, until you delete it there.

@@ -626,6 +626,27 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   --volume-size` from a computer with SSH access, or the Hetzner console plus
   `xfs_growfs`. A type change keeps the architecture (cx↔cx, cax↔cax): Hetzner can't move a
   server between ARM and x86.
+- **Off-site backup credentials can't be recalled.** R2 temporary credentials can't be
+  revoked one by one, so a box keeps the ones it holds until they expire (48 hours at
+  most) after its subscription ends, it is released or deleted. They reach only its own
+  folder. Revoking the parent R2 token stops every box's at once.
+- **Restoring a lost managed box onto a new one isn't self-serve.** A new box gets a
+  folder of its own; the lost box's copies are in the old one, which only credentials
+  for that box id reach (the box checks the folder is its own). There is no flow yet to
+  hand a new box of the same account the old folder: support has to do it.
+- **Off-site copies of an unpaid box stay.** When the subscription ends the box stops
+  copying, but what it copied stays in ShipTiffin's storage (no one prunes it) until the
+  box is deleted or released (then 7 days), or renewed (the box prunes it again).
+- **The website could hand a box's folder to someone else.** It stores the box's public
+  key from check-ins that count, and the worker seals credentials to whatever key the row
+  holds. A compromised website (or its database) could swap the key and get credentials
+  for a box's folder: enough to delete its copies, not to read them (the passphrase never
+  leaves the box).
+- **Listing a folder with prefix-scoped credentials is assumed.** Cloudflare documents
+  that prefix-scoped temporary credentials reach the objects under the prefix; the box
+  also lists them (`ListObjectsV2` with that prefix). Tested against a fake bucket that
+  behaves that way, not yet against R2 itself: check with `tiffin backups offsite test`
+  on the first managed box.
 - **Automatic updates are gated, the releases are not.** An unpaid managed box stops
   installing updates by itself; the signed releases stay where every box reads them, so an
   owner can still update by hand. Gating is a courtesy switch on a server the customer

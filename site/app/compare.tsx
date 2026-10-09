@@ -25,7 +25,7 @@ const JUGGLE = [
 const ALSO = [
   ["No seats", "A teammate costs $20 a month more on Vercel Pro. On a box, people are free."],
   ["Hard caps per project", "A busy app is held at its limit. It can't slow the others or grow the bill."],
-  ["Restore to any moment", "Your databases, to the second, from any point in the last 7 days."],
+  ["Restore to any moment", "Your databases, to the second, from any point in the last 7 days. With ShipTiffin, copies off the server too."],
 ] as const;
 
 export function Compare() {

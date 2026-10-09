@@ -95,6 +95,10 @@ export function Ready({ b }: { b: BoxCtx }) {
             body: "In the dashboard, under Settings. From then on you sign in on the box itself.",
           },
           {
+            title: "Save your backup key",
+            body: "In the dashboard, under Backups. Backups are copied off your server every 6 hours, encrypted with this key; only you hold it. Copies are kept 30 days.",
+          },
+          {
             title: "Connect your agent",
             body: (
               <>
@@ -298,7 +302,7 @@ export function ExtrasPaused({ b, until }: { b: BoxCtx; until: Date }) {
       </P>
       <Facts
         rows={[
-          { label: "What stops", value: "Automatic Tiffin updates, our monitoring emails and support" },
+          { label: "What stops", value: "Automatic Tiffin updates, backup copies off the server, our monitoring emails and support" },
           ...(d ? [{ label: "The address", value: <><Code>{d}</Code> works until {day(until)}</> }] : []),
         ]}
       />
@@ -313,11 +317,12 @@ export function ExtrasPaused({ b, until }: { b: BoxCtx; until: Date }) {
 
 export function ExtrasResumed({ b }: { b: BoxCtx }) {
   return (
-    <Notice b={b} title="Managed again" preview="Updates, monitoring and the shiptiffin.app address are back on.">
+    <Notice b={b} title="Managed again" preview="Updates, backup copies, monitoring and the shiptiffin.app address are back on.">
       <Eyebrow tone="ok">Subscription active</Eyebrow>
       <H1>{b.name ?? "Your box"} is managed again</H1>
       <P>
-        The subscription for <Named b={b} /> is active again: updates, monitoring and the shiptiffin.app address are back on.
+        The subscription for <Named b={b} /> is active again: updates, backup copies off the server, monitoring and the shiptiffin.app address are
+        back on.
       </P>
     </Notice>
   );

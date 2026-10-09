@@ -66,6 +66,12 @@ export default function Managed() {
               be gone, and its IP someone else&rsquo;s); the next check-in brings it back.
             </li>
             <li>
+              Backups are copied off your server every 6 hours to our storage, into a folder for your box alone, and kept 30 days. Your box
+              encrypts them first with a passphrase it makes and shows only to you (in its dashboard, under Backups): we can&rsquo;t read
+              them. It reaches its folder with short-lived keys we renew at each check-in, which reach nothing else. Prefer your own bucket?
+              Set it in the dashboard instead.
+            </li>
+            <li>
               Support never logs in by default, and there&rsquo;s no button for it yet. If you want us to look at the server itself, write
               to hello@shiptiffin.com and we arrange it by email: a temporary SSH key you add and open the firewall for, and remove when
               we&rsquo;re done.
@@ -76,7 +82,8 @@ export default function Managed() {
         <div className="cp-card">
           <h2>If you stop paying</h2>
           <p className="cp-sub">
-            Your server and every app on it keep running, untouched. Automatic updates, monitoring emails and support stop. Your{" "}
+            Your server and every app on it keep running, untouched. Automatic updates, backup copies off the server, monitoring emails
+            and support stop. Your{" "}
             <strong>name.shiptiffin.app</strong> address keeps working for 30 days, with an email when that starts, a week before it goes and
             when it goes, so you can point a domain of your own at the box. Renew in your account and everything comes back. We never stop,
             slow or delete anything over billing. Deleting the server happens only when you ask, with a key you paste right then.

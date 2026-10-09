@@ -93,6 +93,7 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
         <ul className="cp-perks">
           <li>Tiffin installed on your own server, then kept up to date</li>
           <li>Monitoring from outside, with an email if your box stops answering</li>
+          <li>Backups copied off your server every 6 hours, encrypted with a key only you hold; kept 30 days</li>
           <li>
             A free <strong>name.shiptiffin.app</strong> address with HTTPS
           </li>

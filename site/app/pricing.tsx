@@ -12,6 +12,7 @@ const INCLUDED = [
   "The dashboard, and every part on the box",
   "Automatic updates",
   "Monitoring from outside the box",
+  "Backups copied off your server every 6 hours, encrypted with a key only you hold; kept 30 days",
   "A free yourname.shiptiffin.app address",
   "Upgrades to a bigger server from your account",
   "Support from the people who build it",

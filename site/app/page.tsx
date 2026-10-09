@@ -100,7 +100,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     a: (
       <p>
         Your server and your apps keep running in your Hetzner account. Updates and the managed extras stop:
-        monitoring, resizing from your account, and support. Your shiptiffin.app address keeps working for 30 days, with
+        monitoring, backup copies off the server, resizing from your account, and support. Your shiptiffin.app address keeps working for 30 days, with
         an email when that starts, a week before it goes and when it goes, so you can point your own domain at
         the box. Your data was always on your server, in standard formats.
       </p>
@@ -162,7 +162,9 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
         Postgres is backed up in full every day and in part every 6 hours, and its log of changes is kept all the
         time, so you can restore your databases to any second in the last 7 days. KV, files, email and the
         box&rsquo;s settings come back from the nearest backup. A restore takes a safety backup first, and restore
-        drills prove a backup works without touching anything live.
+        drills prove a backup works without touching anything live. With ShipTiffin, every backup is also copied
+        off your server, encrypted with a key only you hold, and kept 30 days. On your own box, copy them to any
+        S3-compatible bucket.
       </p>
     ),
   },
