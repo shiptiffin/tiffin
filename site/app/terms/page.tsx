@@ -56,9 +56,8 @@ const sections: Section[] = [
         <p>
           To create your box you give us an API key for a Hetzner Cloud project. We use it only to create and
           change the server, its disk and its firewall that ShipTiffin needs, and only when you ask; we only ever
-          change or delete what we created for your box (it carries your box&rsquo;s label). By default we do not
-          keep it after setup; resizing later asks you for a key again. You can revoke the key in Hetzner at any
-          time.
+          change or delete what we created for your box (it carries your box&rsquo;s label). We do not keep it
+          after setup; resizing later asks you for a key again. You can revoke the key in Hetzner at any time.
         </p>
         <p>
           After setup we keep no way to log in to your server. The one thing we hold is a sign-in link your box

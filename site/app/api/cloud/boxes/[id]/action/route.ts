@@ -1,5 +1,5 @@
-// POST /api/cloud/boxes/:id/action: the account page's buttons (keep or
-// forget the Hetzner key, resize, cancel, release, delete the server).
+// POST /api/cloud/boxes/:id/action: the account page's buttons (sign-in
+// link, resize, cancel, release, delete the server).
 import { ActionError, boxAction, type BoxAction } from "@/lib/cloud/actions";
 import { actionLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";

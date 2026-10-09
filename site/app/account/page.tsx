@@ -1,6 +1,6 @@
 // /account: your boxes (status, plan, address, open), billing, the log of
-// every call we made with your Hetzner key, your stored key, resize, cancel,
-// release and delete.
+// every call we made with your Hetzner key, resize, cancel, release and
+// delete.
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -137,8 +137,9 @@ export default async function Account({ searchParams }: { searchParams: Promise<
                 )}
                 <dt>Hetzner key</dt>
                 <dd>
-                  {b.token_sealed ? `Kept, encrypted, since ${day(b.token_kept_at)}` : "Not stored"}
-                  {b.token_fingerprint ? ` (fingerprint ${b.token_fingerprint})` : ""}
+                  Not kept: each change that needs it asks for it and forgets it when done
+                  {b.token_fingerprint ? ` (setup used the one with fingerprint ${b.token_fingerprint})` : ""}. You can delete it in
+                  Hetzner (Security › API tokens) at any time; the box keeps running.
                 </dd>
                 {b.status === "active" && !b.handoff_closed_at && (
                   <>
@@ -172,7 +173,6 @@ export default async function Account({ searchParams }: { searchParams: Promise<
                   renewable: renewable(b),
                   cancelAtPeriodEnd: b.cancel_at_period_end,
                   hasSubscription: Boolean(b.stripe_subscription_id),
-                  keyStored: Boolean(b.token_sealed),
                   signinLink: Boolean(b.signin_code),
                   handoffOpen: b.status === "active" && !b.handoff_closed_at,
                   serverType: b.server_type,

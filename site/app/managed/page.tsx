@@ -32,10 +32,7 @@ export default function Managed() {
               and forgets it when setup ends, whether it worked or not. We keep only a fingerprint (12 characters of its hash) so you can
               tell which key it was.
             </li>
-            <li>
-              Tick &ldquo;Keep my key&rdquo; and we store it, sealed the same way, for one-click resizes. Remove it any time in your
-              account. Without it, a resize asks for a key, uses it and forgets it.
-            </li>
+            <li>We never store your key. A resize (or deleting the server) asks for a key again, uses it for that one job and forgets it.</li>
             <li>
               We only ever touch what we create for your box: each server, volume, firewall and key carries a label with your box&rsquo;s
               id, and nothing without it is changed or deleted.

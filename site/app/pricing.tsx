@@ -13,7 +13,7 @@ const INCLUDED = [
   "Automatic updates",
   "Monitoring from outside the box",
   "A free yourname.shiptiffin.app address",
-  "One-click upgrades to a bigger server",
+  "Upgrades to a bigger server from your account",
   "Support from the people who build it",
 ];
 

@@ -59,7 +59,6 @@ type Box = {
   active: boolean;
   cancelAtPeriodEnd: boolean;
   hasSubscription: boolean;
-  keyStored: boolean;
   signinLink: boolean;
   handoffOpen: boolean;
   renewable: boolean;
@@ -70,7 +69,7 @@ type Box = {
 export function BoxActions({ box }: { box: Box }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState<"" | "resize" | "key" | "release" | "delete">("");
+  const [open, setOpen] = useState<"" | "resize" | "signin" | "release" | "delete">("");
 
   async function act(body: Record<string, unknown>, confirmText?: string) {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -118,9 +117,9 @@ export function BoxActions({ box }: { box: Box }) {
             Resize
           </button>
         )}
-        {box.status !== "released" && box.status !== "deleting" && (
-          <button className="btn btn-quiet btn-sm" onClick={() => setOpen(open === "key" ? "" : "key")}>
-            Hetzner key
+        {box.handoffOpen && (
+          <button className="btn btn-quiet btn-sm" onClick={() => setOpen(open === "signin" ? "" : "signin")}>
+            Sign-in link
           </button>
         )}
         {box.hasSubscription && box.active && box.status !== "released" && (
@@ -151,7 +150,7 @@ export function BoxActions({ box }: { box: Box }) {
       </div>
 
       {open === "resize" && <Resize box={box} busy={busy} act={act} />}
-      {open === "key" && <KeyPanel box={box} busy={busy} act={act} />}
+      {open === "signin" && <SigninPanel box={box} busy={busy} act={act} />}
       {open === "release" && (
         <Confirm
           name={box.name!}
@@ -185,7 +184,6 @@ function TokenInput({ value, onChange, label }: { value: string; onChange: (v: s
 function Resize({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
   const [size, setSize] = useState(box.sizes[0] ?? "");
   const [token, setToken] = useState("");
-  const [keep, setKeep] = useState(false);
   return (
     <div className="cp-card">
       <div className="cp-field">
@@ -197,19 +195,11 @@ function Resize({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
         </select>
         <p className="cp-hint">The server restarts: about 2 minutes offline. Hetzner bills the new size from then. A server&rsquo;s disk can&rsquo;t shrink, so smaller sizes may be refused.</p>
       </div>
-      {!box.keyStored && (
-        <>
-          <TokenInput value={token} onChange={setToken} label="Hetzner key (used for this resize, then forgotten)" />
-          <label className="cp-check">
-            <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
-            <span>Keep it for one-click resizes next time</span>
-          </label>
-        </>
-      )}
+      <TokenInput value={token} onChange={setToken} label="Hetzner key (used for this resize, then forgotten)" />
       <button
         className="btn btn-primary btn-sm"
-        disabled={busy || !size || (!box.keyStored && token.trim().length < 20)}
-        onClick={() => act({ action: "resize", serverType: size, token: token.trim() || undefined, keepKey: keep }, `Resize ${box.name} to ${size}? It is offline for about 2 minutes.`)}
+        disabled={busy || !size || token.trim().length < 20}
+        onClick={() => act({ action: "resize", serverType: size, token: token.trim() }, `Resize ${box.name} to ${size}? It is offline for about 2 minutes.`)}
       >
         Resize to {size}
       </button>
@@ -217,50 +207,28 @@ function Resize({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
   );
 }
 
-function KeyPanel({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
-  const [token, setToken] = useState("");
+function SigninPanel({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
   return (
     <div className="cp-card">
-      {box.keyStored ? (
-        <>
-          <p className="cp-sub">Your Hetzner key is stored, sealed so that only our setup worker can open it (not this website). We use it only when you click Resize.</p>
-          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "forget-key" })}>
-            Remove the stored key
+      <p className="cp-sub">
+        {box.signinLink
+          ? "We hold a one-time sign-in link your box made (it works once, for 24 hours), so \u201cOpen dashboard\u201d signs you in. We forget it once your box tells us you signed in."
+          : "Your box's one-time sign-in link expired. Until you first sign in, your box makes a new one when you ask (no SSH: it sends it at its next check-in)."}
+      </p>
+      <div className="cp-row">
+        {!box.signinLink && (
+          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "new-signin" })}>
+            Get a new sign-in link
           </button>
-        </>
-      ) : (
-        <>
-          <p className="cp-sub">We don&rsquo;t hold a Hetzner key for this box. Store one for one-click resizes (we check it first, and list the check in the log):</p>
-          <TokenInput value={token} onChange={setToken} label="Hetzner key" />
-          <button className="btn btn-quiet btn-sm" disabled={busy || token.trim().length < 20} onClick={() => act({ action: "keep-key", token: token.trim() })}>
-            Store it, encrypted
-          </button>
-        </>
-      )}
-      {box.handoffOpen && (
-        <>
-          <p className="cp-hint">
-            {box.signinLink
-              ? "We also hold a one-time sign-in link your box made (it works once, for 24 hours), so \u201cOpen dashboard\u201d signs you in. We forget it once your box tells us you signed in."
-              : "Your box's one-time sign-in link expired. Until you first sign in, your box makes a new one when you ask (no SSH: it sends it at its next check-in)."}
-          </p>
-          <div className="cp-row">
-            {!box.signinLink && (
-              <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "new-signin" })}>
-                Get a new sign-in link
-              </button>
-            )}
-            <button
-              className="btn btn-quiet btn-sm"
-              disabled={busy}
-              onClick={() => act({ action: "forget-signin" }, "Forget the sign-in link, and never ask your box for another? You then sign in on the box itself.")}
-            >
-              {box.signinLink ? "Forget the sign-in link" : "I'll sign in on the box"}
-            </button>
-          </div>
-        </>
-      )}
-      <p className="cp-hint">You can also delete the token in Hetzner (Security → API tokens) at any time; the box keeps running.</p>
+        )}
+        <button
+          className="btn btn-quiet btn-sm"
+          disabled={busy}
+          onClick={() => act({ action: "forget-signin" }, "Forget the sign-in link, and never ask your box for another? You then sign in on the box itself.")}
+        >
+          {box.signinLink ? "Forget the sign-in link" : "I'll sign in on the box"}
+        </button>
+      </div>
     </div>
   );
 }

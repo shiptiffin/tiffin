@@ -100,7 +100,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     a: (
       <p>
         Your server and your apps keep running in your Hetzner account. Updates and the managed extras stop:
-        monitoring, one-click upgrades and support. Your shiptiffin.app address keeps working for 30 days, with
+        monitoring, resizing from your account, and support. Your shiptiffin.app address keeps working for 30 days, with
         an email when that starts, a week before it goes and when it goes, so you can point your own domain at
         the box. Your data was always on your server, in standard formats.
       </p>
@@ -190,7 +190,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
 /* The trust story: what happens to your Hetzner key. Keep each line true to the sign-up flow. */
 const KEY = [
   ["A project just for ShipTiffin", "You make a separate Hetzner project for your box and a key for it, so the key can only see that project."],
-  ["Used to build, then forgotten", "We use the key to create the server, its disk and its firewall, then forget it by default. Resizing later asks you to paste a key again for a minute."],
+  ["Used to build, then forgotten", "We use the key to create the server, its disk and its firewall, then forget it. Resizing later asks you to paste a key again, for that one job."],
   ["Every call listed", "Each call we make to Hetzner with your key is listed in your account."],
   ["No way in left behind", "After install, our setup key is removed from the server. Updates are pulled by the box itself, and checked against our signature."],
   ["Revoke it any time", "Delete the key in Hetzner whenever you like. Your box keeps running."],

@@ -43,8 +43,8 @@ const sections: Section[] = [
         <h3 id="hetzner-key">Your Hetzner API key</h3>
         <p>
           To create your box, you give us an API key for a Hetzner Cloud project. We use it to create the server,
-          its disk and its firewall, and by default we forget it once setup is done; resizing later asks you for a
-          key again, for a minute. While we hold it, it is sealed so that only our setup worker can open it, not
+          its disk and its firewall, and we forget it once setup is done; resizing later asks you for a key again,
+          used for that resize and then forgotten. We never store it. While a job holds it, it is sealed so that only our setup worker can open it, not
           the website you gave it to. We keep a list of each call we made to Hetzner with your key, which you can
           see in your account. Revoke the key in Hetzner whenever you like.
         </p>
@@ -409,7 +409,7 @@ const sections: Section[] = [
         </li>
         <li>Data in your apps: on your server, until you delete it or delete the server in Hetzner.</li>
         <li>Deleted databases and buckets: kept for 7 days in case you change your mind, then gone.</li>
-        <li>Your Hetzner API key: forgotten once setup or a resize is done, unless you choose to let us keep it.</li>
+        <li>Your Hetzner API key: forgotten once the setup, resize or deletion it was given for is done.</li>
         <li>Email you send us: as long as we need it to help you, and no longer than we have to.</li>
         <li>
           The sign-up list: until you remove yourself; unconfirmed addresses for 30 days; once you have signed up,

@@ -70,8 +70,6 @@ export type BoxRow = {
   ipv6: string | null;
   generation: number;
   token_fingerprint: string | null;
-  token_sealed: string | null;
-  token_kept_at: Date | null;
   signin_code: string | null;
   signin_expires_at: Date | null;
   dns_state: "none" | "pending" | "live" | "removed" | "parked" | "killed";

@@ -96,7 +96,7 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
           <li>
             A free <strong>name.shiptiffin.app</strong> address with HTTPS
           </li>
-          <li>One-click resize, and support by email</li>
+          <li>Resizing from your account, and support by email</li>
         </ul>
         <ul className="cp-facts">
           <li>Hetzner bills the server itself: about $10 a month for the smallest, with its address and a 40 GB data volume.</li>

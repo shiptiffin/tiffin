@@ -1,6 +1,6 @@
-// POST /api/cloud/boxes/:id/create {token, name, serverType, location, keepKey}:
+// POST /api/cloud/boxes/:id/create {token, name, serverType, location}:
 // queues the setup. The key travels sealed with the job and is forgotten
-// when it ends, unless keepKey.
+// when it ends.
 import { ActionError, createBox, type CreateInput } from "@/lib/cloud/actions";
 import { actionLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";

@@ -164,7 +164,7 @@ export async function checkKey(acct: Account, boxId: string, token: string) {
   return checkToken(token, (c) => q.recordCall(box.id, "check", c));
 }
 
-export type CreateInput = { token: string; name: string; serverType: string; location: string; keepKey: boolean };
+export type CreateInput = { token: string; name: string; serverType: string; location: string };
 
 export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<void> {
   const box = await ownBox(acct, boxId);
@@ -187,7 +187,7 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
         token_fingerprint = ${fingerprint(token)}, status = 'provisioning', updated_at = now()
         where id = ${box.id} and status in ('paid', 'failed') returning id`;
       if (rows.length === 0) throw new ActionError("This box changed meanwhile; reload the page.", 409);
-      await q.enqueue(box.id, "provision", { name, serverType: input.serverType, location: input.location, keepKey: Boolean(input.keepKey) }, sealed, tx);
+      await q.enqueue(box.id, "provision", { name, serverType: input.serverType, location: input.location }, sealed, tx);
     });
   } catch (e: any) {
     if (e?.code === "23505") throw new ActionError(`${boxDomain(name)} is taken. Try another name.`, 409);
@@ -255,11 +255,9 @@ export function parseSignin(v: unknown, now = new Date()): { code: string; expir
 // ---- account actions ----
 
 export type BoxAction =
-  | { action: "forget-key" }
-  | { action: "keep-key"; token: string }
   | { action: "forget-signin" }
   | { action: "new-signin" }
-  | { action: "resize"; serverType: string; token?: string; keepKey?: boolean }
+  | { action: "resize"; serverType: string; token: string }
   | { action: "cancel" }
   | { action: "resume" }
   | { action: "release"; confirm: string }
@@ -269,16 +267,6 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
   const box = await ownBox(acct, boxId);
   const s = q.db();
   switch (a.action) {
-    case "forget-key":
-      await s`update cloud_boxes set token_sealed = null, token_kept_at = null, updated_at = now() where id = ${box.id}`;
-      return "Your Hetzner key is forgotten. Only its fingerprint stays.";
-    case "keep-key": {
-      const r = await checkToken(a.token, (c) => q.recordCall(box.id, "check", c));
-      if (!r.ok) throw new ActionError(r.message);
-      const token = a.token.trim();
-      await s`update cloud_boxes set token_sealed = ${seal(sealPublic(), token, tokenAAD(box.id))}, token_kept_at = now(), token_fingerprint = ${fingerprint(token)}, updated_at = now() where id = ${box.id}`;
-      return "Your Hetzner key is kept, sealed. Remove it any time.";
-    }
     case "forget-signin":
       // Ends the hand-off: no link is kept, and none is asked for again.
       await s`update cloud_boxes set signin_code = null, signin_expires_at = null, signin_requested_at = null,
@@ -291,18 +279,14 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       return "Asked your box for a new one-time sign-in link. It makes it at its next check-in (within about ten minutes); then click Open dashboard.";
     case "resize": {
       if (box.status !== "active") throw new ActionError("Only a running box can be resized.");
-      if (!onFor(box)) throw new ActionError("One-click resize is part of the subscription. Resize in the Hetzner console instead.");
+      if (!onFor(box)) throw new ActionError("Resizing from your account is part of the subscription. Resize in the Hetzner console instead.");
       if (!(RESIZE_TYPES as readonly string[]).includes(a.serverType) || a.serverType === box.server_type || family(a.serverType) !== family(box.server_type ?? "")) {
         throw new ActionError("Pick another size of the same kind (Hetzner can't move a server between ARM and x86).");
       }
       if (await q.jobsBusy(box.id)) throw new ActionError("Something is already running for this box.", 409);
-      const token = a.token?.trim();
-      if (token) {
-        if (!/^[A-Za-z0-9]{20,128}$/.test(token)) throw new ActionError("Paste your Hetzner token again.");
-        await q.enqueue(box.id, "resize", { serverType: a.serverType, keepKey: Boolean(a.keepKey) }, seal(sealPublic(), token, tokenAAD(box.id)));
-      } else if (box.token_sealed) {
-        await q.enqueue(box.id, "resize", { serverType: a.serverType, useStored: true }, null);
-      } else throw new ActionError("Paste your Hetzner key to resize (we forgot it after setup, as you asked).");
+      const token = String(a.token ?? "").trim();
+      if (!/^[A-Za-z0-9]{20,128}$/.test(token)) throw new ActionError("Paste a Hetzner key to resize: we use it for this resize, then forget it.");
+      await q.enqueue(box.id, "resize", { serverType: a.serverType }, seal(sealPublic(), token, tokenAAD(box.id)));
       return "Resizing: the box is offline for about 2 minutes.";
     }
     case "cancel":
@@ -336,7 +320,7 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
         return "Deleting: first the address, then the server in your Hetzner project.";
       }
       await s.begin(async (tx) => {
-        await tx`update cloud_boxes set status = 'released', released_at = now(), token_sealed = null, token_kept_at = null,
+        await tx`update cloud_boxes set status = 'released', released_at = now(),
           signin_code = null, signin_expires_at = null, updated_at = now() where id = ${box.id}`;
         if (box.dns_state === "live" || box.dns_state === "pending") await q.enqueue(box.id, "dns_remove", { reason: "released", gen: Number(box.generation) }, null, tx);
       });

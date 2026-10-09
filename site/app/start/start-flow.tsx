@@ -195,8 +195,8 @@ export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job:
           <HetznerGuide />
           <KeyField boxId={box.id} onChecked={(token, r) => setChecked({ token, r })} />
           <p className="cp-hint">
-            We use the key to set up your server, then forget it (unless you ask us to keep it). Every call we make with it is listed
-            in your account. Delete the token in Hetzner whenever you like; your box keeps running.
+            We use the key to set up your server, then forget it; a resize later asks for a key again. Every call we make with it
+            is listed in your account. Delete the token in Hetzner whenever you like; your box keeps running.
           </p>
         </div>
       ) : (
@@ -214,7 +214,6 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
   // Whether the typed name is free, asked of the server a moment after typing stops.
   const [free, setFree] = useState<{ name: string; available: boolean; message: string } | null>(null);
   const [pick, setPick] = useState(r.suggested ? `${r.suggested.serverType}@${r.suggested.location}` : "");
-  const [keep, setKeep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const why = name ? nameProblem(name) : null;
@@ -252,7 +251,7 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
     const [serverType, location] = pick.split("@");
     setBusy(true);
     setError("");
-    const res = await post(`/api/cloud/boxes/${box.id}/create`, { token, name, serverType, location, keepKey: keep });
+    const res = await post(`/api/cloud/boxes/${box.id}/create`, { token, name, serverType, location });
     if (res.ok) onStarted(name);
     else {
       setError(res.message ?? "Setup couldn't start.");
@@ -338,12 +337,6 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
           : ""}
         .
       </p>
-      <label className="cp-check">
-        <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
-        <span>
-          Keep my key so I can resize in one click. <span className="cp-hint">Stored sealed (only our setup worker can open it); remove it any time. Unticked, we forget it once the box is up.</span>
-        </span>
-      </label>
       <div className="cp-row">
         <button className="btn btn-primary" disabled={busy || !name || Boolean(why) || taken || !pick}>
           {busy ? "Starting…" : "Create my box"}
