@@ -28,6 +28,7 @@
 
 <p align="center">
   <a href="#whats-in-the-box">What's in the box</a> ·
+  <a href="#set-it-up-with-your-agent">Set up with an agent</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#built-for-agents">Agents</a> ·
@@ -73,6 +74,19 @@ keys or bills.
 Each project can have a hard limit on CPU, memory, database share and cache. A busy project
 is held at its limit and the others keep running. Off-box backup copies go to any
 S3-compatible bucket, encrypted.
+
+## Set it up with your agent
+
+Give Claude Code, Codex or Cursor one line:
+
+```text
+Set up ShipTiffin for me: follow https://shiptiffin.com/agent-setup.md
+```
+
+It walks you through either way of running ShipTiffin, connects itself to your box over MCP
+and deploys your first app. It stops and asks you for the steps that are yours: paying,
+pasting your Hetzner key, adding a passkey and creating its API key.
+[The full prompt, and connecting other agents](docs/guide/agent-onboarding.md).
 
 ## Quick start
 
@@ -153,7 +167,9 @@ listed in your account. If you stop paying, the server and your apps keep runnin
 ## Built for agents
 
 ```bash
-claude mcp add tiffin -- tiffin mcp
+claude mcp add tiffin -- tiffin mcp          # on the computer that ran tiffin up
+claude mcp add --transport http tiffin https://dashboard.<box domain>/mcp \
+  --header "Authorization: Bearer <key>"      # any box, with a key from Settings › API keys
 ```
 
 - **One API, three ways in.** Every operation is a CLI command, an MCP tool and an HTTP call,
@@ -196,7 +212,7 @@ important on it.
 |---|---|---|
 | [Quickstart](docs/guide/quickstart.md) | [Apps and deploys](docs/guide/apps.md) | [Domains](docs/guide/domains.md) |
 | [Concepts](docs/guide/concepts.md) | [Postgres, KV and backups](docs/guide/data.md) | [Protection](docs/guide/protection.md) |
-| [Working with agents](docs/guide/agents.md) | [Files](docs/guide/storage.md) · [Email](docs/guide/email.md) | [Security model](docs/guide/security.md) |
+| [Set up with your agent](docs/guide/agent-onboarding.md) · [Working with agents](docs/guide/agents.md) | [Files](docs/guide/storage.md) · [Email](docs/guide/email.md) | [Security model](docs/guide/security.md) |
 | [What works and what doesn't](docs/guide/limits.md) | [Sign-in](docs/guide/auth.md) · [Jobs](docs/guide/queues.md) | [Copying and moving](docs/guide/moving.md) |
 | [Managed boxes](docs/guide/managed.md) | [Monitoring](docs/guide/observe.md) · [Analytics](docs/guide/analytics.md) | [Always-on agents](docs/guide/always-on-agents.md) |
 

@@ -6,9 +6,20 @@ project on its own schedule, see [Run an always-on agent on your box](always-on-
 
 ## Connect
 
+To have an agent set ShipTiffin up from nothing, give it the prompt in
+[set up ShipTiffin with your agent](agent-onboarding.md).
+
 ```bash
-claude mcp add tiffin -- tiffin mcp            # stdio, uses the box's agent key
+claude mcp add tiffin -- tiffin mcp            # stdio, on the computer that ran tiffin up: uses the box's agent key
+claude mcp add --transport http tiffin https://dashboard.<box domain>/mcp \
+  --header "Authorization: Bearer <key>"       # any box (a ShipTiffin box too), nothing to install
 ```
+
+Every box serves MCP at `https://dashboard.<box domain>/mcp`. It needs an API key (Settings ›
+API keys in the dashboard, or `tiffin tokens create`) as a bearer token; creating a key in the
+dashboard shows the line for that box. Codex, Cursor and VS Code:
+[connecting an agent](agent-onboarding.md#connecting-an-agent). The CLI reaches a box on
+another computer with `TIFFIN_URL` (the dashboard address) and `TIFFIN_TOKEN`.
 
 Every API operation is an MCP tool and a CLI command, generated from one OpenAPI
 description, so they always agree. Tools are annotated: read-only tools say so;

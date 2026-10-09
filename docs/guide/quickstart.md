@@ -75,6 +75,9 @@ tiffin login --open
 claude mcp add tiffin -- tiffin mcp
 ```
 
+That works on this computer. For a box elsewhere, or another agent, see
+[connecting an agent](agent-onboarding.md#connecting-an-agent).
+
 Your agent gets its own API key with full access to all projects, so it can do what you
 can. Claude Code asks you before it runs anything destructive (deleting a database, say),
 and every change lands in History under the agent's name, ready to undo. For an agent
