@@ -81,6 +81,8 @@ export type SubscriptionNow = {
   customer: string | { id: string };
   metadata?: Record<string, string>;
   cancel_at_period_end?: boolean;
+  /** When a scheduled cancellation ends it (flexible billing mode: how the portal's "cancel at period end" shows). */
+  cancel_at?: number | null;
   current_period_end?: number;
   items?: { data?: { current_period_end?: number }[] };
   latest_invoice?: string | { id: string; status: string; billing_reason?: string } | null;
@@ -103,6 +105,21 @@ function invoiceBox(inv: any): string | null {
 function periodEnd(sub: SubscriptionNow): Date | null {
   const t = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end;
   return typeof t === "number" ? new Date(t * 1000) : null;
+}
+
+/**
+ * Whether the subscription is set to end, and when it ends or renews. With
+ * flexible billing mode (the default since API version 2025-09-30.clover) a
+ * cancellation at the end of the period can show only as cancel_at, with
+ * cancel_at_period_end false: the customer portal's does.
+ */
+export function ending(sub: Pick<SubscriptionNow, "cancel_at_period_end" | "cancel_at" | "current_period_end" | "items">): { cancelAtPeriodEnd: boolean; currentPeriodEnd: Date | null } {
+  const end = periodEnd(sub as SubscriptionNow);
+  const cancelAt = typeof sub.cancel_at === "number" ? new Date(sub.cancel_at * 1000) : null;
+  return {
+    cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end) || cancelAt != null,
+    currentPeriodEnd: cancelAt && (!end || cancelAt < end) ? cancelAt : end,
+  };
 }
 
 /** Whether the subscription's latest invoice is paid: its first payment went through (card only, so no delayed methods). */
@@ -198,8 +215,7 @@ export async function handleEvent(repo: BillingRepo, stripe: BillingStripe, ev: 
     if (firstPaid && !box.firstPaidAt) patch.firstPaidAt = now;
     const on = extrasOn(sub.status, firstPaid);
     patch.planStatus = sub.status;
-    patch.cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
-    patch.currentPeriodEnd = periodEnd(sub);
+    Object.assign(patch, ending(sub));
 
     if (on && box.status === "awaiting_payment") {
       patch.status = "paid";

@@ -174,6 +174,7 @@ export type StripeSubscription = {
   customer: string | { id: string };
   metadata?: Record<string, string>;
   cancel_at_period_end?: boolean;
+  cancel_at?: number | null;
   current_period_end?: number;
   items?: { data?: { current_period_end?: number }[] };
   latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number } | null;

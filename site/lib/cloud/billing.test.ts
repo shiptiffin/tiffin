@@ -302,6 +302,25 @@ describe("authoritative status", () => {
   });
 });
 
+test("a cancellation shown only as cancel_at (flexible billing mode, the customer portal) is recorded as ending, on that date", async () => {
+  stripe.set("sub_1", "active");
+  await run(completed());
+  const items = { data: [{ current_period_end: 1_793_000_000 }] };
+  stripe.set("sub_1", "active", "paid", { cancel_at_period_end: false, cancel_at: 1_793_000_000, items });
+  await run(ev("customer.subscription.updated", { id: "sub_1" }));
+  expect(b1()).toMatchObject({ cancelAtPeriodEnd: true, extrasPausedAt: null });
+  expect(b1().currentPeriodEnd?.getTime()).toBe(1_793_000_000_000);
+  // A date before the period's end (set in Stripe's dashboard) is the one shown.
+  stripe.set("sub_1", "active", "paid", { cancel_at: 1_792_000_000, items });
+  await run(ev("customer.subscription.updated", { id: "sub_1" }));
+  expect(b1().currentPeriodEnd?.getTime()).toBe(1_792_000_000_000);
+  // Kept after all: cancel_at cleared, renewing again.
+  stripe.set("sub_1", "active", "paid", { cancel_at: null, items });
+  await run(ev("customer.subscription.updated", { id: "sub_1" }));
+  expect(b1()).toMatchObject({ cancelAtPeriodEnd: false });
+  expect(b1().currentPeriodEnd?.getTime()).toBe(1_793_000_000_000);
+});
+
 describe("renewing a cancelled box", () => {
   test("a new subscription for the same box replaces the ended one; the address comes back at the next check-in", async () => {
     stripe.set("sub_1", "active");
