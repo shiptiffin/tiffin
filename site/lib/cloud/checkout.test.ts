@@ -14,6 +14,7 @@ class FakeStripe {
   down = false; // the request never reaches Stripe
   loseAnswer = false; // Stripe runs it; the answer is lost on the way back
   couponGone = false;
+  refused: string | null = null; // a parameter Stripe no longer takes
   constructor(readonly clock: () => Date) {}
   async createCheckout(params: Record<string, unknown>, key: string): Promise<Session> {
     this.calls++;
@@ -27,6 +28,7 @@ class FakeStripe {
     }
     const now = Math.floor(this.clock().getTime() / 1000);
     if (Number(params.expires_at) < now + 30 * 60 - 5) throw new StripeError("expires_at must be at least 30 minutes from now", 400, "parameter_invalid_integer", "expires_at", "invalid_request_error");
+    if (this.refused && this.refused in params) throw new StripeError(`The \`${this.refused}\` parameter is no longer supported`, 400, undefined, this.refused, "invalid_request_error");
     if (this.couponGone && params.discounts) {
       const error = new StripeError("This coupon has reached its maximum redemptions", 400, "coupon_expired", "discounts[0][coupon]", "invalid_request_error");
       this.cache.set(key, { params: json, error });
@@ -139,6 +141,20 @@ describe("Checkout retries", () => {
     later(2);
     expect(await url()).toBe("https://checkout.stripe.test/c/2");
     expect(Number(repo.box.checkout_attempt!.params.expires_at)).toBe(exp);
+  });
+
+  test("a saved request Stripe now refuses (a parameter from before a deploy) is built again from the current parameters", async () => {
+    // Saved by an earlier deploy, never sent (the request didn't reach Stripe).
+    const stale = { ...(await build()).params, payment_method_types: ["card"], expires_at: Math.floor(now.getTime() / 1000) + 35 * 60 };
+    repo.box.checkout_attempt = { id: "old", key: "checkout:box_1:old", params: stale, at: now.toISOString() };
+    stripe.refused = "payment_method_types";
+    later(1);
+    expect(await url()).toBe("https://checkout.stripe.test/c/1");
+    expect(repo.box.checkout_attempt!.id).not.toBe("old");
+    expect(repo.box.checkout_attempt!.params.payment_method_types).toBeUndefined();
+    // And the next click reuses the session rather than the refused request.
+    expect(await url()).toBe("https://checkout.stripe.test/c/1");
+    expect(stripe.sessions.length).toBe(1);
   });
 
   test("the founding coupon ran out between the check and the session: full price", async () => {

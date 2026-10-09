@@ -16,7 +16,10 @@
 // A saved attempt is replaced by a new one only when it can no longer give a
 // usable session (its session would expire within two minutes), or when
 // Stripe refuses it as a request (it never ran there: no cached answer, so
-// no session exists for it; e.g. its expires_at is now too close).
+// no session exists for it; e.g. its expires_at is now too close, or a
+// parameter Stripe took when the attempt was saved is refused now). A
+// refused attempt is built again from the current parameters rather than
+// sent again as it was: what Stripe refused once, it refuses every time.
 import { randomBytes } from "node:crypto";
 import { StripeError } from "./stripe";
 
@@ -74,10 +77,11 @@ export async function checkoutUrl<B extends CheckoutBox>(
 ): Promise<string> {
   // The expiry is fixed here, when the attempt is made, and saved with it.
   const expiring = (params: Record<string, unknown>) => ({ ...params, expires_at: Math.floor(now().getTime() / 1000) + CHECKOUT_TTL_SECONDS });
-  const fresh = async (params: Record<string, unknown>) =>
-    repo.locked(boxId, async (_b, save) => {
+  // A new attempt, saved: the given parameters, or (null) built again now.
+  const fresh = async (params: Record<string, unknown> | null) =>
+    repo.locked(boxId, async (b, save) => {
       const id = randomBytes(9).toString("base64url");
-      const a: CheckoutAttempt = { id, key: `checkout:${boxId}:${id}`, params: expiring(params), at: now().toISOString() };
+      const a: CheckoutAttempt = { id, key: `checkout:${boxId}:${id}`, params: expiring(params ?? (await build(b)).params), at: now().toISOString() };
       await save(a);
       return a;
     });
@@ -103,8 +107,9 @@ export async function checkoutUrl<B extends CheckoutBox>(
       attempt = await fresh(params);
     } else if (refusedRequest(e)) {
       // The saved request never ran at Stripe (it would have answered with
-      // its cached result): the same parameters with a fresh expiry.
-      attempt = await fresh(attempt.params);
+      // its cached result), so no session exists for it: built again from
+      // the current parameters, with a fresh expiry.
+      attempt = await fresh(null);
     } else throw e; // an outage or a lost answer: the next try sends the same request
     cs = await stripe.createCheckout(attempt.params, attempt.key);
   }
