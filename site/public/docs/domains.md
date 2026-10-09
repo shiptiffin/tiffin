@@ -42,6 +42,23 @@ itself for something else? Use a subdomain: `tiffin domain set apps.example.com`
 
 `tiffin domain unset` goes back to the sslip.io name.
 
+## The domain itself
+
+`example.com` itself (not a name under it) sends visitors to the dashboard
+(`https://dashboard.example.com/`) until an app uses it. The same goes for a managed
+`<name>.shiptiffin.app` and for the automatic sslip.io name. It is a temporary redirect
+(302), so browsers don't remember it.
+
+To put your website there, give it to an app:
+
+```
+tiffin domains add shop --domain example.com
+```
+
+The app wins as soon as the change applies, and `tiffin domains remove shop example.com`
+brings the redirect back. Settings › Domain in the dashboard shows which it is now, and so
+does `tiffin domain`.
+
 ## Apps on a domain of their own
 
 Like vercel.com and vercel.app, the dashboard can live on one domain and the apps on
@@ -63,7 +80,10 @@ sign-in cookie is host-only either way.) The records are:
 | A | `*.example.app` | your server's IPv4 |
 
 (plus AAAA with IPv6). `example.com` itself is not needed, so it can stay your
-website. `tiffin domain check --domain example.com --apps-domain example.app` lists
+website. If it points at the box, it behaves as [above](#the-domain-itself), and
+`example.app` itself does too: it sends visitors to the dashboard, or to
+`https://example.com/` when an app on the box serves `example.com`, until an app uses
+`example.app` itself. `tiffin domain check --domain example.com --apps-domain example.app` lists
 them and what DNS says now; with `--create-records`, the box adds the ones in zones
 your connected DNS provider holds and tells you exactly which to add by hand (a
 Cloudflare token for *All zones* holds both). A custom domain's CNAME then points at
@@ -137,7 +157,8 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
 - A certificate is only ever requested for a name the box serves. A project domain is
   handed over only once its DNS points here, so a domain you haven't set up yet never
   wastes Let's Encrypt's limits. Without a DNS provider, each app gets its certificate
-  on its first visit.
+  on its first visit. The domain itself gets one on its first visit too, for the redirect,
+  and only while no app uses it; once an app does, it is checked like any project domain.
 - Plain HTTP redirects to HTTPS. Browsers are told to stay on HTTPS (HSTS, 30 days)
   only for certificates from a public CA.
 - A domain switch restarts the service for a few seconds (apps keep running). The old
