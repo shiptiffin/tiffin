@@ -36,3 +36,6 @@ CRITIQUE*.md
 # Written by `next dev` on every start
 site/AGENTS.md
 site/CLAUDE.md
+
+# Launch video and assets (local only)
+/launch/
