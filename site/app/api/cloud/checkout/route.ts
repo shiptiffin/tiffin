@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return problem(403, "Cross-site request refused.");
   if (!(await signupOpen())) return problem(503, "Sign-up opens soon.");
-  const acct = await currentAccount();
+  const acct = await currentAccount({ fresh: true });
   if (!acct) return problem(401, "Sign in first.");
   const body = (await readJson<{ renew?: string }>(request)) ?? {};
   try {

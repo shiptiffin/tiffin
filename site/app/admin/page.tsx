@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Admin", robots: { index: false } };
 export const dynamic = "force-dynamic";
 
 export default async function Admin() {
-  const acct = await currentAccount();
+  const acct = await currentAccount({ fresh: true });
   if (!isAdmin(acct)) notFound();
   if (!(await tablesReady())) return <p className="wrap cp">The provisioner hasn&rsquo;t made its tables yet.</p>;
   const s = db();

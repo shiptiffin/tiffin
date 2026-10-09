@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return problem(403, "Cross-site request refused.");
-  const acct = await currentAccount();
+  const acct = await currentAccount({ fresh: true });
   if (!acct) return problem(401, "Sign in first.");
   try {
     return json({ ok: true, url: await billingPortal(acct, baseUrl(request)) });
