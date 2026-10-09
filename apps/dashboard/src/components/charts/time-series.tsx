@@ -128,6 +128,7 @@ export function TimeSeries(props: TimeSeriesProps) {
 
   const h = hover !== null && hover < n ? hover : null;
   const readout = h === null ? null : readoutAt(series, h, main, step, utc, format, now);
+  // A marker in the last step (still filling) sits on that step's point, not past the edge.
   const placed = geo ? markers.filter((m) => m.t >= geo.t0 && m.t <= geo.t1 + step) : [];
 
   return (
@@ -166,7 +167,7 @@ export function TimeSeries(props: TimeSeriesProps) {
               </text>
             ))}
             {placed.map((m) => (
-              <line key={`${m.t}${m.label}`} x1={geo.x(m.t)} x2={geo.x(m.t)} y1={PAD.top} y2={PAD.top + geo.H} stroke="var(--ink-4)" strokeWidth={1} strokeOpacity={0.7} shapeRendering="crispEdges" />
+              <line key={`${m.t}${m.label}`} x1={geo.x(Math.min(m.t, geo.t1))} x2={geo.x(Math.min(m.t, geo.t1))} y1={PAD.top} y2={PAD.top + geo.H} stroke="var(--ink-4)" strokeWidth={1} strokeOpacity={0.7} shapeRendering="crispEdges" />
             ))}
             {geo.paths.map(
               ({ s, fill }, i) =>

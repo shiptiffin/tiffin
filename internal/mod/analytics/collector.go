@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -28,8 +29,14 @@ const maxBeacon = 8 << 10
 
 // EdgePageview reports whether an access log entry is a page a person
 // loaded: a GET with a 2xx or 304 response for a top-level document that
-// is not a prefetch or prerender. Bots are filtered later by user agent.
+// is not a prefetch or prerender, and not a file like a script or an
+// image (scanners and people opening one in a tab send the same headers).
+// Bots are filtered later by user agent.
 func EdgePageview(e *edgelog.Entry) bool {
+	p, _, _ := strings.Cut(e.URI, "?")
+	if assetExt[strings.ToLower(path.Ext(p))] || strings.HasPrefix(p, "/_next/") {
+		return false
+	}
 	if e.Method != http.MethodGet || !(e.Status >= 200 && e.Status < 300 || e.Status == http.StatusNotModified) {
 		return false
 	}
@@ -46,6 +53,13 @@ func EdgePageview(e *edgelog.Entry) bool {
 		}
 	}
 	return true
+}
+
+// assetExt are the file types that are never a page.
+var assetExt = map[string]bool{
+	".js": true, ".mjs": true, ".css": true, ".map": true, ".json": true, ".xml": true, ".txt": true, ".webmanifest": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".ico": true, ".webp": true, ".avif": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".mp4": true, ".webm": true, ".mp3": true,
 }
 
 // handleEdge turns one access log line into a pageview when it is one.
