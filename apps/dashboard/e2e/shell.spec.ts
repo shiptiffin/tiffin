@@ -63,6 +63,35 @@ async function measured(page: Page) {
     builds: {},
     sampledAt: new Date().toISOString(),
   });
+  // Each project's disk by part, as the box measures it once a minute.
+  const disk = (name: string, db: number, kv: number, files: number) => ({
+    project: name,
+    exists: true,
+    databaseBytes: db * MB,
+    filesBytes: files * MB,
+    kvBytes: kv * MB,
+    imageBytes: 0,
+    images: 0,
+    logBytes: 0,
+    buildBytes: 0,
+    backupBytes: 0,
+    totalBytes: (db + kv + files) * MB,
+  });
+  await page.route("**/v1/box/disk", (r) =>
+    r.fulfill({
+      json: {
+        measuredAt: new Date().toISOString(),
+        disk: { mount: "/var/lib/tiffin", totalBytes: 40960 * MB, usedBytes: 5120 * MB, freeBytes: 35840 * MB, usedPercent: 12.5 },
+        parts: [],
+        projects: [disk("notes", 920, 0, 2), disk("hello", 48, 3, 12)],
+        imagesBytes: 0,
+        unusedImages: 0,
+        unusedImageBytes: 0,
+        buildCacheBytes: 0,
+        buildCacheCapBytes: 4096 * MB,
+      },
+    }),
+  );
   await page.route("**/v1/projects/hello/usage", (r) => r.fulfill({ json: usage("hello", 48, 3, 12, 310, 4) }));
   await page.route("**/v1/projects/notes/usage", (r) => r.fulfill({ json: usage("notes", 920, null, 2, 120, 1) }));
 }
@@ -147,19 +176,24 @@ test("? lists the shortcuts; letters typed into a field stay there", async ({ pa
   await expect(page).toHaveURL(/\/new$/);
 });
 
-test("Usage lists every project's sizes, sorts, and links in", async ({ page }) => {
+test("Usage lists every project's footprint, sorts, and links in", async ({ page }) => {
   await measured(page);
   await page.goto("/usage");
-  const table = page.getByRole("region", { name: "Every project’s usage" });
-  await expect(table.getByRole("row")).toHaveCount(1 + (await page.request.get("/v1/projects").then((r) => r.json())).length);
-  // By memory first; then by database, biggest first.
-  await expect(table.getByRole("row").nth(1)).toContainText("hello");
-  await table.getByRole("button", { name: "Database" }).click();
-  await expect(table.getByRole("columnheader", { name: "Database" })).toHaveAttribute("aria-sort", "descending");
-  await expect(table.getByRole("row").nth(1)).toContainText("notes");
-  await expect(table.getByRole("row").nth(1)).toContainText("920 MB");
+  const list = page.getByRole("region", { name: "By project" }).getByRole("list", { name: "Each project’s footprint" });
+  await expect(list.getByRole("listitem")).toHaveCount((await page.request.get("/v1/projects").then((r) => r.json())).length);
+  // By its share of the box first (hello holds the most memory); then by disk, biggest first.
+  await expect(list.getByRole("listitem").first()).toContainText("hello");
+  const sort = page.getByRole("group", { name: "Sort projects" });
+  await sort.getByRole("button", { name: "Disk" }).click();
+  await expect(sort.getByRole("button", { name: "Disk" })).toHaveAttribute("aria-pressed", "true");
+  const top = list.getByRole("listitem").first();
+  await expect(top).toContainText("notes");
+  await expect(top).toContainText(/922\sMB/);
   await axe(page, "usage");
-  await table.getByRole("link", { name: "notes" }).click();
+  // A row opens to its disk by part and a link to its resources.
+  await top.getByRole("button", { name: /^notes/ }).click();
+  await expect(top.getByText("Database", { exact: true })).toBeVisible();
+  await top.getByRole("link", { name: "notes’s resources and limits" }).click();
   await expect(page).toHaveURL(/\/projects\/notes\/usage$/);
 });
 
@@ -169,7 +203,7 @@ test("Connect shows the env, the tunnel and what's not open yet", async ({ page 
   const d = page.getByRole("dialog", { name: "Connect to the database" });
   await expect(d.getByText("DATABASE_URL", { exact: true })).toBeVisible();
   await expect(d.getByText(/postgresql:\/\/p_hello:•+@127\.0\.0\.1:5432\/p_hello/)).toBeVisible();
-  for (const lang of ["Drizzle", "Prisma", "postgres.js", "Bun.sql", "Python"]) await expect(d.getByRole("tab", { name: lang })).toBeVisible();
+  for (const lang of ["Drizzle", "Prisma", "postgres.js", "Python"]) await expect(d.getByRole("tab", { name: lang })).toBeVisible();
   await d.getByRole("tab", { name: "Python" }).click();
   await expect(d.getByText("psycopg.connect", { exact: false })).toBeVisible();
   await axe(page, "connect");
@@ -227,7 +261,7 @@ test("shell screens", async ({ page }) => {
       await page.getByRole("heading", { name: "Delete this project" }).waitFor();
       await shot("danger-zone");
       await page.goto("/usage");
-      await page.getByRole("region", { name: "Every project’s usage" }).waitFor();
+      await page.getByRole("region", { name: "By project" }).getByRole("listitem").first().waitFor();
       await shot("usage", true);
       await page.goto("/projects/hello/data/kv");
       await page.getByRole("button", { name: /Switch project/ }).first().waitFor();
