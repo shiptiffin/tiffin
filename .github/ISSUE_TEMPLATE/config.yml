@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Docs
+    url: https://github.com/shiptiffin/tiffin/tree/main/docs/guide
+    about: The quickstart, every service, and what works and what doesn't (limits.md).
+  - name: Managed box support
+    url: https://shiptiffin.com/managed
+    about: A box set up by shiptiffin.com? Write to hello@shiptiffin.com for help with it.
+  - name: Report a security problem
+    url: https://github.com/shiptiffin/tiffin/security/policy
+    about: Please report vulnerabilities privately, not in a public issue.
