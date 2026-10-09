@@ -30,7 +30,7 @@ apply() { # apply <dir> <intent>
   "$BIN" apply "$1" --confirm "$hash" -m "$2" --json >/dev/null
 }
 sql() { # sql <project> <statement> (a write; snapshots first)
-  api POST "/v1/projects/$1/sql" "$(jq -nc --arg s "$2" '{sql:$s, write:true}')" >/dev/null
+  api POST "/v1/projects/$1/sql/write" "$(jq -nc --arg s "$2" '{sql:$s}')" >/dev/null
 }
 wait_ready() { # until every resource of a project is ready
   for _ in $(seq 1 90); do

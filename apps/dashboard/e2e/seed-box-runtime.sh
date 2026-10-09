@@ -97,5 +97,5 @@ fi
 
 # The app's own users and teams. Sign-up is protected by a proof-of-work
 # challenge, so demo users go straight into the project's auth tables.
-api POST /v1/projects/shop/sql "$(jq -nc --rawfile s "$HERE/fixtures/auth-users.sql" '{sql:$s, write:true}')" >/dev/null
+api POST /v1/projects/shop/sql/write "$(jq -nc --rawfile s "$HERE/fixtures/auth-users.sql" '{sql:$s}')" >/dev/null
 echo "seeded runtime: web, docs and worker deployed; users and organizations"
