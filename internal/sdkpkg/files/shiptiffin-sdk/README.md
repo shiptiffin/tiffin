@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <b>The SDK for apps on a Tiffin box.</b><br>
-  KV, files, background jobs, workflows, sign-in, email and analytics from one package, with no keys or URLs to set up.
+  <b>The SDK for apps on a ShipTiffin box.</b><br>
+  KV, files, background jobs, workflows, auth, email and analytics from one package, with no keys or URLs to set up.
 </p>
 
 <p align="center">
@@ -16,8 +16,8 @@
   <a href="#licence">Apache-2.0</a>
 </p>
 
-[Tiffin](https://shiptiffin.com) runs your whole app on one server: the apps, Postgres, Valkey,
-file storage, email, sign-in, queues, workflows and analytics. The box gives each app the
+[ShipTiffin](https://shiptiffin.com) runs your whole app on one server: the apps, a Postgres database, Valkey,
+file storage, email, auth, queues, workflows and analytics. The box gives each app the
 environment variables for its project's services, and this package reads them. `kv()` is
 already connected to the project's own keyspace, `send()` already has an SMTP account, and
 `getSession()` already knows where the auth engine is.

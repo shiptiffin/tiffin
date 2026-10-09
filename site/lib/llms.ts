@@ -72,7 +72,7 @@ function page(name: string, md: string): string {
 }
 
 const SUMMARY =
-  "ShipTiffin runs all your apps on one Linux server you own (a box), with Postgres, KV, file storage, email, sign-in, jobs, analytics, error tracking and backups already on it. People and their coding agents run it through one CLI (`tiffin`), one MCP server and one dashboard. A managed box is $19 a month per box plus the server at Hetzner; running Tiffin yourself is free (AGPL-3.0).";
+  "ShipTiffin runs all your apps on one Linux server you own (a box), with a database, auth, KV, file storage, email, jobs, analytics, error tracking and backups already on it. People and their coding agents run it through one CLI (`tiffin`), one MCP server and one dashboard. A managed box is $19 a month per box plus the server at Hetzner; running Tiffin yourself is free (AGPL-3.0).";
 
 function index(): string {
   const out = [

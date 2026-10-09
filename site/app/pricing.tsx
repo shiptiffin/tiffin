@@ -20,7 +20,7 @@ const INCLUDED = [
 
 const PARTS = [
   "Apps and previews",
-  "Postgres, KV and files",
+  "Database, KV and files",
   "Sign-in for your apps' users",
   "Jobs, analytics and error tracking",
   "Restore to any moment in the last 7 days",

@@ -1,7 +1,7 @@
 {
   "name": "@shiptiffin/sdk",
   "version": "0.2.0",
-  "description": "The SDK for apps on a Tiffin box: config, KV (Valkey), file storage, queues, durable workflows, sign-in, email, analytics and Next.js helpers, with nothing to set up.",
+  "description": "The SDK for apps on a ShipTiffin box: config, KV (Valkey), file storage, queues, durable workflows, auth, email, analytics and Next.js helpers, with nothing to set up.",
   "license": "Apache-2.0",
   "author": "ShipTiffin <hello@shiptiffin.com> (https://shiptiffin.com)",
   "homepage": "https://shiptiffin.com",

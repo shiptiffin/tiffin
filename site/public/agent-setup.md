@@ -1,6 +1,6 @@
 Set up ShipTiffin for me, and connect yourself to it.
 
-ShipTiffin runs all my apps on one Linux server I own (a "box"), with Postgres, KV, file storage, email, sign-in, jobs and backups on it. You operate it through the tiffin MCP server and the tiffin CLI. Reference: https://shiptiffin.com/llms.txt (everything in one file: https://shiptiffin.com/llms-full.txt).
+ShipTiffin runs all my apps on one Linux server I own (a "box"), with a database, auth, KV, file storage, email, jobs and backups on it. You operate it through the tiffin MCP server and the tiffin CLI. Reference: https://shiptiffin.com/llms.txt (everything in one file: https://shiptiffin.com/llms-full.txt).
 
 Ground rules
 - Steps marked [Me] only I can do: signing in, paying, Hetzner credentials, adding a passkey, creating the first API key, DNS records at my registrar. At each one, tell me exactly what to click, then stop and wait until I say it's done.

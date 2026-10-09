@@ -1,7 +1,7 @@
 # Contributing to Tiffin
 
-Thanks for helping. Tiffin turns one Linux server into a platform: apps, Postgres, KV,
-files, email, sign-in, jobs, analytics and backups, run by people and coding agents through
+Thanks for helping. Tiffin turns one Linux server into a platform: apps, a database, auth,
+KV, files, email, jobs, analytics and backups, run by people and coding agents through
 one API. Every box feature is a **module** that plugs into the platform spine in
 `internal/platform`. Read `internal/platform/platform.go` first.
 

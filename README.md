@@ -1,13 +1,13 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/banner-dark.webp">
-    <img src="docs/readme/banner-light.webp" width="1000" alt="ShipTiffin. All your apps. One box. One price. Apps, Postgres, sign-in, files, jobs, email, analytics and backups on one server you own. The tin mascot sits on a rack server.">
+    <img src="docs/readme/banner-light.webp" width="1000" alt="ShipTiffin. All your apps. One box. One price. Apps, a database, auth, files, jobs, email, analytics and backups on one server you own. The tin mascot sits on a rack server.">
   </picture>
 </p>
 
 <p align="center">
   <b>All your apps on one Linux server you own, with everything they need already on it.</b><br>
-  Postgres, KV, file storage, email, sign-in, jobs, analytics, error tracking and backups.<br>
+  a database, auth, KV, file storage, email, jobs, analytics, error tracking and backups.<br>
   You and your coding agent run it through one CLI, one MCP server and one dashboard.
 </p>
 
