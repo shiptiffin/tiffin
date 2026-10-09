@@ -725,10 +725,14 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   (`website`, `provisioner`, …) are reserved. A new project on our box needs its name added
   to the reserved lists (internal/cloud/names.go, site/lib/cloud/names.ts). Moving our box's
   apps to a domain of their own would end this.
-- **Billing is cards and wallets only.** Checkout uses the payment method configuration in
-  `STRIPE_PAYMENT_METHODS` (cards, Apple Pay, Google Pay; without it, cards only), so a box is set up only after
-  its first payment went through; bank debits and other methods that confirm days later
-  are off until the setup can wait for them.
+- **Stripe is the seller, and picks the payment methods.** With `STRIPE_MANAGED_PAYMENTS=1`
+  Checkout uses Stripe Managed Payments: Stripe (as Link) is the merchant of record, collects
+  and files sales tax and VAT, handles disputes, and chooses the methods (cards, wallets, Link,
+  Cash App Pay and local ones). A box is still set up only after its first invoice is paid, so a
+  method that confirms later just makes /start wait. Customers can also cancel or change
+  their card on link.com, and Stripe may refund within 60 days or apply legal cooling-off
+  periods, whatever our own refund policy says. Without it, Checkout uses
+  `STRIPE_PAYMENT_METHODS` (cards, Apple Pay, Google Pay; without it, cards only).
 - **Refunds outside the guarantee are manual.** The admin page's *Refund and cancel* is
   the 14-day money-back (the first payment, in full). Other refunds are made in Stripe;
   a full refund of the first payment there ends the subscription too.

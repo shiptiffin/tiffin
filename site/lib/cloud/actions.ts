@@ -65,15 +65,19 @@ export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_pa
 }
 
 /**
- * Which payment methods Checkout offers. The Stripe payment method
- * configuration in STRIPE_PAYMENT_METHODS (pmc_…; cards and wallets only: no
- * method that confirms days later); without it, cards only
+ * Which payment methods Checkout offers, and who is the seller.
+ * STRIPE_MANAGED_PAYMENTS=1: Stripe Managed Payments, Stripe (Link) is the
+ * merchant of record and collects and files sales tax and VAT; it picks the
+ * payment methods itself and refuses a configuration alongside.
+ * Otherwise the Stripe payment method configuration in STRIPE_PAYMENT_METHODS
+ * (pmc_…; cards and wallets only); without it, cards only
  * (allowed_payment_method_types filters the account's default
  * configuration), never the default's full list (Klarna, Cash App Pay, …).
  * Stripe refuses payment_method_types on Checkout Sessions since API version
- * 2026-09-30.endive, and takes only one of these two.
+ * 2026-09-30.endive, and takes only one of these.
  */
 export function paymentMethods(env: Record<string, string | undefined> = process.env): Record<string, unknown> {
+  if (env.STRIPE_MANAGED_PAYMENTS?.trim() === "1") return { managed_payments: { enabled: true } };
   const pmc = env.STRIPE_PAYMENT_METHODS?.trim();
   return pmc ? { payment_method_configuration: pmc } : { allowed_payment_method_types: ["card"] };
 }
