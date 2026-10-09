@@ -2441,7 +2441,9 @@ is an API in Python: see [FastAPI and Python](#fastapi-and-python).
 
 To change a starter app, `tiffin pull <dir> --project <project>` writes the config and
 the starter's source into `<dir>` (it never overwrites a file that is there); edit it,
-then `tiffin deploy` from that folder ships it to the same address.
+then `tiffin deploy` from that folder ships it to the same address. In the dashboard, **Edit code** on
+the project's page has these steps with your box and project filled in, and copies them
+as text for you or your coding agent.
 
 A git URL deploy shallow-clones one commit of a **public https** repository on the box
 (no credentials, public hosts only, no submodules, 512 MB and 3 minutes at most) and
