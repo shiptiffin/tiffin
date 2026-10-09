@@ -1,11 +1,77 @@
 # Contributing to Tiffin
 
-Tiffin is "your app in a box": one Linux box runs a whole app stack (apps, Postgres,
-Valkey, storage, email, auth, queues, observability, analytics), operated by humans
-and AI agents through one API. Every box feature is a **module** that plugs into the
-platform spine in `internal/platform`. Read `internal/platform/platform.go` first.
+Thanks for helping. Tiffin turns one Linux server into a platform: apps, Postgres, KV,
+files, email, sign-in, jobs, analytics and backups, run by people and coding agents through
+one API. Every box feature is a **module** that plugs into the platform spine in
+`internal/platform`. Read `internal/platform/platform.go` first.
 
-Tooling and the `make` targets are in the README's "Developing" section.
+## Build and test
+
+You need Go 1.27+ and [Bun](https://bun.sh); for a local box, [Lima](https://lima-vm.io)
+(`brew install lima`).
+
+```bash
+bun install     # the JS workspace (dashboard, SDK, auth engine, emails)
+make build      # bin/tiffin
+make test       # Go tests with the race detector, Bun tests, then make site-test
+make lint       # gofmt, go vet, staticcheck
+```
+
+The dashboard, the SDK and the auth engine are committed as built files, so a plain
+`go build ./cmd/tiffin` works without Bun. After changing their sources, rebuild them and
+commit the output:
+
+```bash
+make dashboard    # apps/dashboard → internal/dashboard/dist
+make sdk          # packages/sdk → internal/sdkpkg/files (make build runs it)
+make auth-engine  # packages/auth-engine → internal/mod/auth/engine
+make site-test    # the website's tests (site/ has its own bun.lock)
+make site-llms    # after editing docs/guide: rebuilds the agent files the site serves
+make notices      # after changing dependencies: regenerates THIRD_PARTY_NOTICES
+make e2e          # every acceptance test, each on a fresh VM (slow)
+make release      # macOS and Linux binaries for arm64 and amd64 in dist/
+```
+
+Bump the version in `packages/sdk` when the SDK's API changes.
+
+## Where things are
+
+| Path | What |
+|---|---|
+| `cmd/tiffin` | The one binary: CLI, MCP server and the box's service |
+| `cmd/tiffin-provisioner` | The managed service's worker: sets up, resizes and deletes managed boxes (runs `internal/cloud`) |
+| `cmd/tiffin-release` | Signs the release manifests boxes update from |
+| `internal/platform` | The spine every module plugs into |
+| `internal/mod/<name>` | Box features: `postgres`, `valkey`, `storage`, `email`, `auth`, `queue`, `runtime`, `backup`, `observe`, `analytics`, `protect` and more |
+| `internal/api`, `internal/mcp`, `internal/cli` | The HTTP API and the MCP tools and CLI commands generated from it |
+| `internal/edge` | The HTTPS edge (Caddy) and the switchboard that routes to app instances |
+| `internal/provider`, `internal/install` | `tiffin up`: Lima, Hetzner and SSH, and provisioning a server |
+| `internal/cloud` | The managed service's control plane |
+| `apps/dashboard` | The React dashboard, embedded from `internal/dashboard/dist` |
+| `packages/sdk` | `@shiptiffin/sdk` (Apache-2.0) |
+| `packages/auth-engine`, `packages/emails`, `packages/tracker` | The Better Auth engine, email templates, the analytics script |
+| `site` | shiptiffin.com (Next.js), its own package |
+| `docs/guide` | The user guide; the site serves it to agents as well |
+| `templates`, `examples`, `internal/starters` | Starter apps (Apache-2.0) |
+| `e2e` | Acceptance tests against a fresh VM (build tag `e2e`) |
+| `scripts` | Release notices, the SDK pack, CI and maintenance scripts |
+
+## Sending a change
+
+- **Open an issue first** for anything bigger than a fix, so we can agree on the shape
+  before you build it. Small fixes and doc corrections can go straight to a pull request.
+- **Pull requests written with a coding agent are welcome.** Hold them to the same bar:
+  you have read the diff, `make test` and `make lint` pass, and the description says what
+  you checked by hand. For changes to the box, provisioning or the edge, also run the related
+  e2e test (`go test -tags e2e ./e2e -run TestX -count=1`).
+- **Docs move with the code.** A change people can see updates `docs/guide` in the same
+  pull request (then `make site-llms`), and a new gap or limit goes in
+  `docs/guide/limits.md`.
+- **Commit messages** follow the history: a short area prefix and a plain sentence that
+  says what is now true, for example `Dashboard: a new app's page shows its stable
+  address` or `Docs: Edit code has the pull-and-deploy steps for a starter app`. One
+  logical change per commit.
+- **Security problems** go to the address in [SECURITY.md](SECURITY.md), not an issue.
 
 ## Ground rules
 
@@ -24,7 +90,7 @@ Tooling and the `make` targets are in the README's "Developing" section.
 
 Tiffin is AGPL-3.0-only, except the parts that end up inside people's apps, which are
 Apache-2.0: the SDK, the starters, templates and examples, the tracker, the build glue in
-`internal/mod/runtime` and the agent files `tiffin init` writes (README, Licensing, lists
+`internal/mod/runtime` and the agent files `tiffin init` writes (README, License, lists
 them; each has its own `LICENSE` file or an `SPDX-License-Identifier` line).
 
 Inbound = outbound: by sending a contribution you agree that it is licensed under the
