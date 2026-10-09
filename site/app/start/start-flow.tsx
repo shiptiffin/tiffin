@@ -1,7 +1,7 @@
 "use client";
 // The steps of /start that happen in the browser: pay, connect Hetzner (the
 // key stays in this page's memory until "Create"), choose, watch, open.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nameProblem, ZONE } from "@/lib/cloud/names";
 import type { CheckResult, Option } from "@/lib/cloud/hetzner";
 
@@ -218,16 +218,26 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const why = name ? nameProblem(name) : null;
+  // Answers already given, so going back to a name doesn't ask again.
+  const asked = useRef(new Map<string, { name: string; available: boolean; message: string }>());
   useEffect(() => {
     if (box.name || !name || why) return;
+    const known = asked.current.get(name);
+    if (known) {
+      setFree(known);
+      return;
+    }
     let stop = false;
     const t = setTimeout(async () => {
       try {
         const res = await fetch(`/api/cloud/names?name=${encodeURIComponent(name)}`, { cache: "no-store" });
         const j = (await res.json()) as { available?: boolean; message?: string };
-        if (!stop && typeof j.available === "boolean") setFree({ name, available: j.available, message: j.message ?? "" });
+        if (typeof j.available !== "boolean") return;
+        const answer = { name, available: j.available, message: j.message ?? "" };
+        asked.current.set(name, answer);
+        if (!stop) setFree(answer);
       } catch {}
-    }, 350);
+    }, 500);
     return () => {
       stop = true;
       clearTimeout(t);
