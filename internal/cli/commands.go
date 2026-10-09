@@ -782,7 +782,7 @@ func requireKey(b *box, h http.Handler) http.Handler {
 				msg = "This API key is not valid: it was revoked, has expired, or is mistyped."
 			}
 			p := api.NewProblem(http.StatusUnauthorized, "unauthenticated", msg)
-			p.Hint = `Create a key (tiffin tokens create) and connect with --header "Authorization: Bearer <key>".`
+			p.Hint = `Create a key in the dashboard (Settings › API keys) or with tiffin tokens create, and connect with --header "Authorization: Bearer <key>".`
 			w.Header().Set("WWW-Authenticate", `Bearer realm="tiffin"`)
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(http.StatusUnauthorized)

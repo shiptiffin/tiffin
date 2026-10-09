@@ -633,3 +633,16 @@ func TestRecordTLS(t *testing.T) {
 		t.Fatal("a box with public certificates must not offer its old internal CA")
 	}
 }
+
+// A key with no box to send it to says so, instead of making an empty local
+// box that answers 401.
+func TestTokenWithoutBoxOrURL(t *testing.T) {
+	env := map[string]string{"HOME": t.TempDir(), "TIFFIN_TOKEN": "tfn_whatever"}
+	code, out, errs := run(t, env, "whoami")
+	if code != ExitInvalid || !strings.Contains(string(out)+errs, "TIFFIN_URL") {
+		t.Fatalf("exit %d: %s %s", code, out, errs)
+	}
+	if _, err := os.Stat(filepath.Join(env["HOME"], ".tiffin", "state.db")); err == nil {
+		t.Fatal("made a local box anyway")
+	}
+}

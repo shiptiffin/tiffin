@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -157,6 +159,13 @@ func (a *app) client(ctx context.Context) (*client, error) {
 				tok = bx.AgentToken
 			}
 			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }, note: a.notes()}, nil
+		}
+	}
+	if a.token != "" && !a.homeExplicit {
+		if _, err := os.Stat(filepath.Join(a.home, "state.db")); errors.Is(err, fs.ErrNotExist) {
+			// A key with nowhere to go: without this the CLI would make an
+			// empty local box and answer 401, which says nothing useful.
+			return nil, &exitError{ExitInvalid, "TIFFIN_TOKEN is set, but this computer knows no box to use it with: set TIFFIN_URL to the box's dashboard address (https://dashboard.<the box's domain>), or make a box with tiffin up"}
 		}
 	}
 	b, fresh, err := openBox(ctx, a.home)

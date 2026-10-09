@@ -203,6 +203,7 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 		return
 	}
 	cred := ctx.Header("Authorization")
+	byCookie := false
 	if cred == "" {
 		// The dashboard authenticates with an HttpOnly, SameSite=Strict cookie.
 		// Apps on the box are the same site as the dashboard, so the browser
@@ -213,12 +214,20 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 				_ = huma.WriteErr(a.api, ctx, http.StatusForbidden, "This request came from another site; use the dashboard or an API key.")
 				return
 			}
-			cred = c.Value
+			cred, byCookie = c.Value, true
 		}
 	}
 	p, err := a.deps.Tokens.Authenticate(ctx.Context(), cred)
 	if err != nil {
-		_ = huma.WriteErr(a.api, ctx, http.StatusUnauthorized, "")
+		out := problem(http.StatusUnauthorized, "unauthenticated", "This request needs an API key: send Authorization: Bearer <key>.")
+		out.Hint = authHint
+		switch {
+		case byCookie:
+			out.Detail, out.Hint = "This dashboard session has ended: sign in again.", ""
+		case cred != "":
+			out.Detail = "This key is not valid on this box: it was revoked, has expired, is mistyped, or belongs to another box."
+		}
+		writeProblem(ctx, out, map[string]string{"WWW-Authenticate": `Bearer realm="tiffin"`})
 		return
 	}
 	if s := strings.TrimSpace(ctx.Header(SessionHeader)); s != "" && len(s) <= 128 {

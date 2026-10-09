@@ -294,8 +294,11 @@ func waitHTTPS(ctx context.Context, c *client, build string, d time.Duration) er
 
 func (a *app) loginLink(ctx context.Context, c *client) (string, error) {
 	status, raw, err := c.do(ctx, http.MethodPost, "/v1/login-links", nil, nil)
-	if err != nil || status != 200 {
-		return "", fmt.Errorf("login link: %v %s", err, raw)
+	if err != nil {
+		return "", fmt.Errorf("login link: %w", err)
+	}
+	if status != 200 {
+		return "", problemOf(status, raw)
 	}
 	var l struct {
 		URL string `json:"url"`
@@ -489,7 +492,11 @@ func (a *app) loginCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Get a one-time dashboard sign-in link",
-		Args:  cobra.NoArgs,
+		Long: "Prints a link that signs a browser in to the box's dashboard once, within 10 minutes.\n\n" +
+			"It needs the owner token, which `tiffin up` keeps on this computer, or an owner's or admin's own sign-in: " +
+			"an API key acts for nobody and gets 403. On a ShipTiffin box, use Open your dashboard in your shiptiffin.com " +
+			"account the first time, then sign in on the box with a passkey.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd.Context())
 			if err != nil {
@@ -498,6 +505,10 @@ func (a *app) loginCmd() *cobra.Command {
 			defer c.close()
 			link, err := a.loginLink(cmd.Context(), c)
 			if err != nil {
+				var ee *exitError
+				if errors.As(err, &ee) {
+					return err
+				}
 				return &exitError{ExitAuth, err.Error()}
 			}
 			if open && runtime.GOOS == "darwin" {

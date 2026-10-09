@@ -89,6 +89,10 @@ func init() {
 	}
 }
 
+// authHint is what to do about a missing or unknown key: where keys come
+// from, and how the CLI and MCP clients send one.
+const authHint = "create a key in the dashboard (Settings › API keys) or with `tiffin tokens create`; the CLI reads it from TIFFIN_TOKEN, with TIFFIN_URL set to the box's dashboard address"
+
 // keyHint is what to do about a key that cannot reach something.
 const keyHint = "each API key reaches only its projects, at full or read access; ask the box owner to do it, or for a key that reaches it"
 

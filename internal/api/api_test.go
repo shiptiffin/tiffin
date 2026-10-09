@@ -144,6 +144,10 @@ func TestAuthRequired(t *testing.T) {
 		if code != 401 || out["code"] != "unauthenticated" {
 			t.Errorf("token %q: %d %v", tok, code, out)
 		}
+		// Agents get a reason and where keys come from, not a bare 401.
+		if d, _ := out["detail"].(string); d == "" || !strings.Contains(fmt.Sprint(out["hint"]), "Settings › API keys") {
+			t.Errorf("token %q: no detail or hint: %v", tok, out)
+		}
 	}
 	code, out, _ := e.call(e.owner, "GET", "/v1/whoami", nil)
 	if code != 200 || out["kind"] != "owner" || out["session"] != "sess-1" {
