@@ -27,6 +27,8 @@ var Reserved = []string{
 	"shiptiffin", "signin", "signup", "smtp", "sso", "staging", "start", "static", "status", "stripe",
 	"support", "system", "team", "terms", "test", "tiffin", "update", "updates", "verify", "wallet",
 	"webmail", "www",
+	// projects on ShipTiffin's own box, which serves them under the same zone
+	"website", "provisioner", "releases", "hello",
 	// brands most often phished
 	"apple", "amazon", "google", "gmail", "microsoft", "outlook", "office", "paypal", "facebook",
 	"instagram", "whatsapp", "netflix", "binance", "coinbase", "metamask", "github", "chase", "wellsfargo",

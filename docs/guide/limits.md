@@ -693,6 +693,11 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   most an hour apart; one still not done an hour after it was queued is emailed to the
   admin (`CLOUD_ABUSE_NOTIFY`, else `EARLY_ACCESS_NOTIFY`) once. Emails still stop after
   ten tries.
+- **Our own box shares the customer zone.** ShipTiffin's own box serves its projects under
+  `*.shiptiffin.app`, the zone customer boxes get their names in, so those project names
+  (`website`, `provisioner`, …) are reserved. A new project on our box needs its name added
+  to the reserved lists (internal/cloud/names.go, site/lib/cloud/names.ts). Moving our box's
+  apps to a domain of their own would end this.
 - **Billing is cards and wallets only.** Checkout uses the payment method configuration in
   `STRIPE_PAYMENT_METHODS` (cards, Apple Pay, Google Pay; without it, cards only), so a box is set up only after
   its first payment went through; bank debits and other methods that confirm days later
