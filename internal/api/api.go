@@ -895,12 +895,18 @@ func (a *API) registerBox() {
 	started := time.Now()
 
 	huma.Register(api, op("status", http.MethodGet, "/v1/status", "status", RiskRead, "Show box status",
-		"Box health: version, uptime, host and every health check (state, disk, edge, services). Works even when app services are down.", "system"),
+		"Box health: version, uptime, host and every health check (state, disk, edge, services). Works even when app services are down. "+
+			"On a box ShipTiffin installed, box admins also get managed: the link to the ShipTiffin account (plan, billing).", "system"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body StatusReport }, error) {
-			if err := PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+			p := PrincipalFrom(ctx)
+			if err := p.Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
 			}
-			return &struct{ Body StatusReport }{a.Status(ctx, started)}, nil
+			r := a.Status(ctx, started)
+			if p.BoxAdmin() { // billing is the owner's and admins' business
+				r.Managed = managedInfo()
+			}
+			return &struct{ Body StatusReport }{r}, nil
 		}))
 
 	huma.Register(api, op("login-link-create", http.MethodPost, "/v1/login-links", "login", RiskWrite, "Create a dashboard login link",
@@ -999,6 +1005,8 @@ type StatusReport struct {
 		Arch     string `json:"arch"`
 	} `json:"host"`
 	Checks []Check `json:"checks"`
+	// Managed is set on a box ShipTiffin installed, for box admins only.
+	Managed *Managed `json:"managed,omitempty" doc:"A box ShipTiffin installed: the link to the customer's ShipTiffin account. Box admins only; absent on a box installed with tiffin up"`
 }
 
 // Status computes the status report. The public /status page uses it too.

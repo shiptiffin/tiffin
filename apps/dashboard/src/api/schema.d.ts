@@ -5441,7 +5441,7 @@ export interface paths {
         };
         /**
          * Show box status
-         * @description Box health: version, uptime, host and every health check (state, disk, edge, services). Works even when app services are down.
+         * @description Box health: version, uptime, host and every health check (state, disk, edge, services). Works even when app services are down. On a box ShipTiffin installed, box admins also get managed: the link to the ShipTiffin account (plan, billing).
          */
         get: operations["status"];
         put?: never;
@@ -8604,6 +8604,12 @@ export interface components {
             now?: boolean;
             /** @description With now: also restart PgBouncer when a new version of it is installed or its libraries were replaced. Every client connection closes; apps' pools reconnect (node-postgres needs pool.on('error') to survive it). Without it the pooler takes the new files at the next reboot. */
             restartPooler?: boolean;
+        };
+        Managed: {
+            /** @description The ShipTiffin account page, where the owner manages the plan, billing and subscription */
+            account: string;
+            /** @description Why automatic updates are paused (the subscription is not active); empty when they are not */
+            paused?: string;
         };
         Manifest: {
             apps?: {
@@ -12142,6 +12148,8 @@ export interface components {
         StatusReport: {
             checks: components["schemas"]["Check"][] | null;
             host: components["schemas"]["StatusReportHostStruct"];
+            /** @description A box ShipTiffin installed: the link to the customer's ShipTiffin account. Box admins only; absent on a box installed with tiffin up */
+            managed?: components["schemas"]["Managed"];
             ok: boolean;
             /** Format: date-time */
             started: string;
