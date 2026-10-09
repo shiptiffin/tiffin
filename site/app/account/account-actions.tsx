@@ -416,6 +416,7 @@ function ReleaseForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
         <li>{addr} is removed.</li>
         <li>The server, its data and your apps keep running in your Hetzner account. Tiffin still updates itself.</li>
         <li>Hetzner goes on billing you for the server.</li>
+        <li>Its off-site backups in our storage are deleted after 7 days. To keep copying them, set a bucket of your own in the dashboard first.</li>
       </ul>
       <Money price={price} doing="Stopping" />
       <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
@@ -449,6 +450,7 @@ function DeleteForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
           Then the server and its firewall are deleted: only what carries this box&rsquo;s <span className="cp-mono">shiptiffin-box</span> label.
         </li>
         <li>The data volume stays unless you tick the box below.</li>
+        <li>Off-site backups are deleted after 7 days.</li>
       </ul>
       <TokenInput id={`${id}-token`} value={token} onChange={setToken} hint="We delete only with a token you paste now; it is used for this, then forgotten." />
       <label className="cp-check">

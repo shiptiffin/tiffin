@@ -329,17 +329,48 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       }
       await s.begin(async (tx) => {
         await tx`update cloud_boxes set status = 'released', released_at = now(),
-          signin_code = null, signin_expires_at = null, updated_at = now() where id = ${box.id}`;
+          signin_code = null, signin_expires_at = null, offsite_sealed = null, offsite_expires_at = null,
+          offsite_purge_after = coalesce(offsite_purge_after, now() + interval '7 days'), updated_at = now() where id = ${box.id}`;
         if (box.dns_state === "live" || box.dns_state === "pending") await q.enqueue(box.id, "dns_remove", { reason: "released", gen: Number(box.generation) }, null, tx);
       });
-      return "Done. We no longer manage this box; the server runs on in your Hetzner account.";
+      return "Done. We no longer manage this box; the server runs on in your Hetzner account. Its off-site backups in our storage are deleted after 7 days.";
     }
   }
 }
 
 // ---- box check-in ----
 
-export type HeartbeatAnswer = { managed: boolean; active: boolean; updates: boolean; message?: string; signin?: boolean; checkInSeconds?: number };
+export type HeartbeatAnswer = {
+  managed: boolean;
+  active: boolean;
+  updates: boolean;
+  message?: string;
+  signin?: boolean;
+  checkInSeconds?: number;
+  /** Off-site backup credentials, sealed to the box's key: only the box can open them. */
+  offsite?: { sealed: string; expiresAt: string };
+};
+
+/** A box's off-site key as its check-in sends it: the base64 of 32 bytes (an X25519 public key). */
+export function parseBackupKey(v: unknown): string | null {
+  if (typeof v !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(v)) return null;
+  return Buffer.from(v, "base64").length === 32 ? v : null;
+}
+
+/**
+ * The off-site credentials a counted check-in hands over (pure): only while
+ * the subscription is active, only sealed to the key the box sent, only
+ * before they expire. The provisioner mints and seals them; we pass them on.
+ */
+export function offsiteAnswer(
+  box: Pick<q.BoxRow, "backup_key" | "offsite_sealed" | "offsite_expires_at">,
+  active: boolean,
+  key: string | null,
+  now = new Date(),
+): HeartbeatAnswer["offsite"] {
+  if (!active || !key || box.backup_key !== key || !box.offsite_sealed || !box.offsite_expires_at || box.offsite_expires_at <= now) return undefined;
+  return { sealed: box.offsite_sealed, expiresAt: box.offsite_expires_at.toISOString() };
+}
 
 /**
  * What a check-in means (pure). A check-in counts only with the licence of
@@ -376,7 +407,7 @@ export function heartbeatDecision(
 export async function heartbeat(
   l: Licence,
   ip: string | null | undefined,
-  report: { version?: unknown; failing?: unknown; handoff?: unknown; signin?: unknown },
+  report: { version?: unknown; failing?: unknown; handoff?: unknown; signin?: unknown; backupKey?: unknown },
   now = new Date(),
 ): Promise<HeartbeatAnswer> {
   const box = await q.boxById(l.box);
@@ -393,6 +424,14 @@ export async function heartbeat(
   if (d.restore && !(await q.jobsBusy(box.id))) await q.enqueue(box.id, "dns_set", { reason: "heartbeat", gen: Number(box.generation) }, null);
   if (!d.answer.managed) return d.answer;
 
+  // Off-site backups: a new key (a new server) drops what was sealed to the old one; the provisioner seals fresh ones.
+  const key = parseBackupKey(report.backupKey);
+  if (key && key !== box.backup_key) {
+    await q.db()`update cloud_boxes set backup_key = ${key}, offsite_sealed = null, offsite_expires_at = null where id = ${box.id}`;
+    Object.assign(box, { backup_key: key, offsite_sealed: null, offsite_expires_at: null });
+  }
+  const offsite = offsiteAnswer(box, d.answer.active, key, now);
+
   // The hand-off: the box says whether its owner signed in, and sends a link we asked for.
   if (report.handoff === "done" && !box.handoff_closed_at) {
     await q.db()`update cloud_boxes set handoff_closed_at = now(), signin_code = null, signin_requested_at = null where id = ${box.id}`;
@@ -405,7 +444,7 @@ export async function heartbeat(
     Object.assign(box, { signin_code: link.code, signin_expires_at: link.expires, signin_requested_at: null });
   }
   const ask = handoffAsk(box, report.handoff);
-  return { ...d.answer, ...(ask.signin ? { signin: true } : {}), ...(ask.checkInSeconds ? { checkInSeconds: ask.checkInSeconds } : {}) };
+  return { ...d.answer, ...(ask.signin ? { signin: true } : {}), ...(ask.checkInSeconds ? { checkInSeconds: ask.checkInSeconds } : {}), ...(offsite ? { offsite } : {}) };
 }
 
 // ---- monitor ----

@@ -27,7 +27,7 @@ export async function tablesReady(): Promise<boolean> {
   try {
     // The worker applies the schema; this build needs its newest columns too.
     const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_outbox') is not null
-      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'plan_ended_at') as ok`;
+      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'offsite_purged_at') as ok`;
     tablesSeen = Boolean(r?.ok);
   } catch {
     return false;
@@ -101,6 +101,14 @@ export type BoxRow = {
   last_charge_at: Date | null;
   /** When the subscription ended, as Stripe says. */
   plan_ended_at: Date | null;
+  /** The public half of the box's own X25519 key, from its check-ins: off-site credentials are sealed to it. */
+  backup_key: string | null;
+  /** Off-site backup credentials the provisioner sealed to backup_key (we can't read them), and when they expire. */
+  offsite_sealed: string | null;
+  offsite_expires_at: Date | null;
+  /** When the box's off-site folder is emptied (7 days after it was deleted or released), and when it was. */
+  offsite_purge_after: Date | null;
+  offsite_purged_at: Date | null;
   created_at: Date;
 };
 

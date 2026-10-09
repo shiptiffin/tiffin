@@ -3,7 +3,7 @@ import { buildOptions, checkToken, suggest, type Call } from "./hetzner";
 import { decide, fromBox, type MonitorBox, type Warning } from "./monitor";
 import { nameProblem, safeNext } from "./names";
 import { isAdmin, missingSecrets } from "./config";
-import { handoffAsk, HANDOFF_PENDING_SECONDS, HANDOFF_SOON_SECONDS, heartbeatDecision, parseSignin, reusableCheckout } from "./actions";
+import { handoffAsk, HANDOFF_PENDING_SECONDS, HANDOFF_SOON_SECONDS, heartbeatDecision, offsiteAnswer, parseBackupKey, parseSignin, reusableCheckout } from "./actions";
 import { backoff, drain, MAX_ATTEMPTS, type OutboxRow, type OutboxStore } from "./outbox";
 
 const price = (net: number) => ({ net: net.toFixed(4), gross: (net * 1.19).toFixed(4) });
@@ -434,4 +434,24 @@ test("usdRate: 1 for dollars, the daily rate for euros, null when no rate comes 
   const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
   expect(await usdRate("GBP", down)).toBeNull();
   expect(await usdRate("EUR", down)).toBe(1.12); // kept from before
+});
+
+describe("off-site backup credentials", () => {
+  const key = Buffer.alloc(32, 7).toString("base64");
+  const now = new Date("2026-10-09T12:00:00Z");
+  const row = { backup_key: key, offsite_sealed: "v2.eph.body", offsite_expires_at: new Date(now.getTime() + 40 * 3_600_000) };
+  test("a box's key is the base64 of 32 bytes, nothing else", () => {
+    expect(parseBackupKey(key)).toBe(key);
+    for (const bad of [undefined, 42, "", "not base64", Buffer.alloc(31, 1).toString("base64"), Buffer.alloc(33, 1).toString("base64"), key + "\n"]) {
+      expect(parseBackupKey(bad)).toBeNull();
+    }
+  });
+  test("handed over only while active, sealed to the key the box sent, before they expire", () => {
+    expect(offsiteAnswer(row, true, key, now)).toEqual({ sealed: "v2.eph.body", expiresAt: row.offsite_expires_at.toISOString() });
+    expect(offsiteAnswer(row, false, key, now)).toBeUndefined(); // unpaid, ended, paused
+    expect(offsiteAnswer(row, true, null, now)).toBeUndefined(); // the box sent no key
+    expect(offsiteAnswer(row, true, Buffer.alloc(32, 8).toString("base64"), now)).toBeUndefined(); // sealed to another key
+    expect(offsiteAnswer({ ...row, offsite_sealed: null }, true, key, now)).toBeUndefined();
+    expect(offsiteAnswer({ ...row, offsite_expires_at: now }, true, key, now)).toBeUndefined();
+  });
 });
