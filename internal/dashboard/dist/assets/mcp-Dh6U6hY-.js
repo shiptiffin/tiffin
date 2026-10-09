@@ -1,1 +1,0 @@
-function e(e){return e===`localhost`||e.endsWith(`.localhost`)||e===`127.0.0.1`||e===`[::1]`}function t(t=`<your key>`,n=typeof location>`u`?``:location.origin){return!n||e(new URL(n).hostname)?`claude mcp add tiffin -e TIFFIN_TOKEN=${t} -- tiffin mcp`:`claude mcp add --transport http tiffin ${n}/mcp --header "Authorization: Bearer ${t}"`}export{e as n,t};
