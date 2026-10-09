@@ -19,6 +19,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/btahir/tiffin/internal/version"
@@ -65,6 +66,20 @@ func openBox(ctx context.Context, home string, extra ...func(*api.Deps)) (b *box
 }
 
 func (b *box) Close() error { return b.db.Close() }
+
+// nameOwner gives a managed box's owner the name its setup brought (the
+// name on their ShipTiffin account), once and only over the starting
+// "Owner". A box without one, or set up with `tiffin up`, is left alone; a
+// failure only costs the name, which the dashboard then asks for.
+func nameOwner(ctx context.Context, tm *tokens.Manager, errw io.Writer) {
+	c, err := platform.LoadManagedConfig()
+	if err != nil || c == nil || c.OwnerName == "" {
+		return
+	}
+	if _, err := tm.NameOwner(ctx, c.OwnerName); err != nil {
+		fmt.Fprintln(errw, "owner name:", err)
+	}
+}
 
 // readOwnerToken reads the owner token file. A process that lost the race to
 // bootstrap a fresh box may get here before the winner has written the file,

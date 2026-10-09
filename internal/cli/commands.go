@@ -445,6 +445,9 @@ func (a *app) serveCmd() *cobra.Command {
 			if plat != nil {
 				plat.BoxChecks = func(ctx context.Context) []platform.Check { return b.api.Status(ctx, started).Checks }
 			}
+			if onBox {
+				nameOwner(ctx, b.tokens, a.io.Err)
+			}
 			if withEdge || edgeExternal {
 				// Before the API answers: the installer reads it once the
 				// new build is healthy.

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/ncruces/go-sqlite3"
@@ -62,6 +64,75 @@ func (m *Manager) ensureOwnerPerson(ctx context.Context) error {
 	_, err := m.db.SQL().ExecContext(ctx, `INSERT OR IGNORE INTO people(id, name, email, role, created_at, created_by) VALUES (?, ?, '', ?, ?, 'system')`,
 		OwnerPerson, "Owner", RoleOwner, ts(&now))
 	return err
+}
+
+// CleanName tidies a name that comes from elsewhere (a managed box's owner
+// gets the name on their ShipTiffin account): runs of spaces and control
+// characters become one space, invisible formatting characters go, and the
+// ends are trimmed. "" when nothing usable is left or it is over 64 bytes,
+// the most a person's name may be.
+func CleanName(s string) string {
+	if !utf8.ValidString(s) {
+		return ""
+	}
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
+	if len(s) > 64 {
+		return ""
+	}
+	return s
+}
+
+// ownerNamedKey marks, in kv, that NameOwner has had its one go.
+const ownerNamedKey = "owner-named"
+
+// NameOwner gives the owner a name once, on a box whose setup knew it (a
+// managed box: the name on the customer's ShipTiffin account). It replaces
+// only the starting "Owner", and it runs once: a name the owner chose,
+// before or after, is never overwritten. It says whether the name changed.
+func (m *Manager) NameOwner(ctx context.Context, name string) (bool, error) {
+	name = CleanName(name)
+	if name == "" {
+		return false, nil
+	}
+	if _, done, err := m.db.KVGet(ctx, "people", ownerNamedKey); err != nil || done {
+		return false, err
+	}
+	if err := m.ensureOwnerPerson(ctx); err != nil {
+		return false, err
+	}
+	tx, err := m.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `INSERT INTO kv(ns, key, value) VALUES ('people', ?, ?) ON CONFLICT(ns, key) DO NOTHING`, ownerNamedKey, []byte(name))
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err
+	}
+	res, err = tx.ExecContext(ctx, `UPDATE people SET name = ? WHERE id = ? AND name = 'Owner'`, name, OwnerPerson)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	if n > 0 {
+		_ = m.db.Audit(ctx, "system", "person.update", OwnerPerson, map[string]any{"name": name, "from": "account"})
+	}
+	return n > 0, nil
 }
 
 // GetPerson returns one person.

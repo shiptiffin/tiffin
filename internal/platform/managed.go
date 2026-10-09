@@ -30,6 +30,10 @@ type ManagedConfig struct {
 	Licence string `json:"licence"`
 	// PublicKey checks the licence (base64 ed25519).
 	PublicKey string `json:"publicKey"`
+	// OwnerName is the name on the customer's ShipTiffin account, if it
+	// had one: the box's owner starts with it instead of "Owner"
+	// (tokens.Manager.NameOwner, once).
+	OwnerName string `json:"ownerName,omitempty"`
 }
 
 // Validate checks the config before it is written to a box.
