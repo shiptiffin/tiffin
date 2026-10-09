@@ -1,24 +1,25 @@
-// The email colours that come from the dashboard (brand.ts `fromDashboard`)
-// must be exactly what apps/dashboard/src/styles/tokens.css says, converted
-// from oklch to hex. Change the dashboard's brass and this fails until the
-// emails follow.
+// The email colours (brand.ts `fromSite`) must be exactly what the website's
+// app/globals.css says, converted from oklch to hex: every ShipTiffin email,
+// the box's and the website's (site/emails), wears the site's paper, ink and
+// brass. Change the site's brass and this fails until the emails follow.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as gen from "../../auth-engine/src/templates.gen";
 import { accentText } from "../src/accent";
-import { brass, dark, fromDashboard, light } from "../src/ui/brand";
+import { brass, dark, fromSite, light } from "../src/ui/brand";
 
-const css = readFileSync(join(import.meta.dir, "../../../apps/dashboard/src/styles/tokens.css"), "utf8");
+const css = readFileSync(join(import.meta.dir, "../../../site/app/globals.css"), "utf8");
+const darkAt = css.indexOf("@media (prefers-color-scheme: dark)");
 const blocks = {
-  light: css.slice(css.indexOf(':root,\n[data-theme="light"]'), css.indexOf("@media (prefers-color-scheme: dark)")),
-  dark: css.slice(css.indexOf(':root[data-theme="dark"]'), css.indexOf("/* Type, radii and motion")),
+  light: css.slice(css.indexOf(":root {"), darkAt),
+  dark: css.slice(darkAt, css.indexOf("\n}\n", darkAt)),
 };
 
 /** An opaque oklch() token of a theme, as #rrggbb (CSS Color 4: OKLab to linear sRGB, gamut-clipped). */
 function tokenHex(theme: "light" | "dark", name: string): string {
   const m = blocks[theme].match(new RegExp(`\\n\\s*${name}:\\s*oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)\\);`));
-  if (!m) throw new Error(`${name} is not an opaque oklch() in the ${theme} block of tokens.css`);
+  if (!m) throw new Error(`${name} is not an opaque oklch() in the ${theme} block of globals.css`);
   const [L, C, H] = [Number(m[1]), Number(m[2]), (Number(m[3]) * Math.PI) / 180];
   const a = C * Math.cos(H), b = C * Math.sin(H);
   const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
@@ -41,16 +42,16 @@ function tokenHex(theme: "light" | "dark", name: string): string {
   );
 }
 
-describe("email colours match the dashboard's tokens.css", () => {
+describe("email colours match the site's globals.css", () => {
   for (const theme of ["light", "dark"] as const) {
     const palette = theme === "light" ? light : dark;
-    for (const { family, token, css: name } of fromDashboard[theme]) {
+    for (const { family, token, css: name } of fromSite[theme]) {
       test(`${theme} ${family}.${token} = ${name}`, () => {
         expect(palette[family][token]).toBe(tokenHex(theme, name));
       });
     }
   }
-  test("brass is the dashboard's primary button in both themes", () => {
+  test("brass is the site's primary button in both themes", () => {
     expect<Record<string, string>>(brass.light).toEqual({ accent: tokenHex("light", "--brass"), onAccent: tokenHex("light", "--on-brass") });
     expect<Record<string, string>>(brass.dark).toEqual({ accent: tokenHex("dark", "--brass"), onAccent: tokenHex("dark", "--on-brass") });
   });

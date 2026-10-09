@@ -1,12 +1,13 @@
 // Colours for both families, as hex (mail clients don't read oklch).
 //
-// box: ShipTiffin / Tiffin's paper, ink and brass, converted from
-// apps/dashboard/src/styles/tokens.css. Brass is the one accent: the button.
+// box: ShipTiffin / Tiffin's paper, ink and brass, converted from the
+// website's site/app/globals.css: the same palette as the website's own
+// emails (site/emails/theme.ts). Brass is the one accent: the button.
 // app: a neutral stone palette around the app's own name and logo. Its
 // button is the same brass button as the dashboard's, unless the app sets
 // its own colour (auth.emailAccent in tiffin.config.ts).
 //
-// The values that come from tokens.css are listed in `fromDashboard`;
+// The values that come from globals.css are listed in `fromSite`;
 // test/brand.test.ts converts the oklch there and fails on any drift.
 //
 // Every family has the same token names, so the shared parts in parts.tsx
@@ -30,7 +31,7 @@ export type Tokens = {
   ok: string;
 };
 
-/** The dashboard's primary button: brass, with its text colour. */
+/** The primary button: the site's brass, with its text colour. */
 export const brass = {
   light: { accent: "#f2b036", onAccent: "#25170c" }, // --brass, --on-brass
   dark: { accent: "#f7b83d", onAccent: "#1d140d" }, // the same, dark theme
@@ -47,7 +48,7 @@ export const light: Record<Family, Tokens> = {
     well: "#f2efe8", // --paper-sunk
     ...brass.light,
     link: "#825411", // --brass-ink
-    danger: "#b82f2b",
+    danger: "#b6322b", // --danger
     ok: "#317a45",
   },
   app: {
@@ -77,7 +78,7 @@ export const dark: Record<Family, Tokens> = {
     well: "#0f0d0b",
     ...brass.dark,
     link: "#e0b771",
-    danger: "#f06c61",
+    danger: "#f68678",
     ok: "#6fc082",
   },
   app: {
@@ -96,8 +97,8 @@ export const dark: Record<Family, Tokens> = {
   },
 };
 
-/** Which tokens.css variable each colour is, per theme (checked by test/brand.test.ts). */
-export const fromDashboard: Record<"light" | "dark", { family: Family; token: keyof Tokens; css: string }[]> = {
+/** Which globals.css variable each colour is, per theme (checked by test/brand.test.ts). */
+export const fromSite: Record<"light" | "dark", { family: Family; token: keyof Tokens; css: string }[]> = {
   light: [
     ...(["box", "app"] as const).flatMap((family) => [
       { family, token: "accent" as const, css: "--brass" },
@@ -111,7 +112,6 @@ export const fromDashboard: Record<"light" | "dark", { family: Family; token: ke
     { family: "box", token: "ink3", css: "--ink-3" },
     { family: "box", token: "link", css: "--brass-ink" },
     { family: "box", token: "danger", css: "--danger" },
-    { family: "box", token: "ok", css: "--ok" },
   ],
   dark: [
     { family: "box", token: "accent", css: "--brass" },
@@ -122,7 +122,6 @@ export const fromDashboard: Record<"light" | "dark", { family: Family; token: ke
     { family: "box", token: "ink", css: "--ink" },
     { family: "box", token: "link", css: "--brass-ink" },
     { family: "box", token: "danger", css: "--danger" },
-    { family: "box", token: "ok", css: "--ok" },
   ],
 };
 

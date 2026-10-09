@@ -425,7 +425,7 @@ function tsGen(all: Compiled[], parsed: Map<string, Record<string, Node[]>>): st
   };
   out.push(
     "",
-    "/** The button when the app sets no accent of its own: the dashboard's brass (--brass in tokens.css). */",
+    "/** The button when the app sets no accent of its own: the site's brass (--brass in site/app/globals.css). */",
     `export const BRASS = ${JSON.stringify(brass.light.accent)};`,
     "/** The dashboard's text on brass (--on-brass): the dark choice for text on any accent. */",
     `export const ON_BRASS = ${JSON.stringify(brass.light.onAccent)};`,

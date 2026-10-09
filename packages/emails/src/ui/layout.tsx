@@ -59,7 +59,8 @@ export function BoxLayout(props: {
         <Row>
           {props.mark}
           <Column className="align-middle">
-            <Text className="tf-ink m-0 font-sans text-[16px] leading-[22px] font-semibold tracking-[-0.1px] text-ink">{props.brand}</Text>
+            {/* The wordmark as the website sets it: serif, a little tight. */}
+            <Text className="tf-ink m-0 font-serif text-[20px] leading-[24px] font-normal tracking-[-0.4px] text-ink">{props.brand}</Text>
           </Column>
         </Row>
       }
