@@ -11,6 +11,7 @@ import { Empty, Page, Skeleton } from "@/components/page";
 import { PilotLight, type PilotState } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
 import { ReadOnlyBanner } from "@/components/read-only";
+import { EditCodeButton } from "@/components/edit-code";
 import { AddMenu, APP_WORDS } from "@/components/start-add-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -97,14 +98,19 @@ export function ProjectPage({ project }: { project: string }) {
             </div>
           </div>
         </div>
-        {pulse.url && (
+        {(pulse.url || apps.length > 0) && (
           <div className="flex flex-col items-start gap-1.5 sm:items-end">
-            <Button asChild variant="secondary" size="lg">
-              <a href={pulse.url} target="_blank" rel="noopener noreferrer">
-                {hostOf(pulse.url)}
-                <ArrowUpRight className="text-ink-3" />
-              </a>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {apps.length > 0 && <EditCodeButton project={project} apps={apps.map((a) => a.name)} />}
+              {pulse.url && (
+                <Button asChild variant="secondary" size="lg">
+                  <a href={pulse.url} target="_blank" rel="noopener noreferrer">
+                    {hostOf(pulse.url)}
+                    <ArrowUpRight className="text-ink-3" />
+                  </a>
+                </Button>
+              )}
+            </div>
             {pulse.otherUrls.length > 0 && (
               <p className="text-[0.8125rem] text-ink-3">
                 also at{" "}

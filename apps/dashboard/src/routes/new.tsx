@@ -7,6 +7,7 @@ import type { components } from "@/api/schema";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
 import { Command, CopyButton } from "@/components/copy";
+import { EditCodeButton } from "@/components/edit-code";
 import { useTitle } from "@/components/favicon";
 import { Mascot, type MascotState } from "@/components/mascot";
 import { MorphLabel } from "@/components/morph-label";
@@ -1086,11 +1087,7 @@ function Live({
                 </NextStep>
               ) : (
                 <NextStep n={1} title="Make your first change" line={firstChange(L)}>
-                  <div className="grid gap-1.5">
-                    {L.source.kind === "git" && <Command cmd={`git clone ${L.source.url.trim()} ${L.project} && cd ${[L.project, L.source.path.trim().replace(/^\/+|\/+$/g, "")].filter(Boolean).join("/")}`} />}
-                    <Command cmd={L.source.kind === "git" ? `tiffin pull --project ${L.project}` : `tiffin pull ${L.project} --project ${L.project} && cd ${L.project}`} />
-                    <Command cmd="tiffin deploy" />
-                  </div>
+                  <EditCodeButton project={L.project} apps={[L.app]} app={L.app} size="md" command={false} />
                 </NextStep>
               )}
               {agent}
@@ -1138,11 +1135,10 @@ function Live({
   );
 }
 
-/** What "Make your first change" says: where the source comes from and which file to open. */
+/** What "Make your first change" says; Edit code has the steps, the same as on the project's page. */
 function firstChange(L: Launched): string {
-  if (L.source.kind === "git") return `Clone your code, add ${L.project}’s config beside it, change something, then deploy it to the same address.`;
-  const file = L.source.kind === "starter" ? L.source.starter.edit : undefined;
-  return `This writes ${L.app}’s source and config into a folder. Change ${file ? file : "a file"}, then deploy it to the same address.`;
+  if (L.source.kind === "git") return "Clone your code, change it and deploy it to the same address. The steps work for you or your coding agent.";
+  return `Get ${L.app}’s code onto your computer, change it and deploy it to the same address. The steps work for you or your coding agent.`;
 }
 
 function NextStep({ n, title, line, children }: { n: number; title: string; line: string; children: ReactNode }) {
