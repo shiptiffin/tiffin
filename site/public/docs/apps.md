@@ -43,7 +43,7 @@ and [React Router](#react-router). TanStack Start runs as a server on Bun: its `
 `node .output/server/index.mjs`), or Railpack's default when there is none. Astro with
 `@astrojs/node` (standalone) runs its server the same way; without a `start` script the box
 starts `dist/server/entry.mjs`. Which frameworks are first-class, which are only
-detected and which aren't supported yet: [What works and what doesn't](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#frameworks).
+detected and which aren't supported yet: [What works and what doesn't](https://shiptiffin.com/docs/limits.md#frameworks).
 Any of them runs from its own Dockerfile (`builder: "dockerfile"`, see
 [Build settings](#build-settings)).
 
@@ -137,7 +137,7 @@ failed build or health check leaves the old version serving.
   (ETag). Those frameworks' own servers answer these files before any app code runs, so
   nothing changes but speed: a page costs the app nothing and a sleeping app doesn't wake
   for it. Only exact files count; everything else goes to the app. Not Next.js: its
-  `proxy.ts` runs before prerendered pages. See [the limits](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#caching-and-images).
+  `proxy.ts` runs before prerendered pages. See [the limits](https://shiptiffin.com/docs/limits.md#caching-and-images).
 - **Shutdown:** a replaced release finishes the requests it has (each within the app's
   time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
   they are done, then 30 seconds before it is killed, for work it does after responding.
@@ -166,7 +166,7 @@ own address. Workers have none.
   no crons, queue deliveries, workflow steps or workers reach it; sign-in pages don't
   work there. Its disk folders are its own, made from its image, and go when the version
   is cleaned up. Everything else (env, secrets, files) is production's: see
-  [the limits](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#deploys-and-changes) for what is not read-only.
+  [the limits](https://shiptiffin.com/docs/limits.md#deploys-and-changes) for what is not read-only.
 - **Who can open them.** By default only people signed in to this box's dashboard. A
   visitor without the box's cookie for that address goes to the dashboard (`/gate`),
   signs in if needed, and comes back. The dashboard's own session cookie belongs to the
@@ -359,7 +359,7 @@ apps: {
   ran out, or, when the response has begun, ends it there (a stream is cut). Under it a
   response may take as long as it needs, streamed or all at once, and a stream may pause
   for as long as it likes. A client that stops sending its body, or stops reading, for 5
-  minutes is cut (see [Protection](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/protection.md)). Queue jobs and workflow steps are
+  minutes is cut (see [Protection](https://shiptiffin.com/docs/protection.md)). Queue jobs and workflow steps are
   not requests: they have their own limits. A new limit applies to the next request, with
   no deploy. A release replaced by a deploy finishes the requests it has, each within its
   limit. Browsers and proxies in front of the box may have limits of their own. A preview
@@ -370,7 +370,7 @@ apps: {
   maxRequestBodySize: 4 * 1024 ** 3 }` (or `server.timeout(req, 0)` for one route).
   Next.js has neither.
 - **Uploads:** no size limit on request bodies; they stream to the app as they arrive.
-  With the WAF on (see [Protection](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/protection.md)), it inspects the first 12.5 MB of a body and passes
+  With the WAF on (see [Protection](https://shiptiffin.com/docs/protection.md)), it inspects the first 12.5 MB of a body and passes
   the rest through, and its rules refuse some content types (a raw
   `application/octet-stream` body, for one): send files as `multipart/form-data`.
   For very large files, an upload straight to a bucket (a presigned URL) spares the app.
@@ -393,7 +393,7 @@ unchanged.
   packages or the app uses a workspace package (`"@acme/ui": "workspace:*"`). Dependencies
   install at the top with the workspace's package manager (by its lockfile), only for the
   app, the workspace packages it uses and the root, falling back to the whole workspace
-  (see [Monorepos](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#monorepos)); then the app builds and starts in its own folder
+  (see [Monorepos](https://shiptiffin.com/docs/limits.md#monorepos)); then the app builds and starts in its own folder
   (the deploy's `dir`, e.g. `apps/web`). `tiffin deploy`, git pushes and GitHub deploys all
   do this. Any other app goes up alone.
 - **vercel.json** in the app's folder is read at every deploy. The build log lists what was
@@ -613,7 +613,7 @@ or 14 days, and the project says "Asleep since …" with a Wake button.
   visitors.
 - **Cold start:** measured on a 2-CPU box, from the request arriving to its first byte:
   about 0.45 s for the Hono starter, 0.87 s for the Next.js starter and 1.7 s for the FastAPI
-  starter ([the numbers](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#sleep-and-wake)). A larger app takes as long as it needs
+  starter ([the numbers](https://shiptiffin.com/docs/limits.md#sleep-and-wake)). A larger app takes as long as it needs
   to start and pass its health check.
   `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
   and `lastActive`.
@@ -724,7 +724,7 @@ Without the adapter's help:
   (`--smol`, `BUN_JSC_forceRAMSize`) made no measurable difference, so the box sets none.
 - **Client files** under `/_next/static` are served by the box from disk, compressed
   ahead of time (zstd and gzip, best levels), and count toward a separate per-IP limit
-  ten times the app's ([Protection](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/protection.md)).
+  ten times the app's ([Protection](https://shiptiffin.com/docs/protection.md)).
 
 The app also gets `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, made once per app and used at
 build and run time, so Server Actions in a page from the previous release still work

@@ -68,7 +68,7 @@ One relay serves every project on the box. Connect it in the dashboard under
 **Settings › Email**, or from the CLI. Pick the mail service and the box fills in
 the host, port, security and username; you paste one key. Port 465 doesn't work on
 Hetzner servers, and the box receives no mail yet: see
-[What works and what doesn't](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#email).
+[What works and what doesn't](https://shiptiffin.com/docs/limits.md#email).
 
 | Provider | Host | Port, security | Username | Password | Key needs |
 | --- | --- | --- | --- | --- | --- |

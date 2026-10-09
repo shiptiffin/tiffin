@@ -27,6 +27,11 @@ describe("agent files", () => {
     expect(files["docs/managed.md"]).not.toContain("Running the control plane");
   });
 
+  test("every link to a guide stays on the site (the repository is private)", () => {
+    for (const [path, body] of Object.entries(files)) expect(body, path).not.toContain("github.com/shiptiffin/tiffin");
+    for (const name of ["limits", "security", "protection", "moving", "always-on-agents"]) expect(files[`docs/${name}.md`]).toBeDefined();
+  });
+
   test("the setup prompt marks the person's steps and says to stop there", () => {
     const prompt = files["agent-setup.md"];
     expect(prompt.startsWith("Set up ShipTiffin for me")).toBe(true);

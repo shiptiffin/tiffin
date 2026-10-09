@@ -13,6 +13,8 @@ Every box serves an MCP server at `https://dashboard.<box domain>/mcp` (an API k
 - [Concepts](https://shiptiffin.com/docs/concepts.md): the box, projects and resources, sharing the box, changes, risk tiers, undo, people and API keys
 - [Working with agents](https://shiptiffin.com/docs/agents.md): the MCP server, plan then apply, API keys, CLI conventions, untrusted data
 - [Managed boxes](https://shiptiffin.com/docs/managed.md): how shiptiffin.com sets up a box in your Hetzner account, what it can and can't do, billing
+- [What works and what doesn't](https://shiptiffin.com/docs/limits.md): every framework, limit and known gap
+- [Security model](https://shiptiffin.com/docs/security.md): what the box protects and how
 
 ## Services
 
@@ -23,15 +25,16 @@ Every box serves an MCP server at `https://dashboard.<box domain>/mcp` (an API k
 - [Sign-in](https://shiptiffin.com/docs/auth.md): Better Auth on the box: passwords, magic links, passkeys, OAuth
 - [Jobs](https://shiptiffin.com/docs/queues.md): queues, crons and durable workflows
 - [Domains](https://shiptiffin.com/docs/domains.md): the box's domain and each project's own domains
+- [Monitoring](https://shiptiffin.com/docs/observe.md): metrics, logs, alerts and error tracking
+- [Analytics](https://shiptiffin.com/docs/analytics.md): cookieless visits and events
+- [Protection](https://shiptiffin.com/docs/protection.md): rate limits, bot challenge, firewall
+
+## More
+
+- [Copying and moving](https://shiptiffin.com/docs/moving.md): export, import and moving projects between boxes
+- [Always-on agents](https://shiptiffin.com/docs/always-on-agents.md): running an agent of your own on the box
 
 ## Optional
 
 - [All the guides above in one file](https://shiptiffin.com/llms-full.txt)
-- [What works and what doesn't](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md): every framework, limit and known gap
-- [Security model](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/security.md): what the box protects and how
-- [Monitoring](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/observe.md): metrics, logs, alerts and error tracking
-- [Analytics](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/analytics.md): cookieless visits and events
-- [Protection](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/protection.md): rate limits, bot challenge, firewall
-- [Copying and moving](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/moving.md): export, import and moving projects between boxes
-- [Always-on agents](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/always-on-agents.md): running an agent of your own on the box
 - [How managed boxes work](https://shiptiffin.com/managed): the short version, on the website

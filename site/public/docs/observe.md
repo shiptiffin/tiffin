@@ -1,0 +1,178 @@
+# Logs, metrics, errors and alerts
+
+Every box watches itself and your apps out of the box: no agent to install, no
+account to create. Metrics live in [VictoriaMetrics](https://victoriametrics.com)
+and logs in VictoriaLogs (both Apache-2.0, pinned releases running on the box,
+reachable only through the Tiffin API). Metrics and logs are kept 30 days
+by default.
+
+## What is collected
+
+- **Box metrics** every 15 seconds: CPU, memory, disks, network, every box service
+  (up, restarts, memory, CPU), every app container (memory, CPU) and every
+  project (memory and CPU against its limits, its database, files and KV sizes,
+  open database connections).
+- **The box's own logs**: Tiffin and every system service, from the journal.
+- **App logs**: everything your apps print, with the app, deploy, environment and
+  instance attached. JSON lines keep their fields (`msg`, `level` and the rest).
+- **Requests at the edge**: every request to an app is a log line (method, path,
+  status, duration) and feeds per-app request rate, 5xx errors and p50/p95/p99
+  latency. No code needed.
+- **Errors your apps report**, with any Sentry SDK (see below).
+- **OpenTelemetry**: apps get `OTEL_EXPORTER_OTLP_ENDPOINT` and a key in
+  `OTEL_EXPORTER_OTLP_HEADERS`; OTLP metrics and logs land next to everything else,
+  labelled with the app that sent them, and traces are sampled and kept for three
+  days (see Traces below).
+
+Tiffin tokens, login codes and analytics keys are masked in everything observe keeps
+or shows: app and build logs (also when read straight from disk with `tiffin logs` and
+the deploy page), OTLP logs, traces and reported errors. Other secrets your code prints
+(a database password, a third-party API key) are not recognised: don't log them.
+
+## Reading logs and metrics
+
+```bash
+tiffin logs query --project shop --query 'level:error' --since 6h
+tiffin logs query --project shop --query 'source:edge status:5*'
+tiffin logs query --project shop --query '* | stats count() by (app, level)'
+tiffin logs query --query 'unit:tiffin.service'        # the box's own logs (box admins)
+
+tiffin observe overview                                # box health now and over the last hour
+tiffin observe apps --project shop --since 1h          # requests, errors and latency per app
+tiffin projects usage history shop --range 7d          # what the Usage page draws: memory, CPU, traffic, data
+tiffin metrics query --project shop --query 'sum by (app) (rate(tiffin_http_requests_total[5m]))' --since 1h
+```
+
+Queries use [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/) and
+PromQL. Each project's logs are stored separately, so a token for one project can
+never read another's, whatever the query; metric queries are pinned to the
+token's project. Log lines and error messages are written by apps and visitors:
+agents receive them as untrusted data.
+
+## Errors (Sentry-compatible)
+
+Every app gets `SENTRY_DSN` (and `TIFFIN_PUBLIC_SENTRY_DSN` for browser code), so
+the official Sentry SDKs report to the box unchanged:
+
+```ts
+import * as Sentry from "@sentry/bun";
+Sentry.init({ dsn: process.env.SENTRY_DSN });
+```
+
+Events are grouped into issues by fingerprint (the exception type and the app's
+own stack frames, without line numbers, so a group survives small edits; or the
+SDK's explicit fingerprint). A resolved issue that happens again reopens.
+
+```bash
+tiffin issues list --project shop --status unresolved
+tiffin issues get <iss_id>             # stack, tags, release, URL of the latest events
+tiffin issues resolve <iss_id>
+tiffin observe ingest --project shop --app web   # the DSNs and OTLP endpoint
+```
+
+## Traces
+
+Apps get `OTEL_TRACES_EXPORTER=otlp` with the endpoint and key above, so any
+OpenTelemetry SDK sends its spans to the box. In Next.js, add an
+`instrumentation.ts` next to `app/`:
+
+```ts
+import { registerOTel } from "@vercel/otel";
+
+export function register() {
+  registerOTel({ serviceName: "web" });
+}
+```
+
+Next.js then traces every request (the route, rendering, each `fetch`), and
+database clients with an OpenTelemetry instrumentation add their queries.
+
+The box decides what to keep once a trace's spans arrive: every trace with a
+failed span (error status or a 5xx response) or a span of a second or more, and
+10% of the rest, chosen by trace ID so all the spans of a trace get the same
+answer. Spans whose trace is still undecided wait in memory for a minute (at most
+20,000), so a slow request's quick children are kept with it. Apps send every
+span (`OTEL_TRACES_SAMPLER` is left at its default); on loopback that costs little.
+
+Kept traces live in their own SQLite file (`/var/lib/tiffin/observe/traces.db`,
+not backed up), their spans compressed with zstd: a typical Next.js request of
+five spans takes under 1 KB. Traces older than 3 days are deleted, and so
+are a project's oldest once its traces pass 64 MB. A span keeps at most 48
+attributes (values cut at 1 KB, stack traces at 4 KB) and 8 events, exceptions
+first.
+
+```bash
+tiffin traces list --project shop                    # slowest first, last 24 hours
+tiffin traces list --project shop --errors --since 1h
+tiffin traces list --project shop --min-ms 500 --sort recent
+tiffin traces get <trace id> --project shop          # every span as a tree, offsets and durations in ms
+tiffin observe settings set --traces-sample-rate 0.25 --traces-retention 7d --traces-max-megabytes 256
+```
+
+The edge gives each request an ID: apps receive it as `X-Request-Id`, its access
+log line carries it, and a request that arrives without trace context starts its
+trace with that ID. So an edge log row's `trace_id` opens the request's trace
+(`tiffin traces get` takes the request ID too), and a trace's `logsQuery`
+(`trace_id:<id>`) finds its edge line. The dashboard shows them under Health ›
+Requests: the slowest and failed requests, and each one's steps on one timeline.
+
+## Alerts
+
+Rules are checked every 15 seconds. Built in, and editable:
+
+| Rule | Fires when |
+|---|---|
+| `disk-full` | a disk is more than 85% full |
+| `memory-high` | memory is more than 90% used for 5 minutes |
+| `cert-expiring` | an HTTPS certificate expires within 72 hours and has not renewed |
+| `backup-stale` | the newest backup is more than 26 hours old |
+| `offsite-stale` | the newest copy of the backups off the box is more than 26 hours old (silent while copies are off) |
+| `restore-drill-failed` | the last restore drill, of the local or the off-box copy, failed |
+| `error-spike` | a project's apps report more than 20 errors in 5 minutes |
+| `service-restarts` | a box service restarted more than 3 times in 15 minutes |
+| `service-down` | a box service has not been running for a minute |
+
+Add your own with any PromQL expression:
+
+```bash
+tiffin alerts rules put slow-shop --body '{"kind":"promql","expr":"histogram_quantile(0.95, sum by (le) (rate(tiffin_http_request_duration_seconds_bucket{project=\"shop\"}[5m])))","threshold":1.5}'
+```
+
+Alerts go to a webhook (JSON, with a `text` field chat tools understand) and by
+email through a project's email service, which means the dev inbox until an SMTP
+relay is set up:
+
+```bash
+tiffin observe settings set --webhook https://hooks.slack.com/... --email-project ops --email you@example.com
+tiffin alerts test
+tiffin alerts list            # firing now, and recent history with where each notification went
+```
+
+Retention: `tiffin observe settings set --metrics-retention 90d --logs-retention 30d --traces-retention 7d`.
+
+## Know when the box is down
+
+Alerts come from the box, so they stop when the box does. For that, have
+something outside notice: the box pings a URL about once a minute, and the
+service behind it tells you when the pings stop.
+
+- **[healthchecks.io](https://healthchecks.io)** (the free tier is enough): add a
+  check with a period of 1 minute and a grace time of 5, then
+  `tiffin monitor set https://hc-ping.com/<uuid>`.
+- **[Uptime Kuma](https://github.com/louislam/uptime-kuma)**: add a Push monitor
+  with a heartbeat interval of 90 seconds, then
+  `tiffin monitor set https://kuma.example.com/api/push/<token>`.
+
+```bash
+tiffin monitor show       # the URL, the last ping, and exactly what a ping carries
+tiffin monitor test       # ping now
+tiffin monitor off        # stop (pause the check at the service too, or it reports the box down)
+```
+
+The URL is kept only once a first ping gets a 2xx answer. When the box's own
+checks (`tiffin status`) have failed for 10 minutes, pings say so: healthchecks.io
+gets `<url>/fail`, Uptime Kuma `status=down`. A ping carries the version, the
+uptime and the names of failing checks, nothing else; add `--details` to send
+project names and what each failing check says too. Treat the ping URL as a
+secret: anyone with it can send pings. The dashboard shows it under Health ›
+Outside check.

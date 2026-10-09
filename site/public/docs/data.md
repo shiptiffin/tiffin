@@ -60,7 +60,7 @@ export const sql = (g.__sql ??= postgres(process.env.DATABASE_URL!, { prepare: f
 
 - **`prepare: false` on `DATABASE_URL`:** through the transaction pooler, postgres.js 3.4.9
   can retry a prepared query with its parameters encoded twice (see
-  [Limits](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#database-clients)).
+  [Limits](https://shiptiffin.com/docs/limits.md#database-clients)).
 - **`pg` (node-postgres) works too**, prepared statements included. Give its pool an error
   listener (`pool.on("error", ...)`).
 - **One small pool per process:** make it once, at module level. Keeping it on
@@ -328,7 +328,7 @@ and how far Valkey and files can be from a chosen moment; Postgres can reach any
 either way. A box that kept the old default (hourly) moves to the new one.
 
 Backups are restore points of this box. To copy one project (on this box under a new
-name, to a file, or to another box), see [copying and moving](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/moving.md): Duplicate,
+name, to a file, or to another box), see [copying and moving](https://shiptiffin.com/docs/moving.md): Duplicate,
 Export, Import and Move.
 
 ### Copies off the box

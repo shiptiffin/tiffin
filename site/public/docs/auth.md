@@ -244,7 +244,7 @@ The dashboard lists users and organizations; you can ban users and revoke sessio
 ## Sign-in providers
 
 Google is tested end to end; the others are wired up but not tested yet (see
-[What works and what doesn't](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#sign-in)).
+[What works and what doesn't](https://shiptiffin.com/docs/limits.md#sign-in)).
 
 | Method | Provider | Project secrets (when the project brings its own keys) |
 | --- | --- | --- |

@@ -41,7 +41,7 @@ named after the project), moves nothing. For such an app the plan says so and ho
 the old name for good (`routes: ["web"]`) or move it (`routes: ["shop"]`).
 
 A project can be duplicated on the box, exported to a file, imported as a new project or
-moved to another box ([copying and moving](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/moving.md)). A **stopped** project (a `stopped`
+moved to another box ([copying and moving](https://shiptiffin.com/docs/moving.md)). A **stopped** project (a `stopped`
 resource, set by `tiffin projects stop` or a move) keeps its data but runs no apps, and
 refuses deploys until it is started again.
 
