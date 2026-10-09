@@ -89,8 +89,8 @@ When you're done, tell me what you set up, the addresses, and anything still wai
 | DNS records at your registrar, a mail provider's key | They need your login at that provider. |
 
 Everything else (connecting, projects, deploys, secrets, domains on the box, email
-settings, backups) the agent can do with its key. Each change is planned first, recorded
-and can be undone; your agent's client asks you before destructive tools run. See
+settings, backups) the agent can do with its key. Each change is planned first and
+recorded, and most can be undone; your agent's client asks you before destructive tools run. See
 [working with agents](agents.md).
 
 ## Connecting an agent

@@ -30,8 +30,9 @@ explain that calling without a confirm hash only returns the plan.
 ## How it stays safe
 
 By default, your agent can do what you can. Claude Code asks you before anything
-destructive runs; Tiffin records every change in History (who, which session, why)
-and can undo it. There is no second approval step on top.
+destructive runs (unless you've allowed that tool); Tiffin records every change in
+History (who, which session, why) and can undo most of them. There is no second approval
+step on top: the plan's hash proves the plan was read, not that a person approved it.
 
 - Every change is plan, then apply with the plan's hash, so nothing is applied blind.
 - Irreversible steps (dropping a database or bucket) are marked as such in the plan,

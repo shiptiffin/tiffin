@@ -13,7 +13,7 @@ online this weekend without stitching six services together.
   storage, email or analytics. They are all on the box, set up for you.
 - **Safe for agents by design.** Every change is planned first, shows how risky each
   step is, and is applied only with that plan's hash. Your agent's client asks you
-  before destructive steps. Everything is logged and can be undone.
+  before destructive steps. Everything is logged, and most changes can be undone.
 - **A calm dashboard.** See what changed, who changed it (person or agent) and why.
 
 ## What it is not (yet)

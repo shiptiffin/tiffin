@@ -62,7 +62,7 @@ const sections: Section[] = [
         <p>
           After setup we keep no way to log in to your server. The one thing we hold is a sign-in link your box
           makes at setup, so your first &ldquo;Open your dashboard&rdquo; signs you in: it works once, your box
-          refuses it 24 hours after setup, and we delete it when you use it. Updates are fetched by the box
+          refuses it 24 hours after making it, and we delete it when you use it. Updates are fetched by the box
           itself. Support never logs in unless you arrange it with us by email.
         </p>
       </>

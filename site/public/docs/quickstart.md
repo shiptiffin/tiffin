@@ -79,8 +79,9 @@ That works on this computer. For a box elsewhere, or another agent, see
 [connecting an agent](https://shiptiffin.com/docs/agent-onboarding.md#connecting-an-agent).
 
 Your agent gets its own API key with full access to all projects, so it can do what you
-can. Claude Code asks you before it runs anything destructive (deleting a database, say),
-and every change lands in History under the agent's name, ready to undo. For an agent
+can. Claude Code asks you before it runs anything destructive (deleting a database, say)
+unless you've allowed that tool, and every change lands in History under the agent's
+name; most can be undone. For an agent
 that should only touch one project, or only read, create a narrower key:
 `tiffin tokens create --name ci --projects shop --access read`.
 

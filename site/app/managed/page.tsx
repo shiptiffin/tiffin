@@ -48,12 +48,12 @@ export default function Managed() {
             <li>
               Setup logs in with a key made for that one setup, through a firewall opened to our setup worker only. When Tiffin is installed
               we delete that key from the server and from your Hetzner project, close SSH in the firewall, and check both are gone. After
-              that we have no way to log in.
+              that we have no way to log in over SSH.
             </li>
             <li>
               We never hold your box&rsquo;s owner token; it stays on the box. At setup the box makes one sign-in link, which we keep so
               your first &ldquo;Open your dashboard&rdquo; signs you in. Your box enforces it: it works once, and the box refuses it 24
-              hours after setup. We delete it when you use it (or click Forget). Add a passkey on the box then: after that we have no way to
+              hours after making it. We delete it when you use it (or click Forget). Add a passkey on the box then: after that we have no way to
               sign in to your box.
             </li>
             <li>

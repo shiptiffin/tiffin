@@ -206,7 +206,7 @@ const KEY = [
   ["A project just for ShipTiffin", "You make a separate Hetzner project for your box and a key for it, so the key can only see that project."],
   ["Used to build, then forgotten", "We use the key to create the server, its disk and its firewall, then forget it. Resizing later asks you to paste a key again, for that one job."],
   ["Every call listed", "Each call we make to Hetzner with your key is listed in your account."],
-  ["No way in left behind", "After install, our setup key is removed from the server. Updates are pulled by the box itself, and checked against our signature."],
+  ["No SSH key left behind", "After install, our setup key is removed from the server. We keep only a one-time link for your first sign-in, until you use it (it lasts 24 hours). Updates are pulled by the box itself, and checked against our signature."],
   ["Revoke it any time", "Delete the key in Hetzner whenever you like. Your box keeps running."],
   ["Your data stays with you", "Your apps, databases and files live on your server. They never pass through us."],
 ] as const;
@@ -450,8 +450,8 @@ export default function Home() {
                 database.
               </p>
               <p>
-                Every change is planned before it runs, recorded in History with who made it and why, and can be
-                undone. Anything that destroys data asks you first.
+                Every change is planned before it runs and recorded in History with who made it and why; most can
+                be undone. Plans mark the steps that destroy data, and agents like Claude Code ask you before running them.
               </p>
               <div className="code code-inline" role="group" aria-label="Connect Claude Code">
                 <pre dangerouslySetInnerHTML={{ __html: MCP }} />

@@ -77,7 +77,7 @@ export function Progress({ box, status, job, now: fixedNow }: { box: Box; status
         <div aria-live="polite">
           <p className="pg-eyebrow">{domain}</p>
           <h2 className="pg-title">Up and running</h2>
-          <p className="pg-say">{took ? `Made in ${took}. ` : ""}It runs on your own server, and we no longer have a way in.</p>
+          <p className="pg-say">{took ? `Made in ${took}. ` : ""}It runs on your own server, and our setup key is gone from it. We hold only the sign-in link below, until you use it.</p>
         </div>
         <div className="cp-row">
           <a className="btn btn-primary pg-open" href={`/api/cloud/boxes/${box.id}/open`}>
