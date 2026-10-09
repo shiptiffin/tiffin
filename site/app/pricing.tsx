@@ -43,8 +43,9 @@ export function Pricing() {
             One plan. Your server at Hetzner&rsquo;s price.
           </h2>
           <p className="section-sub">
-            You pay us for the box&rsquo;s software and care, and Hetzner for the server, at their prices. Neither
-            bill moves with your traffic.
+            You pay us for the box&rsquo;s software and care, and Hetzner for the server, at their prices. Our fee
+            never moves with your traffic; Hetzner&rsquo;s price includes 20 TB of traffic a month in Europe (at
+            least 1 TB in the US) and it charges for more.
           </p>
         </div>
 

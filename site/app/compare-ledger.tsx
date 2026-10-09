@@ -212,7 +212,7 @@ export function CompareLedger() {
         </span>
         <span className="ledger-diff-text">
           less a month with ShipTiffin{plus ? ", before usage charges" : ""}. About {usd(roundTo10(diff * 12))} a
-          year, and the bill stays the same as your traffic grows.
+          year, and our fee stays the same as your traffic grows.
         </span>
       </p>
 

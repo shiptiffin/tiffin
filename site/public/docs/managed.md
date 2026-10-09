@@ -13,6 +13,10 @@ managed extras:
 - resizing from your account;
 - support by email.
 
+Our fee doesn't change with traffic. Hetzner's server price includes 20 TB of outgoing traffic
+a month in Europe (at least 1 TB in the US, depending on the size); past that, Hetzner charges
+for the extra.
+
 A box made with `tiffin up` is not managed and none of this runs on it.
 
 ## How setup works

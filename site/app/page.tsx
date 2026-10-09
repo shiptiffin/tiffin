@@ -81,8 +81,10 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     a: (
       <p>
         Two bills. ShipTiffin is $19 a month per box ($12 for our first 100 customers, locked for 24 months). Your
-        server is billed by Hetzner, to you, at their prices: the smallest is about $10 a month before VAT, with its IPv4 address and a 40 GB data volume. Neither
-        changes with traffic: there are no usage charges, seats or per-project fees from us.
+        server is billed by Hetzner, to you, at their prices: the smallest is about $10 a month before VAT, with its IPv4 address and a 40 GB data volume. Our fee
+        never changes with traffic: there are no usage charges, seats or per-project fees from us. Hetzner&rsquo;s
+        price includes 20 TB of traffic a month in Europe (at least 1 TB in the US); past that, Hetzner charges
+        for the extra.
       </p>
     ),
   },
@@ -254,7 +256,7 @@ export default function Home() {
               ShipTiffin sets up a server in your Hetzner account with everything your apps need already on it:
               Postgres, sign-in, file storage, jobs, analytics, error tracking and backups. Run all your projects on
               it, each with a hard limit, for $19 a month plus the server, about $10 at Hetzner. No usage
-              bills.
+              bills from us.
             </p>
             <div className="actions">
               <Link className="btn btn-primary" href="/start">
