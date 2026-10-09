@@ -783,6 +783,19 @@ func (s *DB) KVPut(ctx context.Context, ns, key string, value []byte) error {
 	return err
 }
 
+// KVPutIfAbsent writes a small platform value unless the key already has
+// one, and reports whether it wrote. Two callers racing to create the same
+// key agree on the value: the first write stands.
+func (s *DB) KVPutIfAbsent(ctx context.Context, ns, key string, value []byte) (bool, error) {
+	res, err := s.sql.ExecContext(ctx, `INSERT INTO kv(ns, key, value) VALUES (?, ?, ?)
+		ON CONFLICT(ns, key) DO NOTHING`, ns, key, value)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // KVDelete removes a platform value.
 func (s *DB) KVDelete(ctx context.Context, ns, key string) error {
 	_, err := s.sql.ExecContext(ctx, `DELETE FROM kv WHERE ns = ? AND key = ?`, ns, key)

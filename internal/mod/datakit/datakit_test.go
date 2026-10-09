@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"testing"
 
 	"github.com/btahir/tiffin/internal/platform"
@@ -74,6 +76,47 @@ func TestSecretsAreSealed(t *testing.T) {
 	all, _ := p.Secrets.All(ctx, "proj")
 	if len(all) != 0 {
 		t.Fatalf("module secrets leaked into app secrets: %v", all)
+	}
+}
+
+// TestEnsureSecretRace: callers that ask for a missing secret at the same
+// moment must all get the one value that ends up stored. A new project's
+// apply (the reconciler creating the Postgres role) and its first deploy
+// (building DATABASE_URL) both ask; with get-then-put each could make its
+// own password, the last write won the store, and the role kept the other
+// one: the app failed SASL authentication until the next apply.
+func TestEnsureSecretRace(t *testing.T) {
+	p := testPlatform(t)
+	ctx := context.Background()
+	for round := range 20 {
+		key := fmt.Sprintf("proj-%d", round)
+		const n = 8
+		got := make([]string, n)
+		errs := make([]error, n)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				got[i], errs[i] = EnsureSecret(ctx, p, "test.race", key)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		stored, ok, err := GetSecret(ctx, p, "test.race", key)
+		if err != nil || !ok {
+			t.Fatalf("stored secret: ok=%v err=%v", ok, err)
+		}
+		for i := range n {
+			if errs[i] != nil {
+				t.Fatal(errs[i])
+			}
+			if got[i] != stored {
+				t.Fatalf("round %d: caller %d got a password that is not the stored one", round, i)
+			}
+		}
 	}
 }
 

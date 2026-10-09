@@ -56,22 +56,31 @@ func identity(p *platform.Platform) (*age.X25519Identity, error) {
 // PutSecret stores value encrypted to the box key in the platform KV.
 // Values stored here are never part of an app's env unless a module puts them there.
 func PutSecret(ctx context.Context, p *platform.Platform, ns, key, value string) error {
-	id, err := identity(p)
+	ct, err := seal(p, value)
 	if err != nil {
 		return err
+	}
+	return p.DB.KVPut(ctx, ns, key, ct)
+}
+
+// seal encrypts value to the box key.
+func seal(p *platform.Platform, value string) ([]byte, error) {
+	id, err := identity(p)
+	if err != nil {
+		return nil, err
 	}
 	var buf bytes.Buffer
 	w, err := age.Encrypt(&buf, id.Recipient())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := io.WriteString(w, value); err != nil {
-		return err
+		return nil, err
 	}
 	if err := w.Close(); err != nil {
-		return err
+		return nil, err
 	}
-	return p.DB.KVPut(ctx, ns, key, buf.Bytes())
+	return buf.Bytes(), nil
 }
 
 // GetSecret reads a value stored with PutSecret. ok is false when absent.
@@ -101,8 +110,22 @@ func EnsureSecret(ctx context.Context, p *platform.Platform, ns, key string) (st
 	if ok {
 		return v, nil
 	}
-	v = Password()
-	return v, PutSecret(ctx, p, ns, key, v)
+	// Insert only if still absent, then read back what stands: a caller
+	// racing this one (a deploy building DATABASE_URL while the apply
+	// creates the role) may have stored its own password first, and every
+	// caller must use that one.
+	ct, err := seal(p, Password())
+	if err != nil {
+		return "", err
+	}
+	if _, err := p.DB.KVPutIfAbsent(ctx, ns, key, ct); err != nil {
+		return "", err
+	}
+	v, ok, err = GetSecret(ctx, p, ns, key)
+	if err == nil && !ok {
+		err = fmt.Errorf("secret %s/%s vanished while it was being made", ns, key)
+	}
+	return v, err
 }
 
 // Run runs a command and returns its combined output; on failure the error
