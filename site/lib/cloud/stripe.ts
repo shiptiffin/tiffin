@@ -94,6 +94,16 @@ export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BA
       return req<any>("POST", `/checkout/sessions/${encodeURIComponent(id)}/expire`);
     },
     /** The subscription as Stripe has it now (the latest invoice and discounts expanded), or null when it doesn't exist. */
+    /** Whether a customer exists in this key's mode (a test-mode id is unknown to live, and the reverse). */
+    async customerExists(id: string): Promise<boolean> {
+      try {
+        const c = await req<{ deleted?: boolean }>("GET", `/customers/${encodeURIComponent(id)}`);
+        return !c.deleted;
+      } catch (e) {
+        if (e instanceof StripeError && e.status === 404) return false;
+        throw e;
+      }
+    },
     async getSubscription(id: string): Promise<StripeSubscription | null> {
       try {
         return await req<StripeSubscription>("GET", `/subscriptions/${encodeURIComponent(id)}`, { expand: ["latest_invoice", "discounts"] });

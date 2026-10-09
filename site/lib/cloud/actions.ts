@@ -90,7 +90,9 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
     const price = await s.monthlyPrice();
     const coupon = renew ? null : foundingCoupon();
     const founding = coupon != null && (await q.foundingCount()) < FOUNDING_LIMIT && (await s.couponOpen(coupon));
-    const customer = b.stripe_customer_id ?? (await q.customerFor(acct.id));
+    let customer = b.stripe_customer_id ?? (await q.customerFor(acct.id));
+    // A customer from the other Stripe mode (test before live) is unknown here: start fresh from the email.
+    if (customer && !(await s.customerExists(customer))) customer = null;
     const params: Record<string, unknown> = {
       mode: "subscription",
       line_items: [{ price, quantity: 1 }],
