@@ -646,3 +646,15 @@ func TestTokenWithoutBoxOrURL(t *testing.T) {
 		t.Fatal("made a local box anyway")
 	}
 }
+
+// The skill tiffin init writes is the one in skills/tiffin: edit that one and
+// copy it (cp skills/tiffin/SKILL.md internal/cli/scaffold/SKILL.md).
+func TestScaffoldSkillMatchesRepoSkill(t *testing.T) {
+	repo, err := os.ReadFile(filepath.Join("..", "..", "skills", "tiffin", "SKILL.md"))
+	if err != nil {
+		t.Skip("no repository copy:", err)
+	}
+	if !bytes.Equal(repo, scaffoldSkill) {
+		t.Fatal("internal/cli/scaffold/SKILL.md differs from skills/tiffin/SKILL.md: copy skills/tiffin/SKILL.md over it")
+	}
+}
