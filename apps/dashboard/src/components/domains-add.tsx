@@ -56,7 +56,8 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
   const kind = kindOf(domain);
   const apex = valid && kind === "apex";
   const dup = taken.includes(domain);
-  const boxName = box?.domain && box.domain === domain ? true : !!box?.appsDomain && (domain === box.appsDomain || domain.endsWith(`.${box.appsDomain}`));
+  // The box domain itself (and the apps domain itself) may be an app's; the names under them are the box's.
+  const boxName = !!box && (domain === box.dashboard || (!!box.appsDomain && domain.endsWith(`.${box.appsDomain}`)));
   const target = box && box.certificates === "acme" ? (box.appsDomain !== box.domain ? box.dashboard : box.domain) : "";
   const ips = box?.publicIps ?? [];
 

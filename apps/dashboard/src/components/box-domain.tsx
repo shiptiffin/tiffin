@@ -130,6 +130,22 @@ function Current({ b }: { b: BoxDomain }) {
               {b.state === "live" ? "· Live with HTTPS" : b.state === "error" ? `· Problem: ${reasonWords(b.dashboardCertificate.error ?? "the certificate failed").replace(/^./, (c) => c.toLowerCase())}` : "· Getting a certificate…"}
             </span>
           </li>
+          {(b.bare ?? []).map((d) => (
+            <li key={d.host} className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 py-2">
+              <StatusDot tone={d.project ? "ok" : "wait"} />
+              <span className="ident text-[0.75rem] text-ink">{d.host}</span>
+              {d.project ? (
+                <span className="text-ink-3">
+                  · Served by{" "}
+                  <Link to="/projects/$project" params={{ project: d.project }} className="text-ink-2 hover:text-brass-ink">
+                    {d.project}
+                  </Link>
+                </span>
+              ) : (
+                <span className="text-ink-3">· Sends visitors to {d.redirectsTo === `${b.dashboardUrl}/` ? "your dashboard" : d.redirectsTo?.replace(/^https:\/\/|\/$/g, "")} until an app uses it</span>
+              )}
+            </li>
+          ))}
           {b.wildcard && (
             <li className="flex items-center gap-2.5 py-2">
               <StatusDot tone={b.wildcard.certificate.state === "live" ? "ok" : b.wildcard.certificate.state === "error" ? "bad" : "busy"} />

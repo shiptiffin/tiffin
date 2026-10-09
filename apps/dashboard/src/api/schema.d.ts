@@ -7582,9 +7582,18 @@ export interface components {
             /** @description Also serve www.<domain> and redirect it here (point www at the box too). */
             www?: boolean;
         };
+        DomainsBareDomain: {
+            host: string;
+            /** @description The project whose app serves it (tiffin domains add <project> --domain <host>). */
+            project?: string;
+            /** @description While no app serves it: where it sends visitors (a temporary redirect), the dashboard, or for a separate apps domain the box domain when an app serves that. */
+            redirectsTo?: string;
+        };
         DomainsBoxDomain: {
             /** @description Apps and previews are at <project>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain. */
             appsDomain: string;
+            /** @description The box domain itself (and a separate apps domain itself): served by an app that claims it, else a redirect. */
+            bare: components["schemas"]["DomainsBareDomain"][] | null;
             /** @description The ACME directory, when it is not Let's Encrypt. */
             ca?: string;
             /**
