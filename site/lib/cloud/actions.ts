@@ -435,7 +435,23 @@ export async function heartbeat(
     Object.assign(box, { signin_code: link.code, signin_expires_at: link.expires, signin_requested_at: null });
   }
   const ask = handoffAsk(box, report.handoff);
-  return { ...d.answer, ...(ask.signin ? { signin: true } : {}), ...(ask.checkInSeconds ? { checkInSeconds: ask.checkInSeconds } : {}), ...(offsite ? { offsite } : {}) };
+  const soon = [ask.checkInSeconds, offsiteSoon(box, d.answer.active, key, Boolean(offsite), now)].filter((x): x is number => x != null);
+  const checkInSeconds = soon.length ? Math.min(...soon) : undefined;
+  return { ...d.answer, ...(ask.signin ? { signin: true } : {}), ...(checkInSeconds ? { checkInSeconds } : {}), ...(offsite ? { offsite } : {}) };
+}
+
+/** How soon a box asks again while the provisioner (every 5 minutes) has yet to seal its first off-site credentials. */
+export const OFFSITE_PENDING_SECONDS = 300;
+
+/**
+ * A paid box that sent its backup key but got no credentials yet comes back
+ * in five minutes rather than six hours, so its first off-site copy follows
+ * setup. Only in its first day: a box still waiting after that (off-site
+ * backups switched off on our side) keeps its normal cadence.
+ */
+export function offsiteSoon(box: Pick<q.BoxRow, "ready_at">, active: boolean, key: string | null, delivered: boolean, now = new Date()): number | undefined {
+  if (!active || !key || delivered || !box.ready_at) return undefined;
+  return now.getTime() - box.ready_at.getTime() < 24 * 3_600_000 ? OFFSITE_PENDING_SECONDS : undefined;
 }
 
 // ---- monitor ----

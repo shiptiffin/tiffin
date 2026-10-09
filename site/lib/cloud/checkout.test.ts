@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { renewable } from "./actions";
+import { offsiteSoon, OFFSITE_PENDING_SECONDS, renewable } from "./actions";
 import { checkoutUrl, type CheckoutAttempt, type CheckoutBox, type CheckoutRepo, type Session } from "./checkout";
 import { StripeError } from "./stripe";
 
@@ -176,3 +176,12 @@ test("Renew covers every box whose subscription ended, whatever stage it reached
   expect(renewable(b("paid", "canceled", { first_paid_at: null }))).toBe(false);
 });
 
+test("a new paid box waiting for its first off-site credentials checks in again within minutes", () => {
+  const now = new Date("2026-10-09T20:00:00Z");
+  const fresh = { ready_at: new Date("2026-10-09T19:36:00Z") };
+  expect(offsiteSoon(fresh, true, "key", false, now)).toBe(OFFSITE_PENDING_SECONDS);
+  expect(offsiteSoon(fresh, true, "key", true, now)).toBeUndefined(); // delivered
+  expect(offsiteSoon(fresh, false, "key", false, now)).toBeUndefined(); // not paid
+  expect(offsiteSoon(fresh, true, null, false, now)).toBeUndefined(); // no key yet
+  expect(offsiteSoon({ ready_at: new Date("2026-10-08T19:00:00Z") }, true, "key", false, now)).toBeUndefined(); // past its first day
+});
