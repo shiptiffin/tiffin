@@ -32,3 +32,7 @@ CRITIQUE*.md
 *.pem
 *.p12
 *.pfx
+
+# Written by `next dev` on every start
+site/AGENTS.md
+site/CLAUDE.md
