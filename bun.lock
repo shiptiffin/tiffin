@@ -99,7 +99,7 @@
     },
     "packages/sdk": {
       "name": "@shiptiffin/sdk",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "altcha-lib": "^2.6.0",
         "nodemailer": "^10.0.15",
