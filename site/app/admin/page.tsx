@@ -26,13 +26,14 @@ export default async function Admin() {
   const billing = await s`select box_id, what, subscription_id, at from cloud_billing_log order by id desc limit 30`;
   const reports = await s`select id, target, box_id, reporter_email, details, status, created_at from cloud_abuse_reports order by (status = 'new') desc, created_at desc limit 100`;
   const [counts] = await s`select (select count(*) from cloud_founding_claims)::int as founding, (select count(*) from cloud_boxes where status = 'active')::int as active,
+    (select count(*) from cloud_boxes where status = 'deleted')::int as deleted,
     (select count(*) from cloud_jobs where status in ('queued', 'running'))::int as jobs, (select count(*) from cloud_jobs where status = 'failed' and finished_at > now() - interval '1 day')::int as failed`;
   return (
     <section className="cp wrap">
       <p className="kicker">Admin</p>
       <h1>Boxes and reports</h1>
       <p className="cp-sub">
-        {counts?.active} active boxes · {counts?.founding} of 100 founding prices used · {counts?.jobs} jobs waiting or running · {counts?.failed} failed in the last day
+        {counts?.active} active boxes · {counts?.deleted} deleted · {counts?.founding} of 100 founding prices used · {counts?.jobs} jobs waiting or running · {counts?.failed} failed in the last day
       </p>
       <div className="cp-card">
         <h2>Abuse reports</h2>

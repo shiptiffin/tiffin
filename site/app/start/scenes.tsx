@@ -4,7 +4,10 @@
 // every scene rests on its last, meaningful frame.
 import type { StageId } from "@/lib/cloud/progress";
 
-export type SceneId = StageId | "waiting" | "ready" | "stopped";
+export type SceneId = StageId | "waiting" | "ready" | "stopped" | DeleteSceneId;
+
+/** The delete's scenes (the account page's "being deleted" card): the setup's, played backwards, and a calm goodbye. */
+export type DeleteSceneId = "unaddress" | "unbuild" | "sweep" | "gone";
 
 type Face = "smile" | "grin" | "flat";
 
@@ -254,6 +257,65 @@ function Stopped() {
   );
 }
 
+// ---- deleting: the same pieces, leaving ----------------------------------
+
+function Unaddress({ name }: { name: string }) {
+  const label = name.length > 13 ? `${name.slice(0, 12)}…` : name;
+  return (
+    <>
+      <Ground />
+      <Tin cx={58} ground={150} s={2.6} />
+      <path d="M140 150V46" className="sc-free" />
+      <path d="M118 52h44" className="sc-thin sc-free" />
+      <g className="sc-unhang">
+        <rect x="100" y="60" width="80" height="28" rx="5" className="sc-paper" />
+        <text x="140" y="79" textAnchor="middle" className="sc-label">
+          {label}
+        </text>
+      </g>
+      <Server x={198} y={126} w={100} led="blink" />
+    </>
+  );
+}
+
+function Unbuild() {
+  return (
+    <>
+      <Ground />
+      <Tin cx={78} ground={150} s={2.9} bob />
+      <Server x={166} y={124} className="sc-lift" delay={1} />
+      <Server x={166} y={98} className="sc-lift" led="off" delay={0.5} />
+      <Server x={166} y={72} className="sc-lift" led="off" />
+    </>
+  );
+}
+
+function Sweep() {
+  return (
+    <>
+      <Ground />
+      <Tin cx={110} ground={150} s={2.9} bob />
+      <g className="sc-broom">
+        <path d="M196 70l-22 74" className="sc-thick sc-free" />
+        <path d="M162 140l26 8-4 10-28-8z" className="sc-brass" />
+      </g>
+      <circle cx="214" cy="146" r="5" className="sc-soft-fill sc-puff" />
+      <circle cx="230" cy="142" r="7" className="sc-soft-fill sc-puff" style={{ animationDelay: "0.3s" }} />
+      <circle cx="250" cy="146" r="4" className="sc-soft-fill sc-puff" style={{ animationDelay: "0.6s" }} />
+    </>
+  );
+}
+
+function Gone() {
+  return (
+    <>
+      <Ground x1={60} x2={260} />
+      <Tin cx={112} ground={150} s={3} wave />
+      <rect x="170" y="126" width="104" height="24" rx="4" className="sc-thin sc-gone" />
+    </>
+  );
+}
+
 export function Scene({ id, name, className }: { id: SceneId; name: string; className?: string }) {
   return (
     <svg viewBox="0 0 320 166" className={`sc ${className ?? ""}`} data-scene={id} aria-hidden="true" focusable="false">
@@ -267,6 +329,10 @@ export function Scene({ id, name, className }: { id: SceneId; name: string; clas
         {id === "waiting" && <Cert waiting />}
         {id === "ready" && <Ready />}
         {id === "stopped" && <Stopped />}
+        {id === "unaddress" && <Unaddress name={name} />}
+        {id === "unbuild" && <Unbuild />}
+        {id === "sweep" && <Sweep />}
+        {id === "gone" && <Gone />}
       </g>
     </svg>
   );

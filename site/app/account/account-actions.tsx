@@ -4,6 +4,8 @@
 // that need a second look open a native modal <dialog> (showModal: the page
 // behind is inert, focus stays inside, Esc closes it).
 import { useEffect, useId, useRef, useState } from "react";
+import { UNMANAGED } from "@/lib/cloud/billing";
+import { endsNowWords, GUARANTEE } from "@/lib/cloud/money";
 
 async function post(url: string, body?: unknown): Promise<{ ok: boolean; message?: string; url?: string }> {
   try {
@@ -46,6 +48,8 @@ export type BoxView = {
   signin: "held" | "asked" | "expired" | null;
   signinUntil: string;
   serverType: string | null;
+  /** "$12 a month" while a subscription runs; null once it ended. */
+  price: string | null;
   sizes: string[];
 };
 
@@ -156,7 +160,7 @@ export function BoxActions({ box }: { box: BoxView }) {
   };
 
   const running = box.status === "active";
-  const managed = box.status !== "released" && box.status !== "deleting";
+  const managed = !UNMANAGED.has(box.status);
   const setup = box.status === "paid" || box.status === "failed" || box.status === "provisioning" || box.status === "cert_pending";
   const canResize = running && box.active && box.sizes.length > 0;
   const canCancel = box.hasSubscription && box.active && managed;
@@ -250,11 +254,12 @@ export function BoxActions({ box }: { box: BoxView }) {
       </Dialog>
 
       <Dialog open={open === "cancel"} onClose={close} title="Cancel the subscription?" busy={busy}>
-        <p className="cp-dialog-text">
-          It ends on {box.periodEnd || "the last day you paid for"}; until then nothing changes. After that your server and apps keep running in your Hetzner
-          project, automatic updates and the extras stop, and {box.domain ?? "the address"} stays for 30 more days. You can keep the subscription any time before
-          it ends.
-        </p>
+        <ul className="cp-dialog-list">
+          <li>It ends on {box.periodEnd || "the last day you paid for"}. Until then nothing changes.</li>
+          <li>After that, your server and apps keep running; updates and monitoring stop.</li>
+          <li>{box.domain ?? "The address"} stays for 30 more days.</li>
+          <li>You can keep the subscription any time before it ends.</li>
+        </ul>
         <Status msg={msg} />
         <DialogButtons back="Keep subscription" busy={busy} onBack={close}>
           <button className="btn btn-quiet btn-sm cp-danger-outline" disabled={busy} onClick={() => act({ action: "cancel" })}>
@@ -324,7 +329,7 @@ export function BoxExits({ box }: { box: BoxView }) {
     setOpen("");
     setMsg(null);
   };
-  if (!box.name || box.status === "released" || box.status === "deleting" || box.status === "awaiting_payment") return null;
+  if (!box.name || UNMANAGED.has(box.status) || box.status === "awaiting_payment") return null;
   const canDelete = box.status === "active" || box.status === "cert_pending" || box.status === "failed";
   const name = box.name;
   const addr = box.domain ?? "its address";
@@ -335,7 +340,7 @@ export function BoxExits({ box }: { box: BoxView }) {
         <div className="cp-exit">
           <div>
             <h3>Stop managed service, keep the server</h3>
-            <p>Ends the subscription now and removes {addr}. The server and your apps keep running in your Hetzner account as a self-hosted box.</p>
+            <p>Ends the subscription and removes {addr}. The server keeps running in your Hetzner account.</p>
           </div>
           <button className="btn btn-quiet btn-sm" onClick={() => setOpen("release")}>
             Stop managing…
@@ -345,7 +350,7 @@ export function BoxExits({ box }: { box: BoxView }) {
           <div className="cp-exit">
             <div>
               <h3>Delete the server</h3>
-              <p>Removes {addr}, then deletes the server and everything we made for it in your Hetzner project, and ends the subscription. Needs a Hetzner token.</p>
+              <p>Removes {addr}, deletes the server and ends the subscription. Needs a Hetzner token.</p>
             </div>
             <button className="btn btn-quiet btn-sm cp-danger-outline" onClick={() => setOpen("delete")}>
               Delete server…
@@ -354,16 +359,35 @@ export function BoxExits({ box }: { box: BoxView }) {
         )}
       </details>
       <Dialog open={open === "release"} onClose={close} title={`Stop managing ${name}`} busy={busy}>
-        <ReleaseForm name={name} addr={addr} busy={busy} msg={msg} act={act} onBack={close} />
+        <ReleaseForm name={name} addr={addr} price={box.price} busy={busy} msg={msg} act={act} onBack={close} />
       </Dialog>
       <Dialog open={open === "delete"} onClose={close} title={`Delete ${name}’s server`} busy={busy}>
-        <DeleteForm name={name} addr={addr} busy={busy} msg={msg} act={act} onBack={close} />
+        <DeleteForm name={name} addr={addr} price={box.price} busy={busy} msg={msg} act={act} onBack={close} />
       </Dialog>
     </>
   );
 }
 
-type FormProps = { name: string; addr: string; busy: boolean; msg: Msg; act: Act; onBack: () => void };
+type FormProps = { name: string; addr: string; price: string | null; busy: boolean; msg: Msg; act: Act; onBack: () => void };
+
+/** The money, where it can't be missed (above the name field and the button): the subscription ends now, no refund, the guarantee. */
+function Money({ price, doing }: { price: string | null; doing: "Deleting" | "Stopping" }) {
+  const w = endsNowWords(price, doing);
+  return (
+    <div className="cp-money" role="note">
+      <svg className="cp-money-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+        <path d="M10 2.5 18.5 17h-17z" />
+        <path d="M10 8v4.2M10 14.6v.1" />
+      </svg>
+      <div>
+        <p>
+          <strong>{w.title}</strong> {w.body}
+        </p>
+        {price && <p className="cp-money-small">{GUARANTEE}</p>}
+      </div>
+    </div>
+  );
+}
 
 function TypeName({ id, name, value, onChange }: { id: string; name: string; value: string; onChange: (v: string) => void }) {
   return (
@@ -376,7 +400,7 @@ function TypeName({ id, name, value, onChange }: { id: string; name: string; val
   );
 }
 
-function ReleaseForm({ name, addr, busy, msg, act, onBack }: FormProps) {
+function ReleaseForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
   const id = useId();
   const [typed, setTyped] = useState("");
   const ready = typed.trim() === name;
@@ -389,11 +413,11 @@ function ReleaseForm({ name, addr, busy, msg, act, onBack }: FormProps) {
       }}
     >
       <ul className="cp-dialog-list">
-        <li>The subscription ends now.</li>
-        <li>{addr} is removed, and we keep no sign-in link for the box.</li>
-        <li>The server, its data and your apps stay in your Hetzner account and keep running. The box goes on installing Tiffin updates by itself.</li>
-        <li>Hetzner goes on billing you for the server, as before.</li>
+        <li>{addr} is removed.</li>
+        <li>The server, its data and your apps keep running in your Hetzner account. Tiffin still updates itself.</li>
+        <li>Hetzner goes on billing you for the server.</li>
       </ul>
+      <Money price={price} doing="Stopping" />
       <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
       <Status msg={msg} />
       <DialogButtons busy={busy} onBack={onBack}>
@@ -405,7 +429,7 @@ function ReleaseForm({ name, addr, busy, msg, act, onBack }: FormProps) {
   );
 }
 
-function DeleteForm({ name, addr, busy, msg, act, onBack }: FormProps) {
+function DeleteForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
   const id = useId();
   const [typed, setTyped] = useState("");
   const [token, setToken] = useState("");
@@ -422,10 +446,8 @@ function DeleteForm({ name, addr, busy, msg, act, onBack }: FormProps) {
       <ul className="cp-dialog-list">
         <li>{addr} is removed first.</li>
         <li>
-          Then the server, its firewall and anything else we made for this box in your Hetzner project are deleted: only what carries its{" "}
-          <span className="cp-mono">shiptiffin-box</span> label.
+          Then the server and its firewall are deleted: only what carries this box&rsquo;s <span className="cp-mono">shiptiffin-box</span> label.
         </li>
-        <li>The subscription ends now.</li>
         <li>The data volume stays unless you tick the box below.</li>
       </ul>
       <TokenInput id={`${id}-token`} value={token} onChange={setToken} hint="We delete only with a token you paste now; it is used for this, then forgotten." />
@@ -433,6 +455,7 @@ function DeleteForm({ name, addr, busy, msg, act, onBack }: FormProps) {
         <input type="checkbox" checked={data} onChange={(e) => setData(e.target.checked)} />
         <span>Also delete the data volume: everything your apps stored. This can&rsquo;t be undone.</span>
       </label>
+      <Money price={price} doing="Deleting" />
       <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
       <Status msg={msg} />
       <DialogButtons busy={busy} onBack={onBack}>
@@ -441,5 +464,59 @@ function DeleteForm({ name, addr, busy, msg, act, onBack }: FormProps) {
         </button>
       </DialogButtons>
     </form>
+  );
+}
+
+/** A delete that stopped: paste a key and try again (the address is already gone; the rest picks up where it stopped). */
+export function RetryDelete({ id, name, domain }: { id: string; name: string; domain: string }) {
+  const { msg, setMsg, busy, act } = useAct(id);
+  const [open, setOpen] = useState(false);
+  const close = () => {
+    if (busy) return;
+    setOpen(false);
+    setMsg(null);
+  };
+  return (
+    <>
+      <div className="cp-row">
+        <button className="btn btn-quiet btn-sm cp-danger-outline" onClick={() => setOpen(true)}>
+          Try again…
+        </button>
+      </div>
+      <Dialog open={open} onClose={close} title={`Delete ${name}’s server`} busy={busy}>
+        <DeleteForm name={name} addr={domain} price={null} busy={busy} msg={msg} act={act} onBack={close} />
+      </Dialog>
+    </>
+  );
+}
+
+/** Past invoices (Stripe's billing portal), for an account whose boxes are all gone. */
+export function PastInvoices() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  return (
+    <>
+      <button
+        className="cp-link cp-quiet-link"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setErr("");
+          const r = await post("/api/cloud/portal");
+          if (r.ok && r.url) window.location.href = r.url;
+          else {
+            setBusy(false);
+            setErr(r.message ?? "Billing isn't available right now.");
+          }
+        }}
+      >
+        Past invoices
+      </button>
+      {err && (
+        <span className="cp-err" role="alert">
+          {err}
+        </span>
+      )}
+    </>
   );
 }

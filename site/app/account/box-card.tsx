@@ -1,13 +1,18 @@
 // One box on /account, as a card: name, address and status; one main
 // button; a few facts; what needs your attention; the everyday changes;
 // the Hetzner activity; and, folded away at the bottom, the two ways out.
-// Pure (no database): the page passes the rows in.
+// A box being deleted is a live progress card instead (deleting.tsx); a
+// deleted one, a quiet row under "Deleted" (DeletedRow). Pure (no
+// database): the page passes the rows in.
 import { renewable } from "@/lib/cloud/actions";
-import { DNS_GRACE_DAYS, ENDED, extrasOn } from "@/lib/cloud/billing";
+import { DNS_GRACE_DAYS, ENDED, extrasOn, UNMANAGED } from "@/lib/cloud/billing";
 import type { BoxRow, CallRow, JobRow } from "@/lib/cloud/db";
 import { family, RESIZE_TYPES } from "@/lib/cloud/hetzner";
 import { boxDomain, dashboardUrl } from "@/lib/cloud/names";
-import { BoxActions, BoxExits, type BoxView } from "./account-actions";
+import { BoxActions, BoxExits, PastInvoices, type BoxView } from "./account-actions";
+import { Deleting } from "./deleting";
+import { goneLines, releasedLine } from "./words";
+import { dayWords, endedWords, priceWords } from "@/lib/cloud/money";
 
 const when = (d: Date | null) => (d ? d.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) + " UTC" : "never");
 const day = (d: Date | null) => (d ? d.toLocaleDateString("en-GB", { dateStyle: "medium", timeZone: "UTC" }) : "");
@@ -18,7 +23,7 @@ const CITY: Record<string, string> = { fsn1: "Falkenstein", nbg1: "Nuremberg", h
 type Tone = "good" | "warn" | "bad" | undefined;
 
 function statusPill(b: BoxRow): [string, Tone] {
-  if (b.attention && b.status !== "released") return ["Needs attention", "bad"];
+  if (b.attention && !UNMANAGED.has(b.status)) return ["Needs attention", "bad"];
   switch (b.status) {
     case "active":
       if (b.dns_state === "killed") return ["Address turned off", "bad"];
@@ -37,27 +42,30 @@ function statusPill(b: BoxRow): [string, Tone] {
       return ["Waiting for Hetzner", "warn"];
     case "awaiting_payment":
       return ["Not paid", undefined];
+    case "deleted":
+      return ["Deleted", undefined];
     case "released":
-      return ["Self-hosted", undefined];
+      return ["Not managed", undefined];
   }
 }
 
-function planWords(b: BoxRow): string {
-  if (b.status === "released") return "None. The server is yours and runs on its own.";
+/** "$12 a month · renews 8 Nov" */
+function planWords(b: BoxRow, now: Date): string {
   if (b.plan_status === "none") return "Not paid yet";
-  const price = b.founding ? "$12 a month (founding price)" : "$19 a month";
-  if (b.refunded_at) return "Refunded; the subscription has ended.";
+  const price = priceWords(b.founding);
+  const on = (d: Date | null) => (d ? ` ${dayWords(d, now)}` : "");
+  if (b.refunded_at) return "Refunded; the subscription has ended";
   if (extrasOn(b.plan_status, Boolean(b.first_paid_at))) {
-    if (b.cancel_at_period_end) return `${price}, ends ${day(b.current_period_end)}`;
-    if (b.plan_status === "past_due") return `${price}, payment overdue`;
-    return b.current_period_end ? `${price}, renews ${day(b.current_period_end)}` : price;
+    if (b.cancel_at_period_end) return `${price} · ends${on(b.current_period_end)}`;
+    if (b.plan_status === "past_due") return `${price} · payment overdue`;
+    return b.current_period_end ? `${price} · renews${on(b.current_period_end)}` : price;
   }
-  if (!ENDED.has(b.plan_status)) return `${price}, not active (${b.plan_status.replace("_", " ")})`;
-  return `Ended ${b.current_period_end ? day(b.current_period_end) : ""}`.trim();
+  if (!ENDED.has(b.plan_status)) return `${price} · not active (${b.plan_status.replace("_", " ")})`;
+  return `Ended${on(b.plan_ended_at ?? b.current_period_end)}`;
 }
 
 function addressWords(b: BoxRow & { name: string }): string {
-  if (b.status === "released" || b.dns_state === "removed") return "address removed";
+  if (UNMANAGED.has(b.status) || b.dns_state === "removed") return "address removed";
   if (b.dns_state === "killed") return "address turned off";
   if (b.dns_state === "parked") return "address parked until the box checks in";
   return "address not live yet";
@@ -67,7 +75,8 @@ type Note = { tone: "bad" | "warn" | "info"; body: React.ReactNode };
 
 function notes(b: BoxRow, job: JobRow | null): Note[] {
   const out: Note[] = [];
-  if (b.attention && b.status !== "released") {
+  if (UNMANAGED.has(b.status)) return out;
+  if (b.attention) {
     out.push({
       tone: "bad",
       body: (
@@ -85,10 +94,10 @@ function notes(b: BoxRow, job: JobRow | null): Note[] {
         : { tone: "info", body: `${what[0]!.toUpperCase()}${what.slice(1)}: ${job.steps.at(-1)?.text ?? job.status}` },
     );
   }
-  if (b.status !== "released" && b.plan_status === "past_due" && extrasOn(b.plan_status, Boolean(b.first_paid_at))) {
+  if (b.plan_status === "past_due" && extrasOn(b.plan_status, Boolean(b.first_paid_at))) {
     out.push({ tone: "warn", body: "The last payment didn’t go through. Update your card under Billing and invoices; Stripe tries again by itself." });
   }
-  if (b.status !== "released" && b.first_paid_at && !extrasOn(b.plan_status, true) && !b.refunded_at) {
+  if (b.first_paid_at && !extrasOn(b.plan_status, true) && !b.refunded_at) {
     const until = b.extras_paused_at ? new Date(b.extras_paused_at.getTime() + DNS_GRACE_DAYS * 86_400_000) : null;
     out.push({
       tone: "warn",
@@ -103,7 +112,47 @@ function notes(b: BoxRow, job: JobRow | null): Note[] {
   return out;
 }
 
+/** Where a server is: "Hetzner cx23, Falkenstein (fsn1), 203.0.113.5". */
+function serverWords(b: BoxRow): string {
+  const city = CITY[b.location ?? ""];
+  return `Hetzner ${b.server_type}, ${city ?? b.location}${city ? ` (${b.location})` : ""}${b.ipv4 ? `, ${b.ipv4}` : ""}`;
+}
+
+/** A deleted box: its name, a badge and what went. Nothing to open or change. */
+function DeletedRow({ b }: { b: BoxRow }) {
+  const [first, ...rest] = goneLines({ name: b.name, deletedAt: b.deleted_at, dataDeleted: Boolean(b.data_deleted) });
+  const paid = b.first_paid_at ? endedWords(b, b.deleted_at) : null;
+  return (
+    <li className="cp-gone-row" id={b.id}>
+      <div className="cp-box-title">
+        <h3>{b.name ?? "Unnamed box"}</h3>
+        <span className="cp-pill">Deleted</span>
+      </div>
+      <p>{first}</p>
+      {paid && <p className="cp-muted">{paid}</p>}
+      {rest.map((l) => (
+        <p key={l} className="cp-muted">
+          {l}
+        </p>
+      ))}
+    </li>
+  );
+}
+
 export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls: CallRow[]; job: JobRow | null; now?: Date }) {
+  if (b.status === "deleting" || b.status === "deleted") {
+    // While it's deleted (and right after, until the page is next loaded): the live card.
+    const j = job?.kind === "delete_server" ? job : null;
+    return (
+      <Deleting
+        box={{ id: b.id, name: b.name }}
+        status={b.status}
+        job={j && { status: j.status, steps: j.steps, error: j.error }}
+        deletedAt={b.deleted_at?.toISOString() ?? null}
+        dataDeleted={b.data_deleted}
+      />
+    );
+  }
   const [label, tone] = statusPill(b);
   const active = extrasOn(b.plan_status, Boolean(b.first_paid_at));
   const held = Boolean(b.signin_code && b.signin_expires_at && b.signin_expires_at > now);
@@ -121,12 +170,12 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
     signin: b.status === "active" && !b.handoff_closed_at ? (held ? "held" : b.signin_requested_at ? "asked" : "expired") : null,
     signinUntil: held ? when(b.signin_expires_at) : "",
     serverType: b.server_type,
+    price: b.stripe_subscription_id && !ENDED.has(b.plan_status) && !b.refunded_at ? priceWords(b.founding) : null,
     sizes: RESIZE_TYPES.filter((t) => b.server_type && t !== b.server_type && family(t) === family(b.server_type)),
   };
-  const facts: [string, React.ReactNode][] = [["Subscription", planWords(b)]];
-  if (b.server_type) {
-    facts.push(["Server", `Hetzner ${b.server_type}, ${CITY[b.location ?? ""] ?? b.location}${b.location && CITY[b.location] ? ` (${b.location})` : ""}${b.ipv4 ? `, ${b.ipv4}` : ""}`]);
-  }
+  const released = b.status === "released";
+  const facts: [string, React.ReactNode][] = released ? [] : [["Subscription", planWords(b, now)]];
+  if (b.server_type) facts.push(["Server", serverWords(b)]);
   if (b.status === "active" || b.status === "cert_pending") {
     facts.push(["Last check-in", `${when(b.last_heartbeat_at)}${b.last_version ? `, Tiffin ${b.last_version}` : ""}`]);
   }
@@ -142,7 +191,7 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
         </div>
         {b.name && (
           <p className="cp-box-addr">
-            {b.dns_state === "live" && b.status !== "released" ? (
+            {b.dns_state === "live" && !released ? (
               <a href={dashboardUrl(b.name)}>{boxDomain(b.name)}</a>
             ) : (
               <>
@@ -152,6 +201,8 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
           </p>
         )}
       </header>
+
+      {released && <p className="cp-box-line">{releasedLine(b.released_at)}</p>}
 
       <dl className="cp-box-facts">
         {facts.map(([k, v]) => (
@@ -178,10 +229,15 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
         <summary>
           Hetzner activity <span className="cp-count">{calls.length === 200 ? "200+" : calls.length} calls</span>
         </summary>
+        <p className="cp-hint">Every call we made with your Hetzner key, newest first.</p>
         <p className="cp-hint">
-          Every call we made to Hetzner with your key, newest first. We keep no key: each change that needs one asks for it and forgets it when done
-          {b.token_fingerprint ? ` (setup used the one with fingerprint ${b.token_fingerprint})` : ""}. You can delete your keys in Hetzner (Security › API
-          tokens) at any time; the box keeps running.
+          We keep no key: each change asks for one, then forgets it.
+          {b.token_fingerprint ? (
+            <>
+              {" "}
+              Setup used the key with fingerprint <span className="cp-mono">{b.token_fingerprint}</span>.
+            </>
+          ) : null}
         </p>
         {calls.length > 0 && (
           <div className="cp-scroll cp-table-wrap">
@@ -213,5 +269,41 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
 
       <BoxExits box={view} />
     </article>
+  );
+}
+
+/** Deleted boxes, at the bottom: a small heading and one row each; folded away when there are several. */
+export function DeletedList({ rows, invoices }: { rows: BoxRow[]; invoices: boolean }) {
+  const list = (
+    <ul className="cp-gone-list">
+      {rows.map((b) => (
+        <DeletedRow key={b.id} b={b} />
+      ))}
+    </ul>
+  );
+  const head = (
+    <>
+      Deleted <span className="cp-count">{rows.length}</span>
+    </>
+  );
+  return (
+    <section className="cp-gone" aria-label="Deleted boxes">
+      {rows.length > 3 ? (
+        <details>
+          <summary className="cp-gone-head">{head}</summary>
+          {list}
+        </details>
+      ) : (
+        <>
+          <h2 className="cp-gone-head">{head}</h2>
+          {list}
+        </>
+      )}
+      {invoices && (
+        <p className="cp-gone-foot">
+          <PastInvoices />
+        </p>
+      )}
+    </section>
   );
 }

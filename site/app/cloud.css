@@ -596,6 +596,11 @@
   stroke-width: 2;
   opacity: 0;
 }
+/* where the server stood */
+.sc-gone {
+  stroke: var(--rule-3);
+  stroke-dasharray: 4 5;
+}
 
 .sc * {
   transform-box: fill-box;
@@ -655,6 +660,21 @@
   }
   .sc-spark {
     animation: sc-spark 0.7s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+  }
+  .sc-unhang {
+    transform-origin: 0% 0%;
+    animation: sc-unhang 3.4s ease-in infinite both;
+  }
+  .sc-lift {
+    animation: sc-lift 3.6s cubic-bezier(0.5, 0, 0.7, 0.4) infinite both;
+  }
+  .sc-broom {
+    transform-box: view-box;
+    transform-origin: 196px 70px;
+    animation: sc-broom 1.4s ease-in-out infinite;
+  }
+  .sc-puff {
+    animation: sc-puff 1.4s ease-out infinite both;
   }
   .pg-scene .sc-art {
     animation: sc-in 0.45s ease-out both;
@@ -812,6 +832,58 @@
 @keyframes sc-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+/* the sign unhooks at one corner, swings and drops away */
+@keyframes sc-unhang {
+  0%,
+  18% {
+    opacity: 1;
+    transform: rotate(0);
+  }
+  40% {
+    opacity: 1;
+    transform: rotate(14deg);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: translateY(60px) rotate(24deg);
+  }
+}
+/* the setup's drop, backwards: each server lifts away */
+@keyframes sc-lift {
+  0%,
+  20% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  60%,
+  100% {
+    opacity: 0;
+    transform: translateY(-46px);
+  }
+}
+@keyframes sc-broom {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(10deg);
+  }
+}
+@keyframes sc-puff {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  30% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(10px, -14px) scale(1.4);
   }
 }
 @keyframes sc-spark {
@@ -1146,4 +1218,157 @@
 }
 .cp-box .cp-log td {
   white-space: nowrap;
+}
+
+/* a released box: one line on what that means */
+.cp-box-line {
+  margin-top: 14px;
+  color: var(--ink-2);
+  max-width: 44em;
+  text-wrap: pretty;
+}
+
+/* a box being deleted (app/account/deleting.tsx): the setup screen's pieces, compact */
+.cp-card.pg-del {
+  display: grid;
+  gap: 16px;
+}
+.cp-card.pg-del > * + * {
+  margin-top: 0;
+}
+.pg-del .pg-scene {
+  max-height: 128px;
+  padding: 10px 6px 2px;
+}
+.pg-del-body > * + * {
+  margin-top: 12px;
+}
+.pg-del-body > .pg-say {
+  margin-top: 4px;
+}
+.pg-del .pg-title {
+  margin-top: 2px;
+}
+@media (min-width: 640px) {
+  .cp-card.pg-del {
+    grid-template-columns: 216px 1fr;
+    align-items: start;
+    gap: 24px;
+  }
+  .pg-del .pg-scene {
+    max-height: none;
+    padding: 12px 6px 2px;
+  }
+}
+.pg-stages.pg-del-stages {
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: row;
+  grid-template-rows: none;
+  column-gap: 16px;
+  font-size: 0.9rem;
+}
+.pg-del-stages li {
+  padding: 3px 0;
+  gap: 8px;
+}
+.pg-del-stages .pg-mark {
+  width: 16px;
+  height: 16px;
+}
+.pg-del-stages li[data-state="done"] .pg-mark::after {
+  left: 4px;
+  top: 1px;
+}
+.pg-del[data-state="done"] .pg-title {
+  color: var(--ink);
+}
+
+/* deleted boxes: at the bottom, one quiet row each */
+.cp-gone {
+  margin-top: 40px;
+}
+.cp .cp-gone details {
+  border-top: 0;
+  padding-top: 0;
+}
+.cp-gone-head {
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+summary.cp-gone-head {
+  width: fit-content;
+}
+.cp-gone-head .cp-count {
+  letter-spacing: 0;
+}
+.cp-gone-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+.cp-gone-row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: 0.94rem;
+}
+.cp-gone-row .cp-box-title h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.cp-gone-row p {
+  margin-top: 4px;
+  text-wrap: pretty;
+}
+.cp-gone-row .cp-muted {
+  margin-top: 2px;
+}
+.cp-gone-foot {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+}
+.cp-quiet-link {
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+
+/* the money, in the delete and stop dialogs: a warning that can't be missed */
+.cp-money {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--brass-ink) 45%, var(--rule));
+  border-radius: 10px;
+  background: var(--brass-wash);
+  color: var(--ink);
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+.cp-money strong {
+  font-weight: 650;
+}
+.cp-money-icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  fill: none;
+  stroke: var(--brass-ink);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cp-money-small {
+  margin-top: 4px;
+  font-size: 0.86rem;
+  color: var(--ink-2);
 }
