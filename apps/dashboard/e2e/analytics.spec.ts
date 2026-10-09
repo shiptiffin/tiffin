@@ -18,7 +18,7 @@ async function noSeriousA11y(page: Page, what: string) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(bad.map((v) => `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+  expect(bad.map((v) => `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => `${n.target.join(" ")} ${n.html.slice(0, 160)} ${n.failureSummary ?? ""}`).join(", ")}`)).toEqual([]);
 }
 
 async function stubHistory(page: Page) {
