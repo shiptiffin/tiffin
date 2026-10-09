@@ -108,6 +108,8 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
       mode: "subscription",
       line_items: [{ price, quantity: 1 }],
       ...paymentMethods(),
+      // The terms URL lives in the Stripe account's public details; Checkout refuses this without it.
+      consent_collection: { terms_of_service: "required" },
       success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: renew ? `${base}/account` : `${base}/start?canceled=1`,
       client_reference_id: b.id,
