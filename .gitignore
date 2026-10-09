@@ -1,5 +1,9 @@
 # build output
 bin/
+# `go build ./cmd/...` from the repository root
+/tiffin
+/tiffin-release
+/tiffin-provisioner
 dist/
 node_modules/
 coverage/
