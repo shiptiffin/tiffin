@@ -19,6 +19,7 @@ import (
 	"github.com/btahir/tiffin/internal/install"
 	"github.com/btahir/tiffin/internal/provider"
 	"github.com/btahir/tiffin/internal/provider/lima"
+	"github.com/btahir/tiffin/internal/release"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/spf13/cobra"
 )
@@ -342,7 +343,33 @@ func (a *app) linuxBinary(ctx context.Context, flag, arch string) (string, error
 		}
 		return out, nil
 	}
+	// A downloaded CLI (install.sh) has no Linux build beside it: fetch the
+	// stable release's, checked against the signed manifest.
+	a.progress("downloading tiffin for linux/" + arch + " from the signed release list")
+	if out, err := releasedLinuxBinary(ctx, arch); err == nil {
+		return out, nil
+	} else {
+		a.progress("couldn't download it: " + err.Error())
+	}
 	return "", &exitError{ExitInvalid, "no linux build of tiffin found: pass --binary, or put tiffin-linux-" + arch + " next to this binary"}
+}
+
+// releasedLinuxBinary downloads the stable release's linux/<arch> build to a
+// temporary file, after checking the manifest's signature and the file's
+// size and sha256.
+func releasedLinuxBinary(ctx context.Context, arch string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	c := &http.Client{Timeout: 5 * time.Minute}
+	m, err := release.Fetch(ctx, c, release.DefaultSource, "stable", release.TrustedKeys())
+	if err != nil {
+		return "", err
+	}
+	out := filepath.Join(os.TempDir(), "tiffin-linux-"+arch+"-"+m.Version)
+	if _, err := release.Download(ctx, c, m, release.ManifestURL(release.DefaultSource, "stable"), "linux/"+arch, out); err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 // stamp is what a build says about itself (tiffin version, /v1/health).

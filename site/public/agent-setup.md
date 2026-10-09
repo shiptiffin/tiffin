@@ -38,10 +38,8 @@ B. Self-hosted on Hetzner
 On another Ubuntu 26.04 server, use tiffin up --provider ssh --name <name> --host root@<ip> instead (read tiffin up --help first).
 
 The tiffin CLI
-- Linux: read https://releases.shiptiffin.com/stable/manifest.json, download the artifact for linux/<this computer's arch>, check its sha256 against the manifest, make it executable and put it on PATH as tiffin.
-- macOS: there is no published build yet. Build it from source with Go 1.27+ (the binary is bin/tiffin):
-  git clone https://github.com/shiptiffin/tiffin && cd tiffin && make build
-  If the source isn't reachable, tell me. On a managed box you can still do everything through MCP: plan and apply manifests, deploy from GitHub or from a starter template.
+- macOS or Linux (Windows: inside WSL): run curl -fsSL https://shiptiffin.com/install.sh | sh
+  It downloads the build for this computer from the signed release list, checks its sha256, and installs tiffin to /usr/local/bin or ~/.local/bin (it says if that needs adding to PATH).
 - tiffin up installs a Linux build on the server: the one running (on Linux, same CPU), a tiffin-linux-<arch> next to it, or one it builds when run inside the source folder. Otherwise download tiffin-linux-<server arch> from the manifest (check its sha256) and pass --binary <file>. The default Hetzner type, cax11, is ARM (arm64).
 
 Then, for each app

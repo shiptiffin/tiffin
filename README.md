@@ -92,11 +92,11 @@ pasting your Hetzner key, adding a passkey and creating its API key.
 
 ### Run it yourself (free)
 
-Build the `tiffin` binary from this repository (Go 1.27+), then make a box. On a Mac it runs
+Install `tiffin` (macOS or Linux; on Windows, inside WSL), then make a box. On a Mac it runs
 in a [Lima](https://lima-vm.io) VM:
 
 ```bash
-make build && export PATH="$PWD/bin:$PATH"
+curl -fsSL https://shiptiffin.com/install.sh | sh
 tiffin up                                   # a box on your Mac, about a minute
 tiffin trust                                # trust its HTTPS certificate once
 ```
