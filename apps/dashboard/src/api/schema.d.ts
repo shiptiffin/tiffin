@@ -340,6 +340,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/backups/offsite/managed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy backups to ShipTiffin's backup storage
+         * @description On a ShipTiffin managed box: copies every backup set, encrypted, to the box's own folder in ShipTiffin's backup bucket, with temporary credentials that the box's check-ins renew while the subscription is active. A box does this by itself unless its owner turned copies off or set a bucket of their own; this turns it on again, or replaces that bucket. For a folder that already holds copies (this box's, from an earlier server) pass their passphrase. A new passphrase is generated and returned once: keep it, only you hold it. Box owner only.
+         */
+        post: operations["backups-offsite-managed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/offsite/passphrase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Show the passphrase of copies the box set up
+         * @description When the box set up ShipTiffin's backup storage by itself, it made the passphrase that encrypts the copies. This shows it, until `tiffin backups offsite passphrase-saved`; then never again. Keep it off this server: a new box needs it to restore the copies. Box owner only.
+         */
+        post: operations["backups-offsite-passphrase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/offsite/passphrase/saved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Say the passphrase is saved
+         * @description The box stops showing the passphrase of copies it set up by itself. Box owner only.
+         */
+        post: operations["backups-offsite-passphrase-saved"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/backups/offsite/sets": {
         parameters: {
             query?: never;
@@ -6429,6 +6489,11 @@ export interface components {
             bucket?: string;
             /** @description The set being copied now */
             copying?: string;
+            /**
+             * Format: date-time
+             * @description When the managed storage's temporary credentials run out (check-ins renew them)
+             */
+            credentialsExpire?: string;
             customCa?: boolean;
             /** @description Copies off the box are on */
             enabled: boolean;
@@ -6442,11 +6507,17 @@ export interface components {
              * @description When the newest successful copy finished
              */
             lastOkAt: string | null;
+            /** @description The destination is the storage that comes with a ShipTiffin managed box: a folder of its own in ShipTiffin's backup bucket, reached with temporary credentials renewed at check-ins */
+            managed: boolean;
+            /** @description This managed box has ShipTiffin's backup storage to use (tiffin backups offsite managed) */
+            managedAvailable?: boolean;
             /** @description How it is going, in plain words */
             message: string;
             /** @description Shown once, when a new destination is set: keep it somewhere safe, off this box */
             passphrase?: string;
             passphraseNote?: string;
+            /** @description The box set up the managed storage by itself and made the passphrase: the owner should save it (tiffin backups offsite passphrase), then say so (passphrase-saved) */
+            passphraseUnsaved?: boolean;
             prefix?: string;
             region?: string;
             /** Format: int64 */
@@ -6518,6 +6589,10 @@ export interface components {
              * @enum {string}
              */
             uriStyle?: "path" | "host" | "";
+        };
+        BackupOffsitePassphrase: {
+            note: string;
+            passphrase: string;
         };
         BackupOffsiteSet: {
             /** @description Hostname of the box that took it */
@@ -6687,6 +6762,10 @@ export interface components {
              * @description How long to wait for the copy (default 50)
              */
             timeoutSeconds?: number;
+        };
+        "Backups-offsite-managedRequest": {
+            /** @description The passphrase of copies already in the folder */
+            passphrase?: string;
         };
         "Backups-schedule-setRequest": {
             /** @description Run restore drills automatically (default on) */
@@ -14579,6 +14658,232 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-managed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Backups-offsite-managedRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsite"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-passphrase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsitePassphrase"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-passphrase-saved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsite"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -628,7 +628,9 @@ function DrillReceipt({ d }: { d: BackupDrill }) {
  * Copies off the box: whether every backup also goes, encrypted, to a
  * bucket elsewhere. Off, it says so plainly (the backups live and die with
  * this server) and offers the form; on, the newest copy, Test, Copy now and
- * Turn off. A new destination's passphrase is shown once, to keep.
+ * Turn off. A new destination's passphrase is shown once, to keep. A
+ * managed box copies to ShipTiffin's storage by itself: its passphrase,
+ * made on the box, waits here until the owner says it's saved.
  */
 function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: boolean; now: number }) {
   const qc = useQueryClient();
@@ -644,12 +646,14 @@ function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: bool
     onSettled: refresh,
   });
   const on = !!o?.enabled;
+  const managed = on && !!o?.managed;
   const last = o?.lastOk;
   const failing = o?.lastCopy?.status === "failed" ? o.lastCopy : null;
+  const expired = managed && !!o?.credentialsExpire && new Date(o.credentialsExpire).getTime() <= now;
   const stale = on && (!o?.lastOkAt || now - new Date(o.lastOkAt).getTime() > 26 * H);
 
   return (
-    <Group label="Copies off the box" id="offsite" aside={on ? (o?.state === "foreign" ? "paused" : "on") : "off"}>
+    <Group label="Copies off the box" id="offsite" aside={on ? (o?.state === "foreign" || expired ? "paused" : "on") : "off"}>
       {pass && (
         <div className="mb-4 max-w-[46rem] rounded-[10px] border border-brass bg-paper-raised px-4 py-3.5" role="alert">
           <p className="text-[0.9375rem] font-[550] text-ink">Keep this passphrase somewhere safe, off this server.</p>
@@ -664,47 +668,66 @@ function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: bool
           </div>
         </div>
       )}
+      {owner && on && o?.passphraseUnsaved && <SavePassphrase onSaved={refresh} />}
       {!on ? (
         <div className="border-y border-rule py-3.5">
           <p className="flex items-start gap-2 text-[0.9375rem] font-[550] text-warn-ink">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             Backups only on this server.
           </p>
-          <p className="mt-1 max-w-[44rem] text-[0.84375rem] text-ink-2">
-            They undo mistakes, not the loss of the machine: if it goes, they go with it. Copy every backup, encrypted, to a bucket you own (Cloudflare R2, AWS
-            S3, Hetzner Object Storage, MinIO), and a new box can bring everything back.
-          </p>
+          {o?.managedAvailable ? (
+            <p className="mt-1 max-w-[44rem] text-[0.84375rem] text-ink-2">{o.message}</p>
+          ) : (
+            <p className="mt-1 max-w-[44rem] text-[0.84375rem] text-ink-2">
+              They undo mistakes, not the loss of the machine: if it goes, they go with it. Copy every backup, encrypted, to a bucket you own (Cloudflare R2,
+              AWS S3, Hetzner Object Storage, MinIO), and a new box can bring everything back.
+            </p>
+          )}
           {owner && !editing && (
-            <Button className="mt-3" size="md" variant="primary" onClick={() => setEditing(true)}>
-              Set a destination…
-            </Button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {o?.managedAvailable && (
+                <UseManaged
+                  onDone={(r) => {
+                    if (r.passphrase) setPass(r.passphrase);
+                    void refresh();
+                  }}
+                />
+              )}
+              <Button size="md" variant={o?.managedAvailable ? "ghost" : "primary"} onClick={() => setEditing(true)}>
+                {o?.managedAvailable ? "Use my own bucket…" : "Set a destination…"}
+              </Button>
+            </div>
           )}
         </div>
       ) : (
         <div className="border-y border-rule py-3.5">
-          <p className={cn("text-[0.875rem]", stale || o?.state === "foreign" ? "text-danger" : "text-ink")}>
-            <span className="font-[550]">Copies off the box: on.</span>{" "}
+          <p className={cn("text-[0.875rem]", stale || expired || o?.state === "foreign" ? "text-danger" : "text-ink")}>
+            <span className="font-[550]">Copies off the box: {expired ? "paused" : "on"}.</span>{" "}
             {o?.state === "foreign"
               ? "Paused: this folder holds another box’s backups. Restore them (tiffin restore latest --from offsite), or choose another folder."
-              : last
-                ? `Last copied ${relative(last.finishedAt ?? last.startedAt, now)}, ${bytes(last.sentBytes)} sent (${bytes((last.files?.bytes ?? 0) + (last.postgresBytes ?? 0))} in the set’s changes and files).`
-                : "The first copy runs after the next backup."}
+              : expired
+                ? "ShipTiffin’s backup storage comes with the subscription, and its access ran out. Copies resume when the box next checks in with an active subscription; or use a bucket of your own."
+                : last
+                  ? `Last copied ${relative(last.finishedAt ?? last.startedAt, now)}, ${bytes(last.sentBytes)} sent (${bytes((last.files?.bytes ?? 0) + (last.postgresBytes ?? 0))} in the set’s changes and files).`
+                  : "The first copy runs after the next backup."}
           </p>
           <p className="ident mt-0.5 text-[0.71875rem] text-ink-3">
-            s3://{o?.bucket}/{o?.prefix} · {o?.endpoint?.replace(/^https:\/\//, "")} · kept {o?.retentionDays} days
+            {managed
+              ? `ShipTiffin backup storage · encrypted with your passphrase · kept ${o?.retentionDays} days`
+              : `s3://${o?.bucket}/${o?.prefix} · ${o?.endpoint?.replace(/^https:\/\//, "")} · kept ${o?.retentionDays} days`}
           </p>
-          {failing && <p className="mt-1.5 text-[0.8125rem] text-danger">The latest copy failed: {failing.error}</p>}
+          {failing && !expired && <p className="mt-1.5 text-[0.8125rem] text-danger">The latest copy failed: {failing.error}</p>}
           {o?.copying && <p className="mt-1.5 text-[0.8125rem] text-ink-2">Copying {o.copying} now…</p>}
           {owner && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={() => copy.mutate()} disabled={copy.isPending || !!o?.copying || o?.state !== "active"}>
+              <Button size="sm" onClick={() => copy.mutate()} disabled={copy.isPending || !!o?.copying || o?.state !== "active" || expired}>
                 {copy.isPending ? "Copying…" : "Copy now"}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => test.mutate()} disabled={test.isPending}>
                 {test.isPending ? "Testing…" : "Test"}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setEditing((x) => !x)}>
-                Change…
+                {managed ? "Use my own bucket…" : "Change…"}
               </Button>
               <Button size="sm" variant="danger-quiet" onClick={() => setLeaving(true)}>
                 Turn off…
@@ -730,7 +753,7 @@ function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: bool
       )}
       {owner && editing && (
         <OffsiteForm
-          o={on ? o : null}
+          o={on && !managed ? o : null}
           onDone={(r) => {
             setEditing(false);
             if (r.passphrase) setPass(r.passphrase);
@@ -744,7 +767,11 @@ function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: bool
         open={leaving}
         onClose={() => setLeaving(false)}
         title="Stop copying backups off the box?"
-        body="The box forgets the bucket and its keys; backups stay on this server only. The copies already in the bucket stay there; keep the passphrase to restore them."
+        body={
+          managed
+            ? "Backups stay on this server only. The copies already in ShipTiffin’s storage stay there; keep the passphrase to use them again."
+            : "The box forgets the bucket and its keys; backups stay on this server only. The copies already in the bucket stay there; keep the passphrase to restore them."
+        }
         action="Turn off"
         run={mod.offsiteOff}
         done={() => {
@@ -753,6 +780,76 @@ function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: bool
         }}
       />
     </Group>
+  );
+}
+
+/**
+ * The passphrase a managed box made when it set up ShipTiffin's storage by
+ * itself: hidden until asked for, then shown until the owner says it's
+ * saved. Without it nobody, us included, can read the copies.
+ */
+function SavePassphrase({ onSaved }: { onSaved: () => void }) {
+  const show = useMutation({ mutationFn: mod.offsitePassphrase });
+  const saved = useMutation({ mutationFn: mod.offsitePassphraseSaved, onSuccess: onSaved });
+  return (
+    <div className="mb-4 max-w-[46rem] rounded-[10px] border border-brass bg-paper-raised px-4 py-3.5" role="alert">
+      <p className="text-[0.9375rem] font-[550] text-ink">Save your backup passphrase.</p>
+      <p className="mt-1 text-[0.84375rem] text-ink-2">
+        Backups are copied off this server every night, encrypted with a passphrase this box made. Only you hold it: we can’t read the copies or recover
+        it. If the server is lost, a new box needs it to bring everything back. Keep it in a password manager.
+      </p>
+      <div className="mt-2.5 flex flex-wrap items-center gap-3">
+        {show.data ? (
+          <CopyValue value={show.data.passphrase} className="text-[0.9375rem]" />
+        ) : (
+          <Button size="sm" onClick={() => show.mutate()} disabled={show.isPending}>
+            {show.isPending ? "Showing…" : "Show passphrase"}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={() => saved.mutate()} disabled={!show.data || saved.isPending}>
+          I’ve saved it
+        </Button>
+      </div>
+      {(show.isError || saved.isError) && <ProblemNote className="mt-3" error={show.error ?? saved.error} />}
+    </div>
+  );
+}
+
+/** Turns on the storage that comes with a managed box; a folder that holds an earlier server's copies needs their passphrase. */
+function UseManaged({ onDone }: { onDone: (r: BackupOffsite) => void }) {
+  const [asking, setAsking] = useState(false);
+  const [pass, setPass] = useState("");
+  const use = useMutation({
+    mutationFn: () => mod.offsiteManaged(pass.trim() || undefined),
+    onSuccess: (r) => {
+      toast({ title: "Copies off the box are on: ShipTiffin backup storage." });
+      onDone(r);
+    },
+  });
+  return (
+    <>
+      <Button size="md" variant="primary" onClick={() => use.mutate()} disabled={use.isPending}>
+        {use.isPending ? "Checking the storage…" : "Use ShipTiffin backup storage"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setAsking((x) => !x)}>
+        Copies from an earlier server…
+      </Button>
+      {asking && (
+        <div className="flex w-full max-w-[28rem] flex-col gap-1">
+          <Label htmlFor="off-managed-pass">Their passphrase</Label>
+          <Input
+            id="off-managed-pass"
+            type="password"
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className="ident text-[0.875rem]"
+          />
+        </div>
+      )}
+      {use.isError && <ProblemNote className="mt-1 w-full" error={use.error} />}
+    </>
   );
 }
 

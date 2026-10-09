@@ -248,6 +248,10 @@ export const mod = {
   offsiteTest: () => request<BackupOffsiteTest>("POST", "/v1/backups/offsite/test", {}),
   offsiteCopy: () => request<S["BackupOffsiteCopy"]>("POST", "/v1/backups/offsite/copy", {}),
   offsiteOff: () => request<BackupOffsite>("DELETE", "/v1/backups/offsite"),
+  /** A managed box's own storage (ShipTiffin's bucket): turn it on; show the passphrase the box made until the owner says it's saved. */
+  offsiteManaged: (passphrase?: string) => request<BackupOffsite>("POST", "/v1/backups/offsite/managed", passphrase ? { passphrase } : {}),
+  offsitePassphrase: () => request<S["BackupOffsitePassphrase"]>("POST", "/v1/backups/offsite/passphrase", {}),
+  offsitePassphraseSaved: () => request<BackupOffsite>("POST", "/v1/backups/offsite/passphrase/saved", {}),
 
   // observe
   overview: () => request<Overview>("GET", "/v1/observe/overview"),
