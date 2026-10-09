@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nameProblem, ZONE } from "@/lib/cloud/names";
 import type { CheckResult, Option } from "@/lib/cloud/hetzner";
+import { Progress, Stopped, type Job } from "./progress";
 
 const STEPS = ["Account", "Pay", "Connect Hetzner", "Create", "Open"];
 
@@ -140,7 +141,6 @@ export function KeyField({ boxId, onChecked, label = "Hetzner API token" }: { bo
   );
 }
 
-type Job = { status: string; steps: { at: string; text: string }[]; error: string | null } | null;
 type Box = { id: string; name: string | null; status: string; fingerprint: string | null };
 
 export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job: Job }) {
@@ -150,10 +150,14 @@ export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job:
   const [job, setJob] = useState<Job>(initialJob);
   const [checked, setChecked] = useState<{ token: string; r: Extract<CheckResult, { ok: true }> } | null>(null);
 
-  // Live progress while the worker runs, and while the certificate is pending.
+  // Live progress while the worker runs, and while the certificate is pending
+  // (often, while the worker itself waits for it; slowly once it has handed
+  // over to the minutely check).
+  const handedOver = Boolean(job?.steps.some((s) => s.text.startsWith("Installed. The certificate is still pending")));
   useEffect(() => {
     if (status !== "provisioning" && status !== "cert_pending") return;
     let stop = false;
+    let t: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
         const res = await fetch(`/api/cloud/boxes/${box.id}`, { cache: "no-store" });
@@ -164,31 +168,21 @@ export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job:
           setJob(j.job ?? null);
         }
       } catch {}
-      if (!stop) setTimeout(tick, status === "cert_pending" ? 15_000 : 2000);
+      if (!stop) t = setTimeout(tick, status === "cert_pending" && handedOver ? 15_000 : 2000);
     };
-    const t = setTimeout(tick, 1500);
+    t = setTimeout(tick, 1500);
     return () => {
       stop = true;
       clearTimeout(t);
     };
-  }, [status, box.id]);
+  }, [status, box.id, handedOver]);
 
   if (status === "provisioning" || status === "cert_pending" || status === "active") {
     return <Progress box={box} status={status} job={job} />;
   }
   return (
     <>
-      {status === "failed" && (
-        <div className="cp-card" role="alert">
-          <h2>Setup stopped</h2>
-          <p className="cp-sub">{job?.error ?? "Something went wrong."}</p>
-          <p className="cp-hint">
-            We removed the box&rsquo;s address and deleted what this try made in your Hetzner project (only what carries this
-            box&rsquo;s shiptiffin-box label; nothing else in your account is touched), and forgot your key. Paste it again to start
-            over.
-          </p>
-        </div>
-      )}
+      {status === "failed" && <Stopped box={box} job={job} />}
       {!checked ? (
         <div className="cp-card">
           <h2>Your Hetzner API token</h2>
@@ -348,47 +342,5 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
         </p>
       )}
     </form>
-  );
-}
-
-function Progress({ box, status, job }: { box: Box; status: string; job: Job }) {
-  const steps = job?.steps ?? [];
-  const live = status === "provisioning";
-  const pending = status === "cert_pending";
-  return (
-    <div className="cp-card" aria-live="polite">
-      <h2>{live ? `Creating ${box.name}.${ZONE}` : pending ? `${box.name}.${ZONE}: certificate pending` : `${box.name}.${ZONE} is ready`}</h2>
-      {live && <p className="cp-hint">This takes about five minutes. You can close this page; we email you when it&rsquo;s done.</p>}
-      {pending && (
-        <p className="cp-hint" role="status">
-          Tiffin is installed, but the dashboard doesn&rsquo;t answer over HTTPS with a valid certificate yet (Let&rsquo;s Encrypt can take a while,
-          or be rate-limited). We check every minute and email you when it&rsquo;s ready. You can close this page.
-        </p>
-      )}
-      <ul className="cp-progress">
-        {steps.length === 0 && <li data-live>Waiting for a worker</li>}
-        {steps.map((s, i) => (
-          <li key={i} data-live={live && i === steps.length - 1 ? "" : undefined}>
-            {s.text}
-          </li>
-        ))}
-      </ul>
-      {!live && !pending && (
-        <>
-          <div className="cp-row">
-            <a className="btn btn-primary" href={`/api/cloud/boxes/${box.id}/open`}>
-              Open your dashboard
-            </a>
-            <a className="btn btn-quiet" href="/account">
-              Your account
-            </a>
-          </div>
-          <p className="cp-hint">
-            This first time signs you in with a one-time link your box made (it works once, within 24 hours). Add a passkey in the dashboard
-            then: after that, you sign in on the box itself.
-          </p>
-        </>
-      )}
-    </div>
   );
 }
