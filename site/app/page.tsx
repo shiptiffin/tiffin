@@ -199,6 +199,28 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
       </p>
     ),
   },
+  {
+    q: "What do you get from Sign in with Google?",
+    a: (
+      <p>
+        Only your name, email address and profile picture (the <code>openid</code>, <code>email</code> and{" "}
+        <code>profile</code> scopes), to sign you in to your box&rsquo;s dashboard or to an app on ShipTiffin that
+        offers it. No access to Gmail, Drive, Calendar or any other Google data, and we never sell it, use it for ads
+        or train AI on it. Details in our <Link href="/privacy#google">privacy policy</Link>.
+      </p>
+    ),
+  },
+  {
+    q: "What can't I host?",
+    a: (
+      <p>
+        Anything illegal or abusive, including apps that create or share AI-generated non-consensual intimate imagery
+        (NCII) or any sexual content of people who haven&rsquo;t consented. We don&rsquo;t use Google APIs or Google
+        user data for it either. We take such apps down and may suspend the box. The full rules are in our{" "}
+        <Link href="/terms#use">terms</Link>.
+      </p>
+    ),
+  },
 ];
 
 /* The trust story: what happens to your Hetzner key. Keep each line true to the sign-up flow. */
@@ -515,6 +537,23 @@ export default function Home() {
 
       <Pricing />
 
+
+      <section id="faq" className="band" aria-labelledby="faq-title">
+        <div className="wrap two-col">
+          <h2 id="faq-title" className="h2">
+            Questions
+          </h2>
+          <div className="faq">
+            {FAQ.map(({ q, a }) => (
+              <details key={q}>
+                <summary>{q}</summary>
+                <div className="faq-a">{a}</div>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section id="start" className="band cta" aria-labelledby="start-title">
         <div className="wrap cta-row">
           <Art
@@ -535,82 +574,6 @@ export default function Home() {
             <Link className="btn btn-primary" href="/start">
               Get started
             </Link>
-          </div>
-        </div>
-      </section>
-
-      <section id="faq" className="band" aria-labelledby="faq-title">
-        <div className="wrap two-col">
-          <h2 id="faq-title" className="h2">
-            Questions
-          </h2>
-          <div className="faq">
-            {FAQ.map(({ q, a }) => (
-              <details key={q}>
-                <summary>{q}</summary>
-                <div className="faq-a">{a}</div>
-              </details>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="about" className="band" aria-labelledby="about-title">
-        <div className="wrap two-col">
-          <h2 id="about-title" className="h2">
-            What ShipTiffin is
-          </h2>
-          <div className="prose-lg">
-            <p>
-              ShipTiffin sets up and looks after servers for web apps. Each customer brings a Hetzner Cloud account;
-              we create a server in it, which we call a box, install everything on it and keep it updated, and the
-              customer runs their apps on it. The box comes with the parts most apps need: a Postgres database,
-              sign-in for the app&rsquo;s users, email sending, file storage, background jobs, logs, error tracking
-              and visit counts.
-            </p>
-            <p>
-              Customers deploy their apps from GitHub, with <code>git push</code>, the <code>tiffin</code> command
-              line or a coding agent, and manage them from the box&rsquo;s dashboard. It is built for developers and
-              small teams who run several apps and want one flat price instead of a bill for each service.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section id="google" className="band" aria-labelledby="trust-title">
-        <div className="wrap">
-          <div className="section-head">
-            <h2 id="trust-title" className="h2">
-              Your data, and what we don&rsquo;t allow.
-            </h2>
-          </div>
-          <div className="notes">
-            <div className="note">
-              <h3 className="note-title">Sign in with Google</h3>
-              <p>
-                ShipTiffin uses Google for one thing: Sign in with Google, to sign you in to your box&rsquo;s
-                dashboard, or to an app hosted on ShipTiffin that offers it. We ask only for the{" "}
-                <code>openid</code>, <code>email</code> and <code>profile</code> scopes, which give us your name,
-                email address and profile picture. We use them only to identify your account.
-              </p>
-              <p>
-                We have no access to your Gmail, Drive, Calendar or any other Google data. We never sell Google user
-                data, use it for ads, or use it to train AI models. Read the details in our{" "}
-                <Link href="/privacy#google">privacy policy</Link>.
-              </p>
-            </div>
-            <div className="note">
-              <h3 className="note-title">Acceptable use</h3>
-              <p>
-                ShipTiffin does not use Google APIs or Google user data to create AI-generated non-consensual
-                intimate imagery (NCII), and does not allow customers to host apps that create or share it, or any
-                sexual content involving people who have not consented.
-              </p>
-              <p>
-                We take down apps that do, and may suspend the box. The full rules are in the{" "}
-                <Link href="/terms#use">acceptable use</Link> section of our terms.
-              </p>
-            </div>
           </div>
         </div>
       </section>
