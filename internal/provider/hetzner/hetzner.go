@@ -587,7 +587,7 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 	rules := p.firewallRules(p.SSH)
 	if fw != nil {
 		if p.SSH.Changed || !sameRules(fw.Rules, rules) {
-			progress("updating the firewall: " + p.SSH.Summary())
+			progress("updating the firewall: " + p.sshSummary())
 			acts, _, err := p.c.Firewall.SetRules(ctx, fw, hcloud.FirewallSetRulesOpts{Rules: rules})
 			if err != nil {
 				return none, apiErr("update the firewall", err)
@@ -598,7 +598,7 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 		}
 	} else {
 		p.SSH.Changed = true
-		progress("creating the firewall: " + p.SSH.Summary() + "; HTTP/HTTPS from anywhere")
+		progress("creating the firewall: " + p.sshSummary() + "; HTTP/HTTPS from anywhere")
 		res, _, err := p.c.Firewall.Create(ctx, hcloud.FirewallCreateOpts{Name: p.cfg.Name, Labels: p.Labels(), Rules: rules})
 		if err != nil {
 			if hcloud.IsError(err, hcloud.ErrorCodeUniquenessError) {

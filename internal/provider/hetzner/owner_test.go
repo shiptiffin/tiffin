@@ -2,6 +2,7 @@ package hetzner
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
@@ -52,5 +53,33 @@ func TestEnsureRunningPowersOn(t *testing.T) {
 	}
 	if s := f.ServerByName("shop"); s.Status != "running" {
 		t.Fatalf("status %s", s.Status)
+	}
+}
+
+// For a control plane the firewall's SSH source is its setup worker, so the
+// step never calls it the person's address; `tiffin up` still does.
+func TestFirewallStepSaysWhoseAddress(t *testing.T) {
+	ctx := context.Background()
+	steps := func(owner string) string {
+		f := hetznertest.New()
+		defer f.Close()
+		var said []string
+		p := newProvider(t, f, func(c *Config) { c.Owner = owner })
+		if _, err := p.Ensure(ctx, func(s string) { said = append(said, s) }); err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range said {
+			if strings.HasPrefix(s, "creating the firewall") {
+				return s
+			}
+		}
+		t.Fatalf("no firewall step in %q", said)
+		return ""
+	}
+	if s := steps("box_abc"); s != "creating the firewall: SSH allowed only from the setup worker's address; HTTP/HTTPS from anywhere" {
+		t.Fatalf("managed: %q", s)
+	}
+	if s := steps(""); s != "creating the firewall: SSH now allowed from 198.51.100.7 (your current address); HTTP/HTTPS from anywhere" {
+		t.Fatalf("tiffin up: %q", s)
 	}
 }

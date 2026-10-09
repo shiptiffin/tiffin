@@ -64,6 +64,16 @@ func (a SSHAccess) Summary() string {
 	return s
 }
 
+// sshSummary is Summary for this provider's caller. For a control plane
+// (Owner set) the addresses are its setup worker's, not the person's, so
+// it says so instead of calling them "your current address".
+func (p *Provider) sshSummary() string {
+	if p.cfg.Owner != "" && !p.SSH.Anywhere {
+		return "SSH allowed only from the setup worker's address"
+	}
+	return p.SSH.Summary()
+}
+
 func ipnet(p netip.Prefix) net.IPNet {
 	return net.IPNet{IP: p.Addr().AsSlice(), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}
 }
