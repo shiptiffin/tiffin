@@ -143,7 +143,9 @@ export function KeyField({ boxId, onChecked, label = "Hetzner API token" }: { bo
 type Job = { status: string; steps: { at: string; text: string }[]; error: string | null } | null;
 type Box = { id: string; name: string | null; status: string; fingerprint: string | null };
 
-export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
+export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job: Job }) {
+  const [name, setName] = useState(initialBox.name);
+  const box = { ...initialBox, name };
   const [status, setStatus] = useState(box.status);
   const [job, setJob] = useState<Job>(initialJob);
   const [checked, setChecked] = useState<{ token: string; r: Extract<CheckResult, { ok: true }> } | null>(null);
@@ -155,9 +157,10 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
     const tick = async () => {
       try {
         const res = await fetch(`/api/cloud/boxes/${box.id}`, { cache: "no-store" });
-        const j = (await res.json()) as { box?: { status: string }; job?: Job };
+        const j = (await res.json()) as { box?: { status: string; name: string | null }; job?: Job };
         if (!stop && j.box) {
           setStatus(j.box.status);
+          if (j.box.name) setName(j.box.name);
           setJob(j.job ?? null);
         }
       } catch {}
@@ -197,19 +200,40 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
           </p>
         </div>
       ) : (
-        <Choose box={box} token={checked.token} r={checked.r} onStarted={() => setStatus("provisioning")} onBack={() => setChecked(null)} />
+        <Choose box={box} token={checked.token} r={checked.r} onStarted={(n) => {
+            setName(n);
+            setStatus("provisioning");
+          }} onBack={() => setChecked(null)} />
       )}
     </>
   );
 }
 
-function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string; r: Extract<CheckResult, { ok: true }>; onStarted: () => void; onBack: () => void }) {
+function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string; r: Extract<CheckResult, { ok: true }>; onStarted: (name: string) => void; onBack: () => void }) {
   const [name, setName] = useState(box.name ?? "");
+  // Whether the typed name is free, asked of the server a moment after typing stops.
+  const [free, setFree] = useState<{ name: string; available: boolean; message: string } | null>(null);
   const [pick, setPick] = useState(r.suggested ? `${r.suggested.serverType}@${r.suggested.location}` : "");
   const [keep, setKeep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const why = name ? nameProblem(name) : null;
+  useEffect(() => {
+    if (box.name || !name || why) return;
+    let stop = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/cloud/names?name=${encodeURIComponent(name)}`, { cache: "no-store" });
+        const j = (await res.json()) as { available?: boolean; message?: string };
+        if (!stop && typeof j.available === "boolean") setFree({ name, available: j.available, message: j.message ?? "" });
+      } catch {}
+    }, 350);
+    return () => {
+      stop = true;
+      clearTimeout(t);
+    };
+  }, [name, why, box.name]);
+  const taken = free?.name === name && !free.available;
   const eu = useMemo(() => r.options.filter((o) => o.region === "eu"), [r.options]);
   const us = useMemo(() => r.options.filter((o) => o.region === "us"), [r.options]);
 
@@ -219,7 +243,7 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
     setBusy(true);
     setError("");
     const res = await post(`/api/cloud/boxes/${box.id}/create`, { token, name, serverType, location, keepKey: keep });
-    if (res.ok) onStarted();
+    if (res.ok) onStarted(name);
     else {
       setError(res.message ?? "Setup couldn't start.");
       setBusy(false);
@@ -275,14 +299,23 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
             value={name}
             readOnly={Boolean(box.name)}
             onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-            placeholder="acme"
+            placeholder="your-name"
             autoComplete="off"
             spellCheck={false}
             maxLength={30}
           />
           <span>.{ZONE}</span>
         </div>
-        {why ? <p className="cp-err">{why}</p> : <p className="cp-hint">Your dashboard will be dashboard.{name || "name"}.{ZONE}; apps go under it. Add your own domain any time.</p>}
+        {why ? (
+          <p className="cp-err">{why}</p>
+        ) : taken ? (
+          <p className="cp-err">{free.message}</p>
+        ) : (
+          <p className="cp-hint">
+            {free?.name === name && free.available ? `${free.message} ` : ""}Your dashboard will be dashboard.{name || "your-name"}.{ZONE}; apps go under it.
+            Add your own domain any time.
+          </p>
+        )}
       </div>
       {group("Europe", eu)}
       {group("United States", us)}
@@ -302,7 +335,7 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
         </span>
       </label>
       <div className="cp-row">
-        <button className="btn btn-primary" disabled={busy || !name || Boolean(why) || !pick}>
+        <button className="btn btn-primary" disabled={busy || !name || Boolean(why) || taken || !pick}>
           {busy ? "Starting…" : "Create my box"}
         </button>
       </div>
