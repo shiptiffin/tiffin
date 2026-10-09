@@ -49,7 +49,17 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
           setState("success");
           setTimeout(() => navigate({ href: next ?? "/" }), 650);
         })
-        .catch((e) => live && setState(e instanceof ApiError && e.status !== 0 ? "bad-link" : "offline"));
+        .catch((e) => {
+          if (!live) return;
+          if (!(e instanceof ApiError) || e.status === 0) return setState("offline");
+          // A used link from a browser that's already signed in (Open dashboard again): just go in.
+          api
+            .whoami()
+            .then(() => {
+              if (live) void navigate({ href: next ?? "/", replace: true });
+            })
+            .catch(() => live && setState("bad-link"));
+        });
       return () => {
         live = false;
       };
@@ -57,7 +67,12 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
     // No code (a later visit, e.g. "Sign in again" to confirm it's you).
     api
       .whoami()
-      .then(() => live && setState(reason ? "no-code" : "already"))
+      // Already signed in and nothing to confirm: go straight to the dashboard.
+      .then(() => {
+        if (!live) return;
+        if (reason) setState("no-code");
+        else void navigate({ href: next ?? "/", replace: true });
+      })
       .catch(() => live && setState("no-code"));
     return () => {
       live = false;
@@ -130,7 +145,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
           {/* The mascot waits; once the link is good it lights up (steam), cross-fading in place. */}
           <Mascot state={opening ? "live" : "base"} className="size-[168px] md:size-[min(26rem,36vw)]" />
           <figcaption className="mt-5 text-center text-[0.8125rem] leading-5 text-ink-3 max-md:hidden">
-            Apps, Postgres, files, mail, jobs and sign-in,
+            Apps, database, auth, files, mail and jobs,
             <br />
             stacked in one machine you own.
           </figcaption>
