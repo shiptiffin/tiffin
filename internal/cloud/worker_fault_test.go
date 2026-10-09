@@ -245,8 +245,8 @@ func TestHungRenewalStopsTheJob(t *testing.T) {
 }
 
 // A resize that stopped half way always gets the server running again:
-// even after the subscription ended, with the job's key or the kept one;
-// without any key the customer is told, by email and on the box.
+// even after the subscription ended, with the job's key; without one the
+// customer is told, by email and on the box.
 func TestInterruptedResizeAlwaysPowersOn(t *testing.T) {
 	h := newHarness(t)
 	h.provisioned("box_e1", "pow", ProvisionArgs{})
@@ -278,12 +278,10 @@ func TestInterruptedResizeAlwaysPowersOn(t *testing.T) {
 		t.Fatal("no email about a server that may be off")
 	}
 
-	// The key the customer kept works for this, even if the job didn't ask for it; the note goes.
-	sealed, _ := Seal(h.seal.PublicKey(), []byte(hetznertest.Token), TokenAAD("box_e1"))
-	h.exec(`update cloud_boxes set token_sealed = $1 where id = 'box_e1'`, sealed)
-	id = interrupted("", ResizeArgs{ServerType: "cax21"})
+	// The customer pastes a key again: the server runs and the note goes.
+	id = interrupted(hetznertest.Token, ResizeArgs{ServerType: "cax21"})
 	if j := h.job(id); j.Status != "done" || h.hz.ServerByName("pow").Status != "running" || h.box("box_e1").Attention != "" {
-		t.Fatalf("recovery with the kept key: %s", j.text())
+		t.Fatalf("recovery with a pasted key: %s", j.text())
 	}
 
 	// A resize the sweep gives up on (its worker kept stopping) emails too.

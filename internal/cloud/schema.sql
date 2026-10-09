@@ -40,8 +40,6 @@ create table if not exists cloud_boxes (
   hetzner_firewall_id bigint,
   hetzner_ssh_key_id bigint,
   token_fingerprint text,
-  token_sealed text,
-  token_kept_at timestamptz,
   signin_code text,
   signin_expires_at timestamptz,
   dns_state text not null default 'none' check (dns_state in ('none', 'pending', 'live', 'removed', 'parked', 'killed')),
@@ -77,6 +75,9 @@ alter table cloud_boxes add column if not exists attention_at timestamptz;
 alter table cloud_boxes add column if not exists handoff_closed_at timestamptz;
 alter table cloud_boxes add column if not exists signin_requested_at timestamptz;
 alter table cloud_boxes add column if not exists checkout_attempt jsonb;
+-- Columns dropped since: a customer's Hetzner token lives only on its job.
+alter table cloud_boxes drop column if exists token_sealed;
+alter table cloud_boxes drop column if exists token_kept_at;
 alter table cloud_boxes drop constraint if exists cloud_boxes_dns_state_check;
 alter table cloud_boxes add constraint cloud_boxes_dns_state_check check (dns_state in ('none', 'pending', 'live', 'removed', 'parked', 'killed'));
 create index if not exists cloud_boxes_user on cloud_boxes (user_id, created_at);
@@ -91,7 +92,7 @@ comment on column cloud_boxes.first_paid_at is 'When the first invoice was paid.
 comment on column cloud_boxes.extras_paused_at is 'When the managed extras paused (subscription ended or unpaid). The shiptiffin.app address is removed 30 days later.';
 comment on column cloud_boxes.addr_mac is 'The worker''s MAC over (box, name, ipv4, ipv6, generation): DNS only ever points at addresses the worker recorded itself.';
 comment on column cloud_boxes.generation is 'Installation generation: each setup attempt gets the next one; licences carry it and only the current one counts.';
-comment on column cloud_boxes.token_sealed is 'The customer''s Hetzner token, sealed to the worker''s public key, only when they chose "keep my key". Empty otherwise.';
+comment on column cloud_boxes.token_fingerprint is 'What stays of the Hetzner token the last setup used: 12 hex characters of its sha256. A token itself is kept only on its job (cloud_jobs.token_sealed) and forgotten when the job ends.';
 comment on column cloud_boxes.signin_code is 'The one-time owner sign-in link the box made (at setup, or at a check-in once the dashboard is ready or the customer asked for a new one); it expires on the box after 24 hours. Kept until the box reports the owner signed in, the customer forgets it, or it expires.';
 comment on column cloud_boxes.installed_at is 'When Tiffin finished installing. From then on nothing we do deletes the server or its volume: a failure leaves them and sets attention.';
 comment on column cloud_boxes.attention is 'Set when something after the install went wrong and needs a person (shown to the customer and in /admin). The server and data are kept.';

@@ -57,7 +57,6 @@ type Box struct {
 	ServerID        int64
 	DNSState        string
 	Killed          bool
-	TokenSealed     string
 	LastHeartbeatAt *time.Time
 	ReadyAt         *time.Time
 	// InstalledAt: Tiffin finished installing. From then on nothing deletes
@@ -100,9 +99,6 @@ type Store interface {
 	// SetDNS records the address's state; it never turns "killed" into anything else.
 	SetDNS(ctx context.Context, l Lease, boxID, state string) error
 	SetFingerprint(ctx context.Context, l Lease, boxID, fp string) error
-	// KeepToken stores the sealed Hetzner token on the box (the customer
-	// asked to keep it); "" forgets it.
-	KeepToken(ctx context.Context, l Lease, boxID, sealed string) error
 	SetSignin(ctx context.Context, l Lease, boxID, code string, expires time.Time) error
 	Released(ctx context.Context, l Lease, boxID string) error
 	// QueueEmail puts an email in the outbox (sent by the website), once per (box, kind, key).
@@ -297,11 +293,11 @@ func (s *PG) Retry(ctx context.Context, l Lease, jobErr error, delay time.Durati
 
 func (s *PG) Box(ctx context.Context, id string) (*Box, error) {
 	var b Box
-	var name, st, loc, v4, v6, tok, mac, att *string
+	var name, st, loc, v4, v6, mac, att *string
 	var srv *int64
 	err := s.Pool.QueryRow(ctx, `select id, name, status, plan_status, first_paid_at is not null, extras_paused_at, server_type, location, ipv4, ipv6,
-		addr_mac, generation, hetzner_server_id, dns_state, killed_at is not null, token_sealed, last_heartbeat_at, ready_at, installed_at, attention from cloud_boxes where id = $1`, id).
-		Scan(&b.ID, &name, &b.Status, &b.PlanStatus, &b.FirstPaid, &b.ExtrasPausedAt, &st, &loc, &v4, &v6, &mac, &b.Generation, &srv, &b.DNSState, &b.Killed, &tok,
+		addr_mac, generation, hetzner_server_id, dns_state, killed_at is not null, last_heartbeat_at, ready_at, installed_at, attention from cloud_boxes where id = $1`, id).
+		Scan(&b.ID, &name, &b.Status, &b.PlanStatus, &b.FirstPaid, &b.ExtrasPausedAt, &st, &loc, &v4, &v6, &mac, &b.Generation, &srv, &b.DNSState, &b.Killed,
 			&b.LastHeartbeatAt, &b.ReadyAt, &b.InstalledAt, &att)
 	if err != nil {
 		return nil, err
@@ -312,7 +308,7 @@ func (s *PG) Box(ctx context.Context, id string) (*Box, error) {
 		}
 		return *p
 	}
-	b.Name, b.ServerType, b.Location, b.IPv4, b.IPv6, b.TokenSealed, b.AddrMAC, b.Attention = deref(name), deref(st), deref(loc), deref(v4), deref(v6), deref(tok), deref(mac), deref(att)
+	b.Name, b.ServerType, b.Location, b.IPv4, b.IPv6, b.AddrMAC, b.Attention = deref(name), deref(st), deref(loc), deref(v4), deref(v6), deref(mac), deref(att)
 	if srv != nil {
 		b.ServerID = *srv
 	}
@@ -367,11 +363,6 @@ func (s *PG) SetFingerprint(ctx context.Context, l Lease, boxID, fp string) erro
 	return s.fenced(ctx, l, `update cloud_boxes set token_fingerprint = $2, updated_at = now() where id = $1`, boxID, fp)
 }
 
-func (s *PG) KeepToken(ctx context.Context, l Lease, boxID, sealed string) error {
-	return s.fenced(ctx, l, `update cloud_boxes set token_sealed = $2, token_kept_at = case when $2::text is null then null else now() end, updated_at = now() where id = $1`,
-		boxID, nullable(sealed))
-}
-
 func (s *PG) SetSignin(ctx context.Context, l Lease, boxID, code string, expires time.Time) error {
 	var exp *time.Time
 	if code != "" {
@@ -381,7 +372,7 @@ func (s *PG) SetSignin(ctx context.Context, l Lease, boxID, code string, expires
 }
 
 func (s *PG) Released(ctx context.Context, l Lease, boxID string) error {
-	return s.fenced(ctx, l, `update cloud_boxes set status = 'released', released_at = coalesce(released_at, now()), token_sealed = null, token_kept_at = null,
+	return s.fenced(ctx, l, `update cloud_boxes set status = 'released', released_at = coalesce(released_at, now()),
 		signin_code = null, signin_expires_at = null, updated_at = now() where id = $1`, boxID)
 }
 

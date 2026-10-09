@@ -330,15 +330,11 @@ type ProvisionArgs struct {
 	ServerType string `json:"serverType"`
 	Location   string `json:"location"`
 	VolumeGB   int    `json:"volumeGB"`
-	KeepKey    bool   `json:"keepKey"`
 }
 
 // ResizeArgs changes the server type.
 type ResizeArgs struct {
 	ServerType string `json:"serverType"`
-	KeepKey    bool   `json:"keepKey"`
-	// UseStored: use the key the customer asked us to keep.
-	UseStored bool `json:"useStored"`
 }
 
 // DeleteArgs deletes the customer's server (they asked and pasted a key).
@@ -367,12 +363,9 @@ type DNSArgs struct {
 	Kill bool `json:"kill,omitempty"`
 }
 
-// token opens the job's Hetzner token (or the box's stored one).
-func (w *Worker) token(job *Job, box *Box, useStored bool) (string, error) {
+// token opens the job's Hetzner token.
+func (w *Worker) token(job *Job, box *Box) (string, error) {
 	sealed := job.TokenSealed
-	if sealed == "" && useStored {
-		sealed = box.TokenSealed
-	}
 	if sealed == "" {
 		return "", errors.New("no Hetzner key for this job (it is forgotten after two hours): paste it again")
 	}
@@ -459,7 +452,7 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	if box.ReadyAt != nil || box.InstalledAt != nil {
 		return errors.New("this box was set up before; it is not set up again")
 	}
-	token, err := w.token(job, box, false)
+	token, err := w.token(job, box)
 	if err != nil {
 		return err
 	}
@@ -636,18 +629,7 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 		return err
 	}
 
-	if a.KeepKey {
-		sealed, err := Seal(w.SealKey.PublicKey(), []byte(token), TokenAAD(box.ID))
-		if err != nil {
-			return err
-		}
-		if err := w.Store.KeepToken(ctx, job.Lease, box.ID, sealed); err != nil {
-			return err
-		}
-		progress("Kept your Hetzner key, sealed, for one-click resizes (remove it any time)")
-	} else {
-		progress("Forgot your Hetzner key (only its fingerprint " + Fingerprint(token) + " stays)")
-	}
+	progress("Forgot your Hetzner key (only its fingerprint " + Fingerprint(token) + " stays)")
 
 	// Ready means the dashboard answers over HTTPS with a valid certificate.
 	if err := w.Store.SetStatus(ctx, job.Lease, box.ID, "cert_pending"); err != nil {
@@ -801,7 +783,7 @@ func (w *Worker) cleanup(ctx context.Context, job *Job, box *Box, a CleanupArgs,
 		progress("Your Hetzner key is forgotten, so what the setup made stays: delete what carries the label shiptiffin-box=" + box.ID + " in the Hetzner console, or try the setup again (it cleans up first)")
 		return nil
 	}
-	token, err := w.token(job, box, false)
+	token, err := w.token(job, box)
 	if err != nil {
 		return err
 	}
@@ -857,9 +839,9 @@ echo removed`
 
 func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, progress func(string)) error {
 	// A resize that stopped half way (its checkpoint says how far it got)
-	// may have left the server off. Starting it again is always allowed:
-	// with the job's key, or the key the customer kept, whatever the box's
-	// subscription or status is now. Without either, the customer is told.
+	// may have left the server off. Starting it again is always allowed
+	// with the job's key, whatever the box's subscription or status is now.
+	// Without a key, the customer is told.
 	var phase string
 	_ = json.Unmarshal(job.Checkpoint["phase"], &phase)
 	recovering := phase != "" && phase != "done"
@@ -868,10 +850,10 @@ func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, p
 			return fmt.Errorf("the box is %s; only a running box is resized", box.Status)
 		}
 		if !extrasOn(box) {
-			return errors.New("one-click resize is part of the subscription, which isn't active")
+			return errors.New("resizing from your account is part of the subscription, which isn't active")
 		}
 	}
-	token, err := w.token(job, box, a.UseStored || recovering)
+	token, err := w.token(job, box)
 	if err != nil {
 		if recovering {
 			w.serverMayBeOff(ctx, job, box, progress)
@@ -941,11 +923,6 @@ func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, p
 			return err
 		}
 	}
-	if a.KeepKey && job.TokenSealed != "" {
-		if sealed, err := Seal(w.SealKey.PublicKey(), []byte(token), TokenAAD(box.ID)); err == nil {
-			_ = w.Store.KeepToken(ctx, job.Lease, box.ID, sealed)
-		}
-	}
 	_ = w.Store.Checkpoint(ctx, job.Lease, "phase", "done")
 	_ = w.Store.ClearAttention(ctx, job.Lease, box.ID, ServerOffWhy)
 	progress("Resized. The box retunes Postgres and the apps' memory as it starts")
@@ -985,7 +962,7 @@ func (w *Worker) deleteServer(ctx context.Context, job *Job, box *Box, a DeleteA
 		}
 	}
 	if _, done := job.Checkpoint["hetzner"]; !done {
-		token, err := w.token(job, box, false)
+		token, err := w.token(job, box)
 		if err != nil {
 			return err
 		}

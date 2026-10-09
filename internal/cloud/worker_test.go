@@ -253,8 +253,8 @@ func TestProvisionEndToEnd(t *testing.T) {
 	if !strings.HasPrefix(b.IPv4, "203.0.113.") || !AddrOK(h.seal, b.AddrMAC, "box_1", "shop", b.IPv4, b.IPv6, 1) {
 		t.Fatalf("addresses %q %q not MAC'd", b.IPv4, b.IPv6)
 	}
-	if b.TokenSealed != "" {
-		t.Fatal("the Hetzner key must be forgotten by default")
+	if n := h.num(`select count(*) from information_schema.columns where table_name = 'cloud_boxes' and column_name like 'token%' and column_name <> 'token_fingerprint'`); n != 0 {
+		t.Fatal("a box row must have no place for a Hetzner key")
 	}
 	if fp := h.str(`select token_fingerprint from cloud_boxes where id = 'box_1'`); fp != Fingerprint(hetznertest.Token) {
 		t.Fatalf("fingerprint %q", fp)
@@ -331,13 +331,13 @@ func TestProvisionEndToEnd(t *testing.T) {
 		t.Fatal("the token appears in the call log")
 	}
 
-	// Resize needs a key: none was kept, so it fails and asks for one.
-	rid := h.enqueue("box_1", "resize", "", ResizeArgs{ServerType: "cax21", UseStored: true})
+	// Every resize needs a key of its own, used for that job and forgotten.
+	rid := h.enqueue("box_1", "resize", "", ResizeArgs{ServerType: "cax21"})
 	h.runNext()
 	if j := h.job(rid); j.Status != "failed" || !strings.Contains(*j.Error, "paste it again") {
 		t.Fatalf("resize without a key: %+v", j)
 	}
-	rid = h.enqueue("box_1", "resize", hetznertest.Token, ResizeArgs{ServerType: "cax21", KeepKey: true})
+	rid = h.enqueue("box_1", "resize", hetznertest.Token, ResizeArgs{ServerType: "cax21"})
 	h.runNext()
 	if j := h.job(rid); j.Status != "done" || j.Token != nil {
 		t.Fatalf("resize: %s", j.text())
@@ -345,28 +345,18 @@ func TestProvisionEndToEnd(t *testing.T) {
 	if !slices.Contains(h.hz.ChangeTypes, "cax21 upgrade_disk=false") || h.str(`select server_type from cloud_boxes where id = 'box_1'`) != "cax21" {
 		t.Fatalf("change types %v", h.hz.ChangeTypes)
 	}
-	if h.box("box_1").TokenSealed == "" {
-		t.Fatal("the key should be kept now")
-	}
-	rid = h.enqueue("box_1", "resize", "", ResizeArgs{ServerType: "cax31", UseStored: true})
+	rid = h.enqueue("box_1", "resize", "", ResizeArgs{ServerType: "cax31"})
 	h.runNext()
-	if j := h.job(rid); j.Status != "done" {
-		t.Fatalf("one-click resize: %s", j.text())
+	if j := h.job(rid); j.Status != "failed" || !strings.Contains(*j.Error, "paste it again") {
+		t.Fatalf("the next resize needs a key again: %+v", j)
+	}
+	rid = h.enqueue("box_1", "resize", hetznertest.Token, ResizeArgs{ServerType: "cax31"})
+	h.runNext()
+	if j := h.job(rid); j.Status != "done" || j.Token != nil {
+		t.Fatalf("second resize: %s", j.text())
 	}
 	if b := h.box("box_1"); !AddrOK(h.seal, b.AddrMAC, b.ID, b.Name, b.IPv4, b.IPv6, b.Generation) {
 		t.Fatal("a resize must keep the addresses' MAC")
-	}
-}
-
-func TestProvisionKeepsKeyWhenAsked(t *testing.T) {
-	h := newHarness(t)
-	b := h.provisioned("box_2", "tea", ProvisionArgs{ServerType: "cx23", Location: "nbg1", KeepKey: true})
-	raw, err := Open(h.seal, b.TokenSealed, TokenAAD("box_2"))
-	if err != nil || string(raw) != hetznertest.Token {
-		t.Fatalf("kept key: %v", err)
-	}
-	if _, err := Open(h.seal, b.TokenSealed, TokenAAD("box_1")); !errors.Is(err, ErrSealed) {
-		t.Fatal("a sealed key must not open for another box")
 	}
 }
 
@@ -378,14 +368,14 @@ func TestProvisionFailureCleansUp(t *testing.T) {
 	h.w.Install = func(context.Context, provider.Machine, string, install.Options, func(string)) (*install.Result, error) {
 		return nil, errors.New("provision: apt failed")
 	}
-	id := h.enqueue("box_4", "provision", hetznertest.Token, ProvisionArgs{Name: "deli", ServerType: "cax11", Location: "fsn1", KeepKey: true})
+	id := h.enqueue("box_4", "provision", hetznertest.Token, ProvisionArgs{Name: "deli", ServerType: "cax11", Location: "fsn1"})
 	h.runNext()
 	j := h.job(id)
 	if j.Status != "failed" || j.Token != nil {
 		t.Fatalf("install failure: %s", j.text())
 	}
 	b := h.box("box_4")
-	if b.Status != "failed" || b.DNSState != "removed" || h.cf.Count() != 0 || b.TokenSealed != "" {
+	if b.Status != "failed" || b.DNSState != "removed" || h.cf.Count() != 0 {
 		t.Fatalf("after failure: %+v, %d records", b, h.cf.Count())
 	}
 	if srv, vols, fws, keys := h.hz.Count(); srv+vols+fws+keys != 0 {
@@ -409,14 +399,14 @@ func TestProvisionFailureCleansUp(t *testing.T) {
 func TestProvisionWrongKey(t *testing.T) {
 	h := newHarness(t)
 	h.addBox("box_3", "cafe")
-	id := h.enqueue("box_3", "provision", "not-the-token", ProvisionArgs{Name: "cafe", ServerType: "cax11", Location: "fsn1", KeepKey: true})
+	id := h.enqueue("box_3", "provision", "not-the-token", ProvisionArgs{Name: "cafe", ServerType: "cax11", Location: "fsn1"})
 	h.runNext()
 	j := h.job(id)
 	if j.Status != "failed" || j.Token != nil || !strings.Contains(*j.Error, "rejected the API token") {
 		t.Fatalf("job: %s", j.text())
 	}
-	if b := h.box("box_3"); b.Status != "failed" || b.TokenSealed != "" {
-		t.Fatal("a failed setup keeps no key")
+	if b := h.box("box_3"); b.Status != "failed" {
+		t.Fatalf("box %s", b.Status)
 	}
 	if h.num(`select count(*) from cloud_hetzner_calls where box_id = 'box_3' and status = 401`) == 0 {
 		t.Fatal("rejected calls are logged too")
@@ -543,10 +533,10 @@ func TestLostLeaseStopsTheWorker(t *testing.T) {
 // An interrupted resize never leaves the server off.
 func TestResizeReconcilesPower(t *testing.T) {
 	h := newHarness(t)
-	h.provisioned("box_10", "power", ProvisionArgs{KeepKey: true})
+	h.provisioned("box_10", "power", ProvisionArgs{})
 	// The worker stopped after the type change, with the server off.
 	h.hz.SetServerStatus("power", "off")
-	id := h.enqueue("box_10", "resize", "", ResizeArgs{ServerType: "cax11", UseStored: true})
+	id := h.enqueue("box_10", "resize", hetznertest.Token, ResizeArgs{ServerType: "cax11"})
 	h.exec(`update cloud_jobs set checkpoint = '{"phase": "changing the type"}' where id = $1`, id)
 	h.runNext()
 	if j := h.job(id); j.Status != "done" || !strings.Contains(j.text(), "Picking up") {
@@ -557,7 +547,7 @@ func TestResizeReconcilesPower(t *testing.T) {
 	}
 	// Even a resize that fails starts the server again.
 	h.hz.SetServerStatus("power", "off")
-	id = h.enqueue("box_10", "resize", "", ResizeArgs{ServerType: "no-such-type", UseStored: true})
+	id = h.enqueue("box_10", "resize", hetznertest.Token, ResizeArgs{ServerType: "no-such-type"})
 	h.runNext()
 	if j := h.job(id); j.Status != "failed" || h.hz.ServerByName("power").Status != "running" {
 		t.Fatalf("failed resize: %s / %s", j.text(), h.hz.ServerByName("power").Status)
@@ -612,7 +602,7 @@ func TestDeleteRemovesDNSFirst(t *testing.T) {
 	if srv, vols, _, _ := h.hz.Count(); srv != 0 || vols != 1 {
 		t.Fatalf("after delete: servers %d volumes %d", srv, vols)
 	}
-	if b := h.box("box_11"); b.Status != "released" || b.TokenSealed != "" {
+	if b := h.box("box_11"); b.Status != "released" {
 		t.Fatalf("box %+v", b)
 	}
 	if h.str(`select signin_code from cloud_boxes where id = 'box_11'`) != "" {
