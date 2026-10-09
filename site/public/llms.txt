@@ -1,0 +1,37 @@
+# ShipTiffin
+
+> ShipTiffin runs all your apps on one Linux server you own (a box), with Postgres, KV, file storage, email, sign-in, jobs, analytics, error tracking and backups already on it. People and their coding agents run it through one CLI (`tiffin`), one MCP server and one dashboard. A managed box is $19 a month per box plus the server at Hetzner; running Tiffin yourself is free (AGPL-3.0).
+
+Setting ShipTiffin up for someone? Follow [the setup steps](https://shiptiffin.com/agent-setup.md). Some steps only the person can do (signing in, paying, Hetzner credentials, adding a passkey, creating the first API key): stop and ask them at those points.
+
+Every box serves an MCP server at `https://dashboard.<box domain>/mcp` (an API key from the dashboard's Settings › API keys, sent as `Authorization: Bearer <key>`) and its API description at `https://dashboard.<box domain>/v1/openapi.json`. The `tiffin` CLI reaches a box with `TIFFIN_URL` and `TIFFIN_TOKEN`; `tiffin <command> --help` lists every command and flag. Change a box only by plan, then apply with the plan's hash.
+
+## Start here
+
+- [Set up ShipTiffin with your coding agent](https://shiptiffin.com/docs/agent-onboarding.md): the setup prompt, what only the person can do, connecting Claude Code, Codex, Cursor and VS Code
+- [Quickstart](https://shiptiffin.com/docs/quickstart.md): make a box with tiffin up (a Mac, Hetzner or any Ubuntu server), describe a project, plan, apply, deploy
+- [Concepts](https://shiptiffin.com/docs/concepts.md): the box, projects and resources, sharing the box, changes, risk tiers, undo, people and API keys
+- [Working with agents](https://shiptiffin.com/docs/agents.md): the MCP server, plan then apply, API keys, CLI conventions, untrusted data
+- [Managed boxes](https://shiptiffin.com/docs/managed.md): how shiptiffin.com sets up a box in your Hetzner account, what it can and can't do, billing
+
+## Services
+
+- [Apps and deploys](https://shiptiffin.com/docs/apps.md): frameworks, tiffin.config.ts, deploys, previews, GitHub, env and secrets
+- [Postgres, KV and backups](https://shiptiffin.com/docs/data.md): databases, branches, Valkey, backups and restores
+- [Files](https://shiptiffin.com/docs/storage.md): S3-compatible buckets, uploads, image resizing
+- [Email](https://shiptiffin.com/docs/email.md): sending through a provider, the test inbox, sending domains
+- [Sign-in](https://shiptiffin.com/docs/auth.md): Better Auth on the box: passwords, magic links, passkeys, OAuth
+- [Jobs](https://shiptiffin.com/docs/queues.md): queues, crons and durable workflows
+- [Domains](https://shiptiffin.com/docs/domains.md): the box's domain and each project's own domains
+
+## Optional
+
+- [All the guides above in one file](https://shiptiffin.com/llms-full.txt)
+- [What works and what doesn't](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md): every framework, limit and known gap
+- [Security model](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/security.md): what the box protects and how
+- [Monitoring](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/observe.md): metrics, logs, alerts and error tracking
+- [Analytics](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/analytics.md): cookieless visits and events
+- [Protection](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/protection.md): rate limits, bot challenge, firewall
+- [Copying and moving](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/moving.md): export, import and moving projects between boxes
+- [Always-on agents](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/always-on-agents.md): running an agent of your own on the box
+- [How managed boxes work](https://shiptiffin.com/managed): the short version, on the website

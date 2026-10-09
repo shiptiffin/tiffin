@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import Link from "next/link";
+import { AgentSetup } from "./agent-setup";
 import { Art } from "./art";
 import { Compare } from "./compare";
 import { Pricing } from "./pricing";
@@ -208,7 +211,18 @@ const TERMINAL = [
   `<span class="t-p">$</span> git push tiffin main`,
 ].join("\n");
 
-const MCP = `<span class="t-p">$</span> claude mcp add tiffin -- tiffin mcp`;
+const MCP = `<span class="t-p">$</span> claude mcp add --transport http tiffin https://dashboard.<span class="t-s">yourname</span>.shiptiffin.app/mcp --header <span class="t-s">"Authorization: Bearer &lt;key&gt;"</span>`;
+
+/* The setup prompt, generated from docs/guide/agent-onboarding.md (site/lib/llms.ts). */
+const PROMPT = readFileSync(join(process.cwd(), "public", "agent-setup.md"), "utf8");
+
+/* What the agent stops and asks for, from the prompt's [Me] steps. */
+const YOURS = [
+  ["Sign in and pay", "It's your account and your card."],
+  ["Your Hetzner key", "You paste it into our page, never into the chat."],
+  ["A passkey", "It lives on your device."],
+  ["The agent's key", "You create it in your dashboard and hand it over."],
+] as const;
 
 export default function Home() {
   return (
@@ -330,6 +344,31 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="agent-setup" className="band" aria-labelledby="agent-setup-title">
+        <div className="wrap two-col">
+          <div>
+            <h2 id="agent-setup-title" className="h2">
+              Or let your coding agent set it up.
+            </h2>
+            <div className="prose-lg agent-intro">
+              <p>
+                Give this prompt to Claude Code, Codex or Cursor. It explains each step, connects itself to your box
+                and deploys your first app. It stops and asks you for the parts that are yours:
+              </p>
+            </div>
+            <ul className="agent-yours">
+              {YOURS.map(([k, v]) => (
+                <li key={k}>
+                  <strong>{k}</strong>
+                  <span>{v}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <AgentSetup prompt={PROMPT} />
+        </div>
+      </section>
+
       <section id="control" className="band" aria-labelledby="control-title">
         <div className="wrap">
           <div className="section-head">
@@ -399,8 +438,9 @@ export default function Home() {
             <h2 className="h2">Your coding agent can run it, safely.</h2>
             <div className="prose-lg">
               <p>
-                Claude Code and other agents connect over MCP. Everything you can do in the dashboard is a tool
-                they can call: make a project, deploy it, read its logs, query its database.
+                Claude Code and other agents connect over MCP with a key you create in the dashboard. Everything
+                you can do there is a tool they can call: make a project, deploy it, read its logs, query its
+                database.
               </p>
               <p>
                 Every change is planned before it runs, recorded in History with who made it and why, and can be

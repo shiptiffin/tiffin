@@ -2321,3 +2321,86 @@ code {
 .cta .section-sub {
   margin-top: 10px;
 }
+
+/* ---------- the setup prompt for a coding agent ---------- */
+.agent-setup .code-bar {
+  padding-block: 7px;
+}
+.agent-copy {
+  margin-left: auto;
+}
+.agent-setup pre {
+  max-height: 22rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+.agent-setup pre:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.agent-setup-note {
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.88rem;
+  color: var(--ink-3);
+  text-wrap: pretty;
+}
+.agent-setup-note .nowrap {
+  white-space: nowrap;
+}
+.agent-intro {
+  margin-top: 20px;
+}
+.agent-setup-note code {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  font-family: var(--font-code);
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* a long command wraps inside its box instead of widening the column */
+.pair > div {
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+.pair .code-inline pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-yours {
+  margin-top: 22px;
+  display: grid;
+  gap: 8px;
+  padding-left: 0;
+  list-style: none;
+}
+.agent-yours li {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: 0.98rem;
+}
+.agent-yours strong {
+  color: var(--ink);
+  font-weight: 550;
+}
+@media (max-width: 420px) {
+  .agent-yours li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

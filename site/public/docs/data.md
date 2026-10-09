@@ -1,0 +1,498 @@
+# Postgres, KV and backups
+
+## Postgres
+
+```ts
+services: { postgres: { extensions: ["vector", "pg_cron"] } }
+```
+
+Every project has its own Postgres 18 database and role, whether `tiffin.config.ts`
+lists `postgres` or not (list it to set options, like the extensions above). Apps get `DATABASE_URL`
+(and `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`) through the box's connection
+pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
+
+- **SQL:** `tiffin sql <project> "select ..."` runs one statement read-only (MCP `sql`;
+  no confirmation), as the project's read-only role `p_<project>__read`: it reads every
+  table, row-level security applies to it, and it cannot touch the app's sessions. `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
+  changes data and schema: it needs full access and takes a snapshot first.
+- **Branches:** `tiffin branches create <project> --name pr-12` clones the database with
+  copy-on-write in milliseconds, whatever its size. Every app preview gets one of its
+  own (`pv-<preview>`, listed with `preview` set), made on its first deploy and deleted
+  with it; `services: { postgres: { previews: "shared" } }` puts previews on the
+  production database instead. See [Migrations and preview
+  databases](https://shiptiffin.com/docs/apps.md#migrations-and-preview-databases).
+- **Migrations:** an app's `release` command (`bunx drizzle-kit migrate`) runs once per
+  deploy before the new version takes traffic, with `DATABASE_URL` set straight to
+  Postgres (migration tools hold session locks); a failure keeps the old version serving.
+- **Snapshots:** deleting all its data, deleting a branch by hand or writing through the
+  console keeps a snapshot for 7 days; `tiffin snapshots restore` brings it back. Those
+  data commands run at once (no plan); only a preview's own branch, deleted with the
+  preview, keeps none.
+- **Org isolation:** `tiffin_auth.enable_org_rls('table')` adds row-level security keyed on the
+  signed-in user's organization. Its policy is restrictive: the table's other policies can
+  narrow what a query sees, never widen it to another organization's rows.
+- **Safety limits:** a query is stopped after 5 minutes, or 30 seconds in a project with a limit (`statementTimeoutSeconds: 120`
+  changes it; `SET LOCAL statement_timeout = '10min'` lets one long job run), a session
+  left idle inside a transaction is closed after 60 seconds, and a project opens at most
+  80 connections. A project with a limit gets its share of the connections and of the
+  CPU for its queries (see [Sharing the box](https://shiptiffin.com/docs/concepts.md#sharing-the-box)).
+- **Connection pools:** see the pooler below. `DATABASE_POOL_MAX` (20 per production
+  instance, 5 per preview instance) is the most client connections one instance's pool
+  should open to the pooler. Clients do not read it on their own (the starters use 5): to
+  use it, pass it as the pool's max, e.g. `postgres(url, { prepare: false, max:
+  Number(process.env.DATABASE_POOL_MAX) || 5 })` (postgres.js), `new Pool({ max: ... })`
+  (node-postgres, and `PrismaPg` with Prisma 7). A value you set (env or secret) is kept. A new value applies
+  as instances start (a deploy or restart), and a plan warns when the apps' pools could
+  open more client connections than the pooler lets a project hold (1,000).
+
+### Connecting from your app
+
+The starters connect with [postgres.js](https://github.com/porsager/postgres), on Bun and
+Node.js alike:
+
+```ts
+// db.ts
+import postgres from "postgres";
+
+const g = globalThis as { __sql?: postgres.Sql };
+export const sql = (g.__sql ??= postgres(process.env.DATABASE_URL!, { prepare: false, max: 5, idle_timeout: 20 }));
+```
+
+- **`prepare: false` on `DATABASE_URL`:** through the transaction pooler, postgres.js 3.4.9
+  can retry a prepared query with its parameters encoded twice (see
+  [Limits](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/limits.md#database-clients)).
+- **`pg` (node-postgres) works too**, prepared statements included. Give its pool an error
+  listener (`pool.on("error", ...)`).
+- **One small pool per process:** make it once, at module level. Keeping it on
+  `globalThis` stops a dev server's hot reload from opening another pool each time.
+- **`DIRECT_DATABASE_URL`** for anything that needs a whole session: migrations, `LISTEN`,
+  session advisory locks and `SET` without `LOCAL`. Open a separate client for it
+  (`postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })`) and close it when done.
+- **ORMs and query builders** sit on top of these drivers: Drizzle
+  (`drizzle-orm/postgres-js` or `drizzle-orm/node-postgres`), Kysely (`PostgresDialect`
+  with a `pg` Pool) and Prisma 7 (`@prisma/adapter-pg`). Pin Prisma to `7.x`: npm's
+  `latest` tag is an 8.0 release candidate.
+- **Bun.sql isn't recommended yet.** In Bun 1.4.2 it binds `sql.array()` text arrays as
+  JSON-quoted values ([#41242](https://github.com/oven-sh/bun/issues/41242)), returns `uuid[]` unparsed
+  ([#41039](https://github.com/oven-sh/bun/issues/41039)), can leak connections ([#23215](https://github.com/oven-sh/bun/issues/23215)), doesn't tell
+  `sql.listen()` when its connection drops ([#41050](https://github.com/oven-sh/bun/issues/41050)), and has no COPY or cursors.
+
+### What's in your database
+
+Everything named `tiffin_*` belongs to the box; everything else is yours. The box never
+creates, changes or drops a schema without the prefix, so `auth`, `queue` and any other
+name are free for your app.
+
+| Schema | Belongs to | What's in it |
+|---|---|---|
+| `public` and any schema you make | You | Your tables. Migrations, branches and exports carry them as they are. |
+| `tiffin_auth` | The box (with `services.auth`) | Better Auth's users, sessions, organizations, keys and passkeys, plus `tiffin_auth.enable_org_rls()`, `org_id()` and `user_id()`. Read it freely; change people through the auth API or the Users page. Removing auth drops it. |
+| `tiffin_queue` | The box | `tiffin_queue.outbox`, the rows `queue.sendTx` writes until the box moves them into the queue (about a second). |
+| `workflow`, `workflow_drizzle`, `graphile_worker` | The Workflow DevKit's Postgres world (apps that use it) | Workflow runs, steps and the worker's jobs. The library names and migrates them; leave them to it. |
+
+The dashboard's data browser shows these as managed tables (hidden until you ask, and
+read-only). The queue's own jobs are not in your database: they live in the box's
+`tiffin_queue` database.
+
+### The connection pooler
+
+PgBouncer runs in front of Postgres in transaction mode (127.0.0.1:6432, and its socket
+in `/var/run/postgresql`). Apps hold as many client connections as they like (cheap: no
+Postgres process each); a server connection is theirs only for the length of a
+transaction. A project's server connections through the pooler stop at three quarters of
+its connection limit (60 of 80), so a quarter stays free for direct connections; a
+preview branch gets a fifth of that (12). Backends still run as the project's own role,
+so its limits and its share of the CPU hold as before.
+
+| Client | Through the pooler (`DATABASE_URL`) |
+|---|---|
+| postgres.js | works with `prepare: false` (see [Connecting from your app](#connecting-from-your-app)) |
+| node-postgres, Drizzle or Kysely on it | works as is, prepared statements included |
+| Prisma 7 (`@prisma/adapter-pg`) | works as is |
+| Prisma 6 (Rust engine) | works as is; `?pgbouncer=true` is not needed (it also works) |
+
+Prepared statements (node-postgres, Prisma, psycopg, pgx) work because the pooler re-prepares them on whichever server
+connection runs them. Settings sent when connecting carry over for `search_path`,
+`timezone`, `application_name`, `statement_timeout`, `lock_timeout` and
+`idle_in_transaction_session_timeout`; the pooler refuses a connection that sends others
+(set them with `SET LOCAL` inside a transaction instead). What does not survive transaction
+pooling is state kept in the session between transactions: `LISTEN`, session advisory
+locks, `SET` without `LOCAL`, temporary tables and `WITH HOLD` cursors. Use `DIRECT_DATABASE_URL` for those (Prisma's
+`directUrl`, drizzle-kit, a LISTEN connection); release commands get it as `DATABASE_URL`
+already. With node-postgres, give the pool an error listener
+(`pool.on("error", ...)`): without one, a connection the server closes while idle ends
+the process.
+
+### Minor updates
+
+Postgres, pgvector, pg_cron and PgBouncer come from the PostgreSQL project's apt
+repository, which the box's automatic security updates do not cover, so the box updates
+them itself:
+
+```bash
+tiffin maintenance show                        # versions, what waits, recent updates
+tiffin maintenance postgres-update             # check now; says when it installs
+tiffin maintenance postgres-update --now       # install now
+```
+
+An update downloads and installs the new packages while the old server runs, then pauses
+the pooler (transactions in flight finish; new queries wait), restarts Postgres and
+resumes. On a 2-CPU, 3 GB box the pause was 0.1–0.4 s and the slowest query under
+constant load took under half a second; none failed.
+Direct connections are closed by the restart and reconnect. If the new version does not
+start, the old packages go back. With a maintenance window (`tiffin up --reboot-window
+04:00`) updates install a quarter of an hour into it, once a day; without one the box
+checks daily and `tiffin status` (`postgres-updates`) says what waits. Each update is in
+the audit log (`tiffin audit list`, `postgres.update`), and one the box ran on its own
+that failed sends an alert. `tiffin up` updates the packages the same way when this
+Tiffin needs a newer version than the box runs.
+
+Unattended upgrades never restart the box's services on their own (needrestart is told
+to leave them); a maintenance run restarts those running on replaced libraries, in
+order, Postgres with the pause. PgBouncer itself restarts only when asked
+(`--restart-pooler`), because that closes every app's client connections; otherwise a new
+version of it runs from the next reboot.
+
+### From your computer
+
+Postgres and KV listen only inside the box. `tiffin db tunnel <project>` forwards
+`localhost:15432` to the project's database over SSH (the box's own SSH access, or the
+Lima VM's for a local box) and prints a `postgresql://` URL for psql, TablePlus or a local
+app; `--branch pr-12` reaches a branch instead, `--port` picks another local port.
+`tiffin kv tunnel <project>` does the same for KV on `localhost:16379`. The URL carries the
+project's password, so it needs a key with full access to the project, and every reveal
+is recorded. It stays open until you press Ctrl-C.
+
+## KV (Valkey)
+
+```ts
+services: { valkey: { maxMemoryMB: 128 } }
+```
+
+Every project has a Valkey user limited to its own key prefix (list `valkey` only to set
+`maxMemoryMB`). Apps get `REDIS_URL` and
+`VALKEY_PREFIX`. `maxMemoryMB` (64 by default) is held while the project has a limit: over
+it, its keys with an expiry are cleared first, then new writes are refused until it is under
+it (reads and deletes keep working).
+
+Use `@shiptiffin/sdk/kv`. It reads both variables, adds the prefix to every key and removes
+it from keys it returns, so code only sees its own names:
+
+```ts
+import { kv } from "@shiptiffin/sdk/kv";
+
+const store = kv();
+await store.set("user:1", { name: "Ada" }, { ex: 3600 });   // objects are stored as JSON
+const user = await store.get<{ name: string }>("user:1");
+await store.incr("visits");
+await store.hset("job:7", { status: "running", progress: 0.4 });
+await store.zadd("scores", { score: 42, member: "ada" });
+const top = await store.zrange("scores", 0, 9, { rev: true, withScores: true });
+
+const rl = await store.rateLimit(`login:${ip}`, { limit: 5, window: "1 m" });
+if (!rl.allowed) return new Response("Slow down", { status: 429, headers: { "retry-after": String(rl.retryAfter) } });
+
+const posts = await store.cached("posts:latest", 60, () => db.query.posts.findMany());
+```
+
+- Commands: strings (`get`, `set` with `ex`/`px`/`nx`/`xx`/`keepTtl`, `getdel`, `mget`,
+  `mset`, `del`, `exists`, `expire`, `ttl`, `persist`, `incr`...), hashes, lists, sets,
+  sorted sets, `publish`, and `scan("user:*")` / `keys()` over the project's own keys.
+  Names and options match `@upstash/redis`; `store.command(...)` runs anything else as is,
+  with `store.key(name)` for the full key name.
+- Values: strings are stored as is, anything else as JSON, and reads parse JSON back, as
+  with `@upstash/redis` (a stored `"42"` reads back as `42`). `kv({ json: false })` or
+  `store.raw()` gives plain strings.
+- `store.pipeline()` sends many commands in one round trip, `store.multi()` as one
+  transaction; calls made in the same tick already share one.
+- `rateLimit` is a sliding window by default (`algorithm: "fixed"` for a plain counter), one
+  Lua script on one key with Valkey's clock, so app instances share it and parallel requests
+  can't slip past; refused calls don't count. `cached` lets one caller recompute an expired
+  value while the others get the old one.
+- One connection per process, opened on first use: Bun's built-in client on Bun, the SDK's
+  own on Node (no dependencies). A dropped connection is reopened with backoff, a call fails
+  after 5 seconds, and an idle connection lets a script exit. Errors are `KVError` with
+  Valkey's code and a plain message, e.g. when the project is over its memory limit.
+
+Any Redis client works too. With iovalkey (or ioredis), let it add the prefix:
+`new Valkey(process.env.REDIS_URL, { keyPrefix: process.env.VALKEY_PREFIX })`; it prefixes
+commands and script `KEYS`, not `SCAN`. Apps may not run `SCAN` or `KEYS` themselves (they
+would show other projects' key names); the SDK's `scan()` goes through the box's KV endpoint,
+which lists only the project's keys.
+
+Lua scripts (`EVAL`, `EVALSHA`, `SCRIPT LOAD`) work; functions (`FUNCTION`, `FCALL`) don't,
+as a function library is shared by every project on the box. Valkey runs one script at a
+time with nothing else meanwhile, so a script may run for 1 second: past that the box
+kills it, or, when it has already written (Valkey can't undo half a script), restarts
+Valkey from its append-only file, which drops every project's connections for a few
+seconds and the script's own writes.
+
+### Moving an app here from Upstash or Vercel KV
+
+For moving an app with no code changes only (new code uses `@shiptiffin/sdk/kv`): apps
+that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
+box serves an Upstash-compatible REST endpoint inside the box and gives apps
+`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`
+and `KV_REST_API_READ_ONLY_TOKEN`. `Redis.fromEnv()` picks them up. Your own env or
+secrets with these names win, so delete the old Upstash values from them when you move an app.
+
+- It speaks what those clients use: one command as a JSON array, path-style commands
+  (`/set/key/value`), `/pipeline`, `/multi-exec`, base64 replies, and Lua scripts (`EVAL`,
+  `EVALSHA`, `SCRIPT LOAD`). Subscriptions over REST are not available; use `REDIS_URL`.
+- One request carries at most 16 MB and 10,000 commands, and its replies at most about
+  16 MB (more answers 413: read big values in parts with `GETRANGE`, `LRANGE`, `HSCAN`).
+- Keys are clean: the endpoint adds the project's prefix to every key (and to `PUBLISH`
+  channels), so `user:1` over REST is `VALKEY_PREFIX + "user:1"` for `Bun.redis`. A Lua
+  script gets prefixed `KEYS`; one that builds key names itself is refused.
+- Every command runs as the project's own Valkey user, with the same limits as
+  `REDIS_URL` and the KV limit above. `SCAN` lists the project's own keys; `KEYS` is refused
+  (so `@upstash/ratelimit`'s `resetUsedTokens` does not work).
+- The endpoint is only reachable from apps on the box, not from the internet.
+
+## Flexible JSON
+
+For data you don't want to model as columns yet, add a `jsonb` column to a table. It
+stores any JSON, can be indexed and queried by field, and joins and transactions keep
+working. With Drizzle:
+
+```ts
+export const events = pgTable("events", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+});
+// where data->>'plan' = 'pro'
+db.select().from(events).where(sql`${events.data}->>'plan' = 'pro'`);
+```
+
+Add `CREATE INDEX ON events USING gin (data jsonb_path_ops)` when you filter by fields
+often.
+
+## Deleting all data
+
+Database, KV and Files are never removed from a project, only emptied. **Delete all data**
+(project Settings, or `tiffin data empty <project> <postgres|valkey|storage>`, MCP
+`data_empty`) is a change like any other: the plan says exactly what goes ("18,204 rows in
+12 tables", "3,410 keys", "212 files · 1.3 GB"), asks for a confirm, and shows in History.
+
+- **Database:** every database of the project (preview branches too) is snapshotted, then
+  dropped; the main database is made again, empty, with the same role and password, so
+  apps keep their `DATABASE_URL`. Auth's tables come back empty too.
+- **KV:** every key under the project's prefix is saved (with its expiry) to
+  `/var/lib/tiffin/trash/kv`, then deleted.
+- **Files:** every bucket moves to the storage trash; the buckets in the config are made
+  again, empty.
+
+The data is kept for 7 days. `tiffin data restore <project> <part>` (or undoing the
+change, or Restore in Settings) puts it back in place of what the part holds by then: a
+database is snapshotted first, a bucket's files go to the trash, KV keys written since
+are deleted. `tiffin projects get <project>` lists what is restorable until when
+(`restorable`). After 7 days it is gone for good. Deleting again within the 7 days
+replaces the earlier delete's saved data. Deleting the project removes everything.
+
+## Backups
+
+A daily full backup and an incremental one every 6 hours of Postgres (pgBackRest),
+Valkey, files, email, analytics and the box's own state; the last 7 fulls are kept, with
+their incrementals. They stay on the box, and are copied off it when you set a destination
+(below). Postgres also archives its log of changes (WAL) continuously, so between backups
+it can go back to any moment, not just to a backup.
+
+```bash
+tiffin backup                                 # now
+tiffin backups list                           # the sets, and restorable: the moments you can go back to
+tiffin restore <id>                           # shows what it will overwrite; repeat with --confirm
+tiffin restore latest                         # the newest successful one
+tiffin restore latest --time "2026-10-07 14:32"   # Postgres to that moment (UTC)
+tiffin backups schedule --incremental-every-hours 1 --retain-full 14
+```
+
+Restore takes a safety backup first. Targets are `postgres` and `valkey` by default;
+add `--targets files` for buckets, mail and app disk folders, or `--targets all`.
+
+**Point-in-time restore.** With `--time` (the API's `time`; RFC 3339, or `2026-10-07 14:32`
+read as UTC), the box restores the newest backup set that finished at or before that moment
+and replays the archived WAL up to it, so Postgres comes back exactly as it was then, to
+the second. Valkey and files keep no log between backups: they come back from that same
+set, the newest at or before the moment. The preview says so, and the confirm value covers
+the moment. You can pick anything from when the oldest set finished until now
+(`restorable.earliest` and `restorable.latest` in `GET /v1/backups`); the safety backup,
+taken first, archives everything up to the restore. Two kinds of moment are refused, with
+the times to pick instead: those between a restore and the next backup (the restore
+started Postgres on a new timeline), and the minute or so while a backup was starting.
+On the dashboard, Backups › Restore… offers Latest, A backup or A moment (your local
+time, with UTC shown).
+
+The schedule's `incrementalEveryHours` decides how many restore points the history lists
+and how far Valkey and files can be from a chosen moment; Postgres can reach any moment
+either way. A box that kept the old default (hourly) moves to the new one.
+
+Backups are restore points of this box. To copy one project (on this box under a new
+name, to a file, or to another box), see [copying and moving](https://github.com/shiptiffin/tiffin/blob/main/docs/guide/moving.md): Duplicate,
+Export, Import and Move.
+
+### Copies off the box
+
+Backups on the box undo mistakes; they do not survive losing the server. Set an
+S3-compatible bucket and every backup set is copied there, encrypted: Cloudflare R2,
+AWS S3, Hetzner Object Storage or MinIO. The bucket must exist; the key needs to read,
+write, list and delete objects in it.
+
+```bash
+tiffin backups offsite set --endpoint https://<account>.r2.cloudflarestorage.com \
+  --bucket tiffin-backups --prefix shop-box \
+  --access-key-id <id> --secret-access-key <secret>
+tiffin backups offsite show          # on or off, the newest copy, what it sent
+tiffin backups offsite test          # write, read and delete a test object; pgBackRest lists its repository
+tiffin backups offsite copy          # copy the newest backup now (they also run after every backup)
+tiffin backups offsite list          # the sets in the bucket
+tiffin backups offsite off           # stop; the copies in the bucket stay
+```
+
+An R2 endpoint signs for region `auto` by default; others default to `us-east-1`.
+Other endpoints: `https://s3.<region>.amazonaws.com` (`--region <region>`),
+`https://<location>.your-objectstorage.com` (`--region <location>`), or your MinIO's
+HTTPS address (`--ca-cert "$(cat ca.pem)"` when a private CA signs it). Use one
+`--prefix` per box. `set` tests the destination before it saves anything, and keeps the
+secret sealed with the box key; `show` never returns it.
+
+**The passphrase.** A new destination gets a generated passphrase, returned once by
+`set` (the dashboard shows it once too). Everything in the bucket is encrypted with it,
+so keep it off the server, in a password manager. Without it the copies cannot be read:
+if the server is lost, a new box needs it to restore them. To use a passphrase of your
+own, pass `--passphrase` (12 characters or more) the first time. The copies include the
+box key that decrypts the projects' secrets, so the passphrase guards those too; the box
+keeps it sealed with that key, and anyone with the bucket's keys but not the passphrase
+sees only ciphertext with meaningless names.
+
+What is copied, and how:
+
+- **Postgres** goes to a second pgBackRest repository in the bucket (`<prefix>/pgbackrest`),
+  encrypted with aes-256-cbc. After each backup, an incremental backup goes there (a full
+  one each week). Postgres keeps archiving WAL to the local repository only; the box ships
+  every archived segment on to the bucket every few minutes, and a copy counts as done
+  only once the WAL its backup needs is there. A slow or unreachable bucket therefore
+  never holds up Postgres or local backups: shipping catches up when it is back, from
+  the WAL the local repository keeps. The bucket's Postgres part is a few minutes newer
+  than the rest of its set (it is taken when the copy runs), so only sets from the last 6
+  hours are copied, and never the safety backup of a restore.
+- **Everything else** in the set (the Valkey snapshot, the platform state and box key, and
+  registered files: buckets, mail, analytics, issues, apps' disk folders) goes to
+  `<prefix>/tiffin/` as compressed, encrypted chunks of up to 4 MiB, named by a keyed
+  hash of their content. A chunk the bucket already has is not sent again, so a copy
+  sends only what changed since the last one. Every file is read each time (a file's
+  size and time can stay the same while its content changes).
+- Copies keep **30 days** by default (`--retention-days`); older sets, and chunks no
+  remaining set uses, are deleted once a day. The newest copy is never deleted.
+
+Copies run after the local backup, never inside it: a failing bucket does not stop local
+backups. It shows instead: the `offsite-backups` status check fails, and the
+`offsite-stale` alert fires, when the newest copy is more than 26 hours old. While copies
+are off, the check and the dashboard say "Backups only on this server".
+
+**Restoring from the bucket.** On the same box, `tiffin restore <id> --from offsite`
+works like a local restore (Postgres from the bucket's repository, WAL from there too).
+After losing the server, on a new one:
+
+```bash
+tiffin up                                         # a new box
+tiffin backups offsite set ... --passphrase <the passphrase>
+tiffin backups offsite list                       # the lost box's sets
+tiffin restore latest --from offsite              # the preview: every target, no safety backup
+tiffin restore latest --from offsite --confirm <hash> --timeout-seconds 1800
+```
+
+On a box with no projects every target is restored by default: Postgres, Valkey, the
+files and the platform state (projects, settings, secrets, deploy records, tokens,
+people, and the box key). The new box keeps its own owner token, domain and backup
+settings, and its service restarts once to swap the state in. Until the restore, `set`
+reports the destination as `foreign` (it holds another cluster's backups) and copies
+are paused; afterwards the new box carries on copying into the same prefix. App images
+are not in backups: deploy the apps again (`tiffin deploy`).
+
+| Operation | What it does |
+|---|---|
+| `GET /v1/backups/offsite` | the destination (never its secret), `state` (off, active, foreign), `lastCopy`, `lastOk`, `message` |
+| `PUT /v1/backups/offsite` | sets it (tested first) → the same, with `passphrase` once for a new destination |
+| `POST /v1/backups/offsite/test` | → `ok` and each step with its time |
+| `POST /v1/backups/offsite/copy` | copies a set (`backup`, default the newest), waits up to `timeoutSeconds` → copy |
+| `GET /v1/backups/offsite/sets` | the sets in the bucket, newest first, with `restorable` |
+| `DELETE /v1/backups/offsite` | stops copying |
+| `POST /v1/backups/{id}/restore` | `from: "offsite"`; `id` may be `latest`; `targets` may be `platform` or `all`; `time` (local copy, `id` latest) for a point-in-time restore |
+| `GET /v1/backups` | also has `offsite`; each set has `offsite` (its copy) |
+
+### Restore drills
+
+A backup you have never restored is a hope, not a backup. A restore drill proves one
+works without touching anything live: it restores the backup's Postgres cluster into a
+scratch directory on the data disk, starts a private temporary Postgres on it (unix
+socket only, WAL archiving off), counts every table of every database, checks that each
+database and table the box had when the backup was taken is there, then stops the
+temporary server and deletes the scratch copy.
+
+```bash
+tiffin backups drill --wait          # drill the newest backup (waits up to 50 s)
+tiffin backups drills start <bk_id>  # drill an older one
+tiffin backups drills                # history, newest first
+tiffin backups drills get <dr_id>    # one drill: phase while running, counts when done
+tiffin backups drills cancel <dr_id>
+tiffin backups schedule --drill-every-days 7 --drill-enabled=false
+```
+
+A drill runs weekly by default (the first a day after the box starts). Every other
+scheduled drill of the local copy is a point-in-time one: it restores the second-newest set
+and replays WAL to halfway between it and the newest (`targetTime` on the drill), checking
+the tables both sets had, which proves the WAL archive replays. The
+`restore-drill` status check reads "restore drill passed 2 days ago (restored in 14 s)"
+and fails when the last drill failed or none passed in 14 days. A drill is refused when
+the data disk has less free space than the backup's size plus 20%. If the box restarts
+mid-drill, the scratch copy is deleted when it comes back.
+
+With copies off the box, scheduled drills take turns between the local copy and the
+off-box one (`tiffin backups drill --from offsite --wait` runs one by hand). An off-box
+drill restores Postgres from the bucket's repository, WAL included, then downloads every
+other part of the set into the scratch directory, decrypting each chunk and checking it
+against its ID, opens the platform state, checks the box key, the Valkey snapshot and
+every SQLite database, and deletes it all. A failed drill is retried from the same copy a
+day later; the `restore-drill-failed` alert fires meanwhile.
+
+| Operation | What it returns |
+|---|---|
+| `POST /v1/backups/drill?wait=true` | starts a drill of the newest good backup → drill (`&from=offsite`: its off-box copy) |
+| `POST /v1/backups/{id}/drill?wait=true` | starts a drill of backup `bk_...` → drill |
+| `GET /v1/backups/drills` | drills, newest first (last 30 kept) |
+| `GET /v1/backups/drills/{id}` | one drill |
+| `POST /v1/backups/drills/{id}/cancel` | stops a running drill → drill (failed, cancelled) |
+| `GET /v1/backups` | also has `lastDrill` (newest drill or null) and the schedule's `drillEnabled`, `drillEveryDays` |
+| `PUT /v1/backups/schedule` | accepts `drillEnabled`, `drillEveryDays` (1-90) |
+
+Starting returns at once with `status: "running"` (409 when a drill is running or the
+disk is too full). Poll `GET /v1/backups/drills/{id}` every second or two; `phase`
+says what it is doing and `percent`/`restoredBytes` grow while it restores. A drill:
+
+```json
+{
+  "id": "dr_01K...", "backup": "bk_01K...", "backupLabel": "20261003-101500F",
+  "backupTakenAt": "2026-10-03T10:15:00Z", "backupAgeSeconds": 7260,
+  "trigger": "manual", "status": "passed", "phase": "",
+  "startedAt": "2026-10-03T12:16:00Z", "finishedAt": "2026-10-03T12:16:19Z",
+  "seconds": { "restore": 14.2, "start": 2.5, "verify": 0.4, "total": 17.6 },
+  "backupBytes": 52428800, "restoredBytes": 52101120, "percent": 100,
+  "comparedWith": "backup",
+  "databases": [
+    { "name": "p_shop", "ok": true, "tables": 3, "rows": 6311, "liveTables": 3, "liveRows": 6311,
+      "missing": [], "counts": [ { "table": "public.orders", "rows": 5000, "exact": true, "liveRows": 5000 } ] }
+  ],
+  "message": "Restored backup bk_01K... (taken 2 hours before the drill, 49.7 MB) in 14 s; ...",
+  "hint": "", "scratch": "/var/lib/tiffin/drill/dr_01K..."
+}
+```
+
+`status` is `running`, `passed` or `failed`. A failed drill's `message` says why in plain
+words (for example `p_shop (1 missing table: public.orders)` or the pgBackRest error) and
+`hint` says what to do. Per database, `missing` lists tables the backup should hold but
+the restored copy lacks and `problems` lists tables that could not be read; `rows` are
+exact counts unless `exact` is false (counting took over a minute). `liveRows` are exact
+for small live tables and the planner's estimate for big ones, so they may differ from
+the restored counts by whatever changed since the backup. `comparedWith: "live"` means
+the backup predates table lists in backups and was checked against the live cluster.

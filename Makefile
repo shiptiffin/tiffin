@@ -27,7 +27,7 @@ NOTES        ?=
 BASE_URL     ?=
 RELEASE_KEY  ?=
 
-.PHONY: build release release-sign test site-test lint golden-update e2e ci clean auth-engine dashboard sdk notices
+.PHONY: build release release-sign test site-test site-llms lint golden-update e2e ci clean auth-engine dashboard sdk notices
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
@@ -94,6 +94,11 @@ test:
 # repository's `bun install` doesn't install it, so its tests install first.
 site-test:
 	cd site && bun install --frozen-lockfile && bun test lib
+
+# The agent files the site serves (/llms.txt, /llms-full.txt, /agent-setup.md,
+# /docs/*.md) are built from docs/guide: run this after editing a guide.
+site-llms:
+	cd site && bun lib/llms-write.ts
 
 lint:
 	@out="$$(gofmt -l $$(git ls-files '*.go' 2>/dev/null; git ls-files --others --exclude-standard '*.go' 2>/dev/null))"; \
