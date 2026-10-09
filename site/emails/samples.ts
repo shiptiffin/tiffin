@@ -30,6 +30,8 @@ export const samples: Sample[] = [
   { id: "silent", build: () => mails.silent(box, at) },
   { id: "silent-never", build: () => mails.silent(unnamed, null) },
   { id: "parked", build: () => mails.parked(box) },
+  { id: "deleted", build: () => mails.deleted(box, false, "Subscription cancelled on 9 Oct · last charged $12 on 9 Oct") },
+  { id: "deleted-with-data", build: () => mails.deleted(box, true, null) },
   { id: "killed", build: () => mails.killed(box, "Phishing page imitating a bank, reported by the bank's security team.") },
   {
     id: "signup-confirm",

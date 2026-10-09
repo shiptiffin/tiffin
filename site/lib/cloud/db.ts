@@ -27,7 +27,7 @@ export async function tablesReady(): Promise<boolean> {
   try {
     // The worker applies the schema; this build needs its newest columns too.
     const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_outbox') is not null
-      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'checkout_attempt') as ok`;
+      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'plan_ended_at') as ok`;
     tablesSeen = Boolean(r?.ok);
   } catch {
     return false;
@@ -43,7 +43,7 @@ export function newBoxId(): string {
   return s;
 }
 
-export type BoxStatus = "awaiting_payment" | "paid" | "provisioning" | "cert_pending" | "active" | "failed" | "deleting" | "released";
+export type BoxStatus = "awaiting_payment" | "paid" | "provisioning" | "cert_pending" | "active" | "failed" | "deleting" | "deleted" | "released";
 
 export type BoxRow = {
   id: string;
@@ -92,6 +92,15 @@ export type BoxRow = {
   killed_at: Date | null;
   kill_reason: string | null;
   released_at: Date | null;
+  /** When the delete_server job finished; data_deleted: whether the data volume went too. */
+  deleted_at: Date | null;
+  data_deleted: boolean | null;
+  /** The latest paid invoice (from Stripe's events): amount in cents, currency, when. */
+  last_charge_cents: number | null;
+  last_charge_currency: string | null;
+  last_charge_at: Date | null;
+  /** When the subscription ended, as Stripe says. */
+  plan_ended_at: Date | null;
   created_at: Date;
 };
 
@@ -191,8 +200,8 @@ export async function outbox(boxId: string, kind: string, key: string, params: R
   return rows.length > 0;
 }
 
-/** An outbox row's state: done means sent (the mail server accepted it), failed means given up on. */
-export async function outboxState(boxId: string, kind: string, key: string): Promise<{ status: "queued" | "done" | "failed"; doneAt: Date | null } | null> {
+/** An outbox row's state: done means sent (the mail server accepted it), failed means given up on, dropped means not sent on purpose. */
+export async function outboxState(boxId: string, kind: string, key: string): Promise<{ status: "queued" | "done" | "failed" | "dropped"; doneAt: Date | null } | null> {
   const [r] = await db()`select status, done_at from cloud_outbox where box_id = ${boxId} and kind = ${kind} and key = ${key}`;
   return r ? { status: r.status, doneAt: r.done_at ?? null } : null;
 }
@@ -210,7 +219,8 @@ export function pgOutbox(): OutboxStore {
       return s<OutboxRow[]>`with due as (select id from cloud_outbox where status = 'queued' and next_attempt_at <= now() order by id limit ${limit} for update skip locked),
         claimed as (update cloud_outbox o set next_attempt_at = now() + interval '10 minutes' from due where o.id = due.id returning o.*)
         select c.id::int as id, c.box_id, c.kind, c.key, c.params, c.attempts, coalesce(b.email, '') as email, b.name, b.last_heartbeat_at, b.extras_paused_at,
-          b.kill_reason, b.stripe_subscription_id, c.created_at from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
+          b.kill_reason, b.stripe_subscription_id, b.status as box_status,
+          b.deleted_at, b.founding, b.first_paid_at, b.refunded_at, b.last_charge_cents, b.last_charge_currency, b.last_charge_at, b.plan_ended_at, c.created_at from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
     },
     async done(id) {
       await s`update cloud_outbox set status = 'done', done_at = now(), attempts = attempts + 1, last_error = null where id = ${id}`;
@@ -220,6 +230,9 @@ export function pgOutbox(): OutboxStore {
     },
     async fail(id, attempts, error) {
       await s`update cloud_outbox set status = 'failed', attempts = ${attempts}, last_error = ${error}, done_at = now() where id = ${id}`;
+    },
+    async drop(id, why) {
+      await s`update cloud_outbox set status = 'dropped', last_error = ${why}, done_at = now() where id = ${id}`;
     },
     queue: (boxId, kind, key, params) => outbox(boxId, kind, key, params, s),
     async requeueStripe() {
@@ -295,6 +308,8 @@ function pgBillingTx(tx: Tx | Sql): BillingRepo {
       if (p.cancelAtPeriodEnd !== undefined) set.cancel_at_period_end = p.cancelAtPeriodEnd;
       if (p.currentPeriodEnd !== undefined) set.current_period_end = p.currentPeriodEnd;
       if (p.refundedAt !== undefined) set.refunded_at = p.refundedAt;
+      if (p.lastCharge) Object.assign(set, { last_charge_cents: p.lastCharge.cents, last_charge_currency: p.lastCharge.currency, last_charge_at: p.lastCharge.at });
+      if (p.planEndedAt !== undefined) set.plan_ended_at = p.planEndedAt;
       if (Object.keys(set).length === 0) return;
       set.updated_at = new Date();
       await tx`update cloud_boxes set ${tx(set as any)} where id = ${boxId}`;

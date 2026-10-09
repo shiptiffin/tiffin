@@ -1,6 +1,6 @@
 // What the control plane's pages and routes do, server side. Every function
 // checks the box belongs to the account before touching it.
-import { ENDED, extrasOn, handleEvent } from "./billing";
+import { ENDED, extrasOn, handleEvent, UNMANAGED } from "./billing";
 import { foundingCoupon, sealPublic } from "./config";
 import * as q from "./db";
 import { abuseMail, deliver, SITE } from "./emails";
@@ -9,7 +9,7 @@ import type { Licence } from "./licence";
 import { checkoutUrl } from "./checkout";
 import { boxDomain, dashboardUrl, nameProblem } from "./names";
 import { decide, fromBox, probe, type MonitorBox } from "./monitor";
-import { drain } from "./outbox";
+import { drain, RUNNING_ONLY } from "./outbox";
 import { fingerprint, seal, tokenAAD } from "./seal";
 import type { Account } from "./session";
 import { FOUNDING_LIMIT, StripeError, stripeClient } from "./stripe";
@@ -160,7 +160,8 @@ async function ownBox(acct: Account, id: string) {
 /** Checks a pasted key against Hetzner; every call it makes is recorded on the box. */
 export async function checkKey(acct: Account, boxId: string, token: string) {
   const box = await ownBox(acct, boxId);
-  if (box.status === "awaiting_payment" || box.status === "released") throw new ActionError("Pay for the box first.");
+  if (box.status === "deleted") throw new ActionError("This box was deleted.");
+  if (box.status === "awaiting_payment" || UNMANAGED.has(box.status)) throw new ActionError("Pay for the box first.");
   return checkToken(token, (c) => q.recordCall(box.id, "check", c));
 }
 
@@ -266,6 +267,7 @@ export type BoxAction =
 export async function boxAction(acct: Account, boxId: string, a: BoxAction): Promise<string> {
   const box = await ownBox(acct, boxId);
   const s = q.db();
+  if (box.status === "deleted") throw new ActionError("This box was deleted.");
   switch (a.action) {
     case "forget-signin":
       // Ends the hand-off: no link is kept, and none is asked for again.
@@ -291,7 +293,7 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
     }
     case "cancel":
     case "resume": {
-      if (!box.stripe_subscription_id) throw new ActionError("This box has no subscription.");
+      if (!box.stripe_subscription_id || UNMANAGED.has(box.status)) throw new ActionError("This box has no subscription.");
       await stripe().cancelAtPeriodEnd(box.stripe_subscription_id, a.action === "cancel");
       await s`update cloud_boxes set cancel_at_period_end = ${a.action === "cancel"}, updated_at = now() where id = ${box.id}`;
       return a.action === "cancel"
@@ -301,7 +303,9 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
     case "release":
     case "delete-server": {
       if (!box.name || a.confirm?.trim() !== box.name) throw new ActionError(`Type the box's name (${box.name ?? ""}) to confirm.`);
-      if (box.status === "deleting" || box.status === "released") throw new ActionError("This box is already being deleted or released.");
+      if (box.status === "released") throw new ActionError("We no longer manage this box: delete the server in the Hetzner console.");
+      // A delete that stopped (its job gave up) can be tried again, with a new key.
+      if (box.status === "deleting" && a.action === "release") throw new ActionError("This box is being deleted.");
       if (await q.jobsBusy(box.id)) throw new ActionError("Something is already running for this box.", 409);
       const token = a.action === "delete-server" ? a.token?.trim() : undefined;
       if (a.action === "delete-server" && (!token || !/^[A-Za-z0-9]{20,128}$/.test(token))) throw new ActionError("Paste a Hetzner key to delete the server: we only delete it with your key, now.");
@@ -314,17 +318,21 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       }
       if (a.action === "delete-server") {
         await s.begin(async (tx) => {
-          await tx`update cloud_boxes set status = 'deleting', updated_at = now() where id = ${box.id}`;
+          const rows = await tx`update cloud_boxes set status = 'deleting', updated_at = now() where id = ${box.id} and status <> 'deleted' returning id`;
+          if (rows.length === 0) throw new ActionError("This box was deleted.");
+          // Emails about a running box that are still waiting go unsent.
+          await tx`update cloud_outbox set status = 'dropped', last_error = 'the box is being deleted', done_at = now()
+            where box_id = ${box.id} and status = 'queued' and kind = any(${[...RUNNING_ONLY]})`;
           await q.enqueue(box.id, "delete_server", { deleteData: Boolean(a.deleteData) }, seal(sealPublic(), token!, tokenAAD(box.id)), tx);
         });
-        return "Deleting: first the address, then the server in your Hetzner project.";
+        return "Deleting: the address first, then the server.";
       }
       await s.begin(async (tx) => {
         await tx`update cloud_boxes set status = 'released', released_at = now(),
           signin_code = null, signin_expires_at = null, updated_at = now() where id = ${box.id}`;
         if (box.dns_state === "live" || box.dns_state === "pending") await q.enqueue(box.id, "dns_remove", { reason: "released", gen: Number(box.generation) }, null, tx);
       });
-      return "Released. The server is untouched and yours; it no longer gets updates from us.";
+      return "Done. We no longer manage this box; the server runs on in your Hetzner account.";
     }
   }
 }
@@ -345,7 +353,7 @@ export function heartbeatDecision(
   l: Pick<Licence, "gen">,
   ip: string | null | undefined,
 ): { answer: HeartbeatAnswer; counts: boolean; refused?: string; restore: boolean } {
-  if (!box || box.status === "released" || box.status === "deleting") return { answer: { managed: false, active: false, updates: true }, counts: false, restore: false };
+  if (!box || UNMANAGED.has(box.status)) return { answer: { managed: false, active: false, updates: true }, counts: false, restore: false };
   if ((l.gen ?? 0) !== Number(box.generation)) {
     return {
       answer: { managed: false, active: false, updates: true, message: "This box's ShipTiffin licence was replaced by a newer setup; this copy is no longer managed." },

@@ -240,6 +240,19 @@ describe("authoritative status", () => {
     expect(b1().extrasPausedAt).toBeInstanceOf(Date);
   });
 
+  test("a box deleted or released on purpose: the subscription's end is recorded, nothing paused or emailed", async () => {
+    for (const status of ["deleting", "deleted", "released"]) {
+      Object.assign(b1(), { status, extrasPausedAt: null });
+      repo.out.clear();
+      stripe.set("sub_1", "canceled");
+      await run(ev("customer.subscription.deleted", { id: "sub_1", status: "canceled" }));
+      await run(ev("invoice.payment_failed", { id: `in_${status}`, subscription: "sub_1" }));
+      expect(b1()).toMatchObject({ status, planStatus: "canceled", extrasPausedAt: null });
+      expect(repo.kinds()).toEqual([]);
+      expect(repo.jobs).toEqual([]);
+    }
+  });
+
   test("paying an old invoice after cancellation doesn't resurrect the extras", async () => {
     stripe.set("sub_1", "canceled");
     await run(ev("customer.subscription.deleted", { id: "sub_1", status: "canceled" }));

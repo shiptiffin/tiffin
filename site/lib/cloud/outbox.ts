@@ -8,6 +8,7 @@
 // Billing, the monitor and the provisioner (ready, setup failed) all write
 // here; the website drains it after each webhook and on every monitor run.
 import { deliver, render, stuckMail as stuck, type Mail } from "./emails";
+import type { MoneyRow } from "./money";
 
 export type OutboxRow = {
   id: number;
@@ -22,8 +23,22 @@ export type OutboxRow = {
   extras_paused_at: Date | null;
   kill_reason: string | null;
   stripe_subscription_id: string | null;
+  /** The box's status now (null if the row's box is gone). */
+  box_status: string | null;
+  /** For the "deleted" email: when, and the money (lib/cloud/money.ts). */
+  deleted_at?: Date | null;
+} & Partial<MoneyRow> & {
   created_at: Date;
 };
+
+/**
+ * Emails about a box that runs: none of them is sent once the box is being
+ * deleted or deleted (its one "deleted" email says what happened). The
+ * provisioner drops the queued ones when it marks the box deleted
+ * (internal/cloud/store.go, runningKinds); the drain skips any left.
+ */
+export const RUNNING_ONLY = new Set(["ready", "attention", "server_off", "extras_paused", "extras_resumed", "payment_failed", "dns_soon", "dns_removed", "parked", "silent", "down", "up"]);
+const GONE = new Set(["deleting", "deleted"]);
 
 export interface OutboxStore {
   /** Claims up to limit due rows (pushing their next attempt out, so two drains don't both take one). */
@@ -31,6 +46,8 @@ export interface OutboxStore {
   done(id: number): Promise<void>;
   retry(id: number, attempts: number, next: Date, error: string): Promise<void>;
   fail(id: number, attempts: number, error: string): Promise<void>;
+  /** Not sent, on purpose (status dropped). */
+  drop(id: number, why: string): Promise<void>;
   /** Queues a row once per (box, kind, key); true the first time. */
   queue(boxId: string, kind: string, key: string, params: Record<string, unknown>): Promise<boolean>;
   /** Puts Stripe actions given up on (before they were retried for good) back in the queue. */
@@ -61,13 +78,18 @@ export function stuckMail(to: string, row: Pick<OutboxRow, "box_id">, params: Re
 export async function drain(
   store: OutboxStore,
   opts: { stripe?: StripeAction; send?: (m: Mail) => ReturnType<typeof deliver>; limit?: number; now?: Date; admin?: string } = {},
-): Promise<{ done: number; retried: number; failed: number }> {
+): Promise<{ done: number; retried: number; failed: number; dropped: number }> {
   const send = opts.send ?? deliver;
   const admin = opts.admin ?? (process.env.CLOUD_ABUSE_NOTIFY?.trim() || process.env.EARLY_ACCESS_NOTIFY?.trim() || "");
   const now = opts.now ?? new Date();
-  const out = { done: 0, retried: 0, failed: 0 };
+  const out = { done: 0, retried: 0, failed: 0, dropped: 0 };
   await store.requeueStripe();
   for (const row of await store.claim(opts.limit ?? 25)) {
+    if (RUNNING_ONLY.has(row.kind) && row.box_status && GONE.has(row.box_status)) {
+      await store.drop(row.id, "the box was deleted");
+      out.dropped++;
+      continue;
+    }
     const attempts = row.attempts + 1;
     let error: string | null = null;
     try {
@@ -79,7 +101,7 @@ export async function drain(
         const r = await send(await stuckMail(admin, row, row.params ?? {}));
         if (!r.ok) error = r.error;
       } else {
-        const m = await render(row.kind, { id: row.box_id, email: row.email, name: row.name, last_heartbeat_at: row.last_heartbeat_at, extras_paused_at: row.extras_paused_at, kill_reason: row.kill_reason }, row.params ?? {}, opts.now);
+        const m = await render(row.kind, { ...row, id: row.box_id }, row.params ?? {}, opts.now);
         if (!m) throw new Error(`no email called ${row.kind}`);
         const r = await send(m);
         if (!r.ok) error = r.error;

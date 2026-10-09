@@ -169,7 +169,7 @@ test("Renew covers every box whose subscription ended, whatever stage it reached
   const b = (status: string, plan_status = "canceled", extra = {}) => ({ status, plan_status, first_paid_at: new Date(), refunded_at: null, ...extra }) as any;
   for (const s of ["paid", "provisioning", "cert_pending", "active", "failed"]) expect(renewable(b(s))).toBe(true);
   expect(renewable(b("active", "incomplete_expired"))).toBe(true);
-  for (const s of ["awaiting_payment", "deleting", "released"]) expect(renewable(b(s))).toBe(false);
+  for (const s of ["awaiting_payment", "deleting", "deleted", "released"]) expect(renewable(b(s))).toBe(false);
   expect(renewable(b("active", "active"))).toBe(false);
   expect(renewable(b("active", "past_due"))).toBe(false);
   expect(renewable(b("failed", "canceled", { refunded_at: new Date() }))).toBe(false);

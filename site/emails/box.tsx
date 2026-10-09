@@ -4,6 +4,7 @@
 // Short, plain words: what happened, what it means for the box, what to do.
 import type { ReactElement, ReactNode } from "react";
 import { boxDomain, dashboardUrl, ZONE } from "../lib/cloud/names";
+import { NO_REFUND } from "../lib/cloud/money";
 import { READY } from "./theme";
 import { A, Code, Cta, Eyebrow, Facts, H1, Layout, LinkOut, P, Panel, Picture, Rule, Steps } from "./ui";
 
@@ -214,6 +215,44 @@ export function ServerOff({ b }: { b: BoxCtx }) {
       />
       <Cta href={account(b)}>Open your account</Cta>
       <P quiet>Your data is untouched.</P>
+    </Notice>
+  );
+}
+
+// ---- deleted ----------------------------------------------------------------
+
+export function Deleted({ b, dataDeleted, billing }: { b: BoxCtx; dataDeleted: boolean; billing: string | null }) {
+  const d = domain(b);
+  const title = `${b.name ? `${b.name}'s server` : "Your server"} is deleted`;
+  return (
+    <Notice
+      b={b}
+      title={title}
+      preview={dataDeleted ? "The server, its data and its address are gone. Nothing more is billed." : "The server and its address are gone. Your data volume stays in Hetzner."}
+    >
+      <Eyebrow>Deleted</Eyebrow>
+      <H1>{title}</H1>
+      <P>
+        As you asked, we deleted <Named b={b} />.
+      </P>
+      <Panel
+        title="What's gone"
+        items={[
+          ...(d ? [<><Code>{d}</Code> and its dashboard address.</>] : []),
+          "The server and its firewall, in your Hetzner project.",
+          ...(dataDeleted ? ["Its data volume, with everything your apps stored."] : []),
+          "The subscription: you won't be charged again.",
+          "Your Hetzner API token: we forgot it.",
+        ]}
+      />
+      {billing ? <Facts rows={[{ label: "Billing", value: billing }]} /> : null}
+      {dataDeleted ? null : (
+        <P>
+          The data volume stays in your Hetzner project, and Hetzner bills it until you delete it there (Volumes, in the Hetzner console).
+        </P>
+      )}
+      <P quiet>{NO_REFUND} Past invoices stay in your account.</P>
+      <Cta href={`${b.site}/start?new=1`}>Set up a new box</Cta>
     </Notice>
   );
 }
@@ -434,5 +473,9 @@ export const boxEmails = {
   up: (b: BoxCtx): Built => ({ subject: `${label(b)} is answering again`, element: <Up b={b} /> }),
   silent: (b: BoxCtx, last: Date | null): Built => ({ subject: `${label(b)} hasn't checked in`, element: <Silent b={b} last={last} /> }),
   parked: (b: BoxCtx): Built => ({ subject: `We parked ${domain(b) ?? "your box's address"}`, element: <Parked b={b} /> }),
+  deleted: (b: BoxCtx, dataDeleted: boolean, billing: string | null): Built => ({
+    subject: `${b.name ? `${b.name}'s server` : "Your server"} is deleted`,
+    element: <Deleted b={b} dataDeleted={dataDeleted} billing={billing} />,
+  }),
   killed: (b: BoxCtx, reason: string): Built => ({ subject: `We turned off ${domain(b) ?? "your shiptiffin.app address"}`, element: <Killed b={b} reason={reason} /> }),
 };

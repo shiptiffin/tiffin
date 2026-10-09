@@ -214,3 +214,50 @@ export function duration(ms: number): string {
   const m = Math.floor(s / 60);
   return m ? `${m} min ${s % 60} s` : `${s} s`;
 }
+
+// ---- deleting -------------------------------------------------------------
+// The account page's "being deleted" card reads the delete_server job's
+// steps (internal/cloud/worker.go deleteServer, and the Hetzner provider's
+// DestroyAll) the same way: a few plain stages, never backwards.
+
+export type DeleteStageId = "address" | "server" | "cleanup" | "deleted";
+
+export const DELETE_STAGES: { id: DeleteStageId; title: string; blurb: string; typical: number }[] = [
+  { id: "address", title: "Removing the address", blurb: "Your name comes off first, so it never points at an IP Hetzner may give to someone else.", typical: 4 },
+  { id: "server", title: "Deleting the server", blurb: "Only what carries this box's shiptiffin-box label, in your Hetzner project.", typical: 10 },
+  { id: "cleanup", title: "Cleaning up", blurb: "Its firewall and the rest of what we made for it.", typical: 5 },
+  { id: "deleted", title: "Deleted", blurb: "", typical: 0 },
+];
+
+const DELETE_RULES: { re: RegExp; stage: DeleteStageId }[] = [
+  { re: /^Removing \S+ first/, stage: "address" },
+  { re: /^(Deleting the server in your Hetzner project|removing delete protection|deleting the server )/i, stage: "server" },
+  { re: /^(deleting the firewall|deleting the data volume|Deleted |Kept )/i, stage: "cleanup" },
+  { re: /^Deleted$/, stage: "deleted" },
+];
+
+export type DeleteReading = {
+  /** Index into DELETE_STAGES. */
+  stage: number;
+  done: boolean;
+  firstAt: number | null;
+  lastAt: number | null;
+};
+
+/** Where a delete is. `status` is the box's; `deleted` means done whatever the steps say. */
+export function readDeleteSteps(steps: Step[], status: string): DeleteReading {
+  const r: DeleteReading = { stage: 0, done: false, firstAt: null, lastAt: null };
+  for (const s of steps) {
+    const at = Date.parse(s.at);
+    if (Number.isFinite(at)) {
+      r.firstAt ??= at;
+      r.lastAt = at;
+    }
+    const rule = DELETE_RULES.find((x) => x.re.test(s.text));
+    if (!rule) continue;
+    r.stage = Math.max(r.stage, DELETE_STAGES.findIndex((x) => x.id === rule.stage));
+  }
+  if (status === "deleted") r.stage = DELETE_STAGES.length - 1;
+  r.done = r.stage === DELETE_STAGES.length - 1;
+  return r;
+}

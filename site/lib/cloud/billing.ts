@@ -22,6 +22,12 @@ export const DNS_GRACE_DAYS = 30;
 export const LIVE = new Set(["active", "trialing", "past_due", "unpaid", "paused"]);
 /** Ended: Renew starts a new subscription for the box. */
 export const ENDED = new Set(["canceled", "incomplete_expired"]);
+/**
+ * Box statuses we no longer manage: being deleted, deleted (for good), or
+ * released (the customer stopped the managed service). Their subscription
+ * was ended on purpose, so its end pauses nothing and sends no email.
+ */
+export const UNMANAGED = new Set<string>(["deleting", "deleted", "released"]);
 
 /**
  * Whether the managed extras are on: active or trialing; past_due too (Stripe
@@ -51,7 +57,15 @@ export type BoxBilling = {
 
 export type BillingPatch = Partial<
   Pick<BoxBilling, "status" | "planStatus" | "firstPaidAt" | "extrasPausedAt" | "stripeCustomerId" | "stripeSubscriptionId" | "founding">
-> & { cancelAtPeriodEnd?: boolean; currentPeriodEnd?: Date | null; refundedAt?: Date };
+> & {
+  cancelAtPeriodEnd?: boolean;
+  currentPeriodEnd?: Date | null;
+  refundedAt?: Date;
+  /** The latest paid invoice: what the customer was last charged, and when. */
+  lastCharge?: { cents: number; currency: string; at: Date };
+  /** When the subscription ended (Stripe's ended_at, else canceled_at). */
+  planEndedAt?: Date;
+};
 
 export interface BillingRepo {
   transaction<T>(fn: (r: BillingRepo) => Promise<T>): Promise<T>;
@@ -85,8 +99,23 @@ export type SubscriptionNow = {
   cancel_at?: number | null;
   current_period_end?: number;
   items?: { data?: { current_period_end?: number }[] };
-  latest_invoice?: string | { id: string; status: string; billing_reason?: string } | null;
+  latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number; currency?: string; status_transitions?: { paid_at?: number | null } } | null;
+  canceled_at?: number | null;
+  ended_at?: number | null;
 };
+
+/** What the subscription says about money, for the account page and emails: the last charge, and when it ended. */
+export function moneyFacts(sub: SubscriptionNow): Pick<BillingPatch, "lastCharge" | "planEndedAt"> {
+  const out: Pick<BillingPatch, "lastCharge" | "planEndedAt"> = {};
+  const inv = sub.latest_invoice;
+  const paidAt = inv && typeof inv === "object" ? inv.status_transitions?.paid_at : null;
+  if (inv && typeof inv === "object" && inv.status === "paid" && (inv.amount_paid ?? 0) > 0 && typeof paidAt === "number") {
+    out.lastCharge = { cents: inv.amount_paid!, currency: inv.currency ?? "usd", at: new Date(paidAt * 1000) };
+  }
+  const end = ENDED.has(sub.status) ? (sub.ended_at ?? sub.canceled_at) : null;
+  if (typeof end === "number") out.planEndedAt = new Date(end * 1000);
+  return out;
+}
 
 export type StripeEvent = { id: string; type: string; created: number; data: { object: any } };
 
@@ -215,26 +244,30 @@ export async function handleEvent(repo: BillingRepo, stripe: BillingStripe, ev: 
     if (firstPaid && !box.firstPaidAt) patch.firstPaidAt = now;
     const on = extrasOn(sub.status, firstPaid);
     patch.planStatus = sub.status;
-    Object.assign(patch, ending(sub));
+    Object.assign(patch, ending(sub), moneyFacts(sub));
 
-    if (on && box.status === "awaiting_payment") {
-      patch.status = "paid";
-      await r.outbox(box.id, "paid", "");
-    }
-    if (on && box.extrasPausedAt) {
-      patch.extrasPausedAt = null;
-      // Back on: the address returns once the box checks in from its own address (the worker checks).
-      if ((box.dnsState === "removed" || box.dnsState === "parked") && (box.status === "active" || box.status === "cert_pending")) {
-        await r.enqueue(box.id, "dns_set", { reason: "renewed", gen: box.generation });
+    // A box stopped or deleted on purpose: record what Stripe says; its
+    // subscription's end pauses nothing and sends no email.
+    if (!UNMANAGED.has(box.status)) {
+      if (on && box.status === "awaiting_payment") {
+        patch.status = "paid";
+        await r.outbox(box.id, "paid", "");
       }
-      await r.outbox(box.id, "extras_resumed", `${sub.id}:${now.toISOString().slice(0, 10)}`);
+      if (on && box.extrasPausedAt) {
+        patch.extrasPausedAt = null;
+        // Back on: the address returns once the box checks in from its own address (the worker checks).
+        if ((box.dnsState === "removed" || box.dnsState === "parked") && (box.status === "active" || box.status === "cert_pending")) {
+          await r.enqueue(box.id, "dns_set", { reason: "renewed", gen: box.generation });
+        }
+        await r.outbox(box.id, "extras_resumed", `${sub.id}:${now.toISOString().slice(0, 10)}`);
+      }
+      // Paused only once the box was paid for: an abandoned first payment pauses nothing.
+      if (!on && !box.extrasPausedAt && (box.firstPaidAt || firstPaid)) {
+        patch.extrasPausedAt = now;
+        await r.outbox(box.id, "extras_paused", sub.id, { until: new Date(now.getTime() + DNS_GRACE_DAYS * 86_400_000).toISOString() });
+      }
+      if (ev.type === "invoice.payment_failed") await r.outbox(box.id, "payment_failed", String(o.id));
     }
-    // Paused only once the box was paid for: an abandoned first payment pauses nothing.
-    if (!on && !box.extrasPausedAt && (box.firstPaidAt || firstPaid)) {
-      patch.extrasPausedAt = now;
-      await r.outbox(box.id, "extras_paused", sub.id, { until: new Date(now.getTime() + DNS_GRACE_DAYS * 86_400_000).toISOString() });
-    }
-    if (ev.type === "invoice.payment_failed") await r.outbox(box.id, "payment_failed", String(o.id));
 
     // A full refund of the first payment (ours, or made in Stripe's dashboard) ends the subscription.
     if (refundedInvoice && o.refunded === true && refundedInvoice.billing_reason === "subscription_create") {

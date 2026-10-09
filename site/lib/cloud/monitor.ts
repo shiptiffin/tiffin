@@ -35,7 +35,7 @@ export type MonitorBox = {
   warning: Warning | null;
 };
 
-export type Warning = { status: "queued" | "done" | "failed"; doneAt: Date | null };
+export type Warning = { status: "queued" | "done" | "failed" | "dropped"; doneAt: Date | null };
 
 /** After a warning failed for good, we try it again this long after (and keep the address meanwhile). */
 export const WARNING_RETRY_MS = 86_400_000;

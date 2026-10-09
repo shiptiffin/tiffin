@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { duration, estimate, fraction, readSteps, secondsLeft, STAGES, type Step } from "./progress";
-import { SAMPLE_START, sampleIndex, sampleSteps } from "./progress-sample";
+import { DELETE_STAGES, duration, estimate, fraction, readDeleteSteps, readSteps, secondsLeft, STAGES, type Step } from "./progress";
+import { SAMPLE_START, sampleDeleteSteps, sampleIndex, sampleSteps } from "./progress-sample";
 
 const at = (s: number) => SAMPLE_START + s * 1000;
 const upTo = (prefix: string) => sampleSteps(sampleIndex(prefix) + 1);
@@ -117,4 +117,25 @@ test("installed but the last steps failed: flagged for a person", () => {
   const r = readSteps(steps, "provisioning");
   expect(r.attention).toBe(true);
   expect(r.stopped).toBe(false);
+});
+
+describe("delete stages", () => {
+  const stage = (n: number, status = "deleting") => DELETE_STAGES[readDeleteSteps(sampleDeleteSteps(n), status).stage].id;
+  test("each step of a delete lands in its stage, and only the end says deleted", () => {
+    expect(stage(0)).toBe("address");
+    expect(stage(1)).toBe("address");
+    expect(stage(2)).toBe("server");
+    expect(stage(3)).toBe("server");
+    expect(stage(4)).toBe("cleanup");
+    expect(stage(8)).toBe("cleanup");
+    expect(stage(9)).toBe("deleted");
+    expect(readDeleteSteps(sampleDeleteSteps(8), "deleting").done).toBe(false);
+  });
+  test("the box's status wins: deleted is done, whatever steps were read", () => {
+    expect(readDeleteSteps([], "deleted")).toMatchObject({ done: true, stage: DELETE_STAGES.length - 1 });
+  });
+  test("an unknown step never moves it backwards", () => {
+    const steps = [...sampleDeleteSteps(3), { at: "2026-10-08T12:00:14Z", text: "something new" }, { at: "2026-10-08T12:00:15Z", text: "Removing acme.shiptiffin.app first" }];
+    expect(DELETE_STAGES[readDeleteSteps(steps, "deleting").stage].id).toBe("server");
+  });
 });

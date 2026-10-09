@@ -177,7 +177,9 @@ export type StripeSubscription = {
   cancel_at?: number | null;
   current_period_end?: number;
   items?: { data?: { current_period_end?: number }[] };
-  latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number } | null;
+  latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number; currency?: string; status_transitions?: { paid_at?: number | null } } | null;
+  canceled_at?: number | null;
+  ended_at?: number | null;
 };
 
 /** An invoice's payment intent, in both API shapes. */

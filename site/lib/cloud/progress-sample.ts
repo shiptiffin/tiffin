@@ -42,3 +42,21 @@ export function sampleSteps(n = RAW.length): Step[] {
 export function sampleIndex(prefix: string): number {
   return RAW.findIndex(([, t]) => t.startsWith(prefix));
 }
+
+/** A delete_server job's steps, as the provisioner writes them (data volume kept), about 18 seconds in all. */
+const DELETE_RAW: [number, string][] = [
+  [0, "Removing acme.shiptiffin.app first"],
+  [3, "Deleting the server in your Hetzner project"],
+  [4, "deleting the server acme"],
+  [12, "deleting the firewall acme"],
+  [15, "Deleted server acme"],
+  [15, "Deleted firewall acme"],
+  [15, "Deleted SSH key acme-setup"],
+  [15, "Kept volume acme-data (40 GB, id 101): your data (delete it in the Hetzner console when you no longer need it)"],
+  [18, "Deleted"],
+];
+
+/** The first n delete steps (all of them by default). */
+export function sampleDeleteSteps(n = DELETE_RAW.length): Step[] {
+  return DELETE_RAW.slice(0, n).map(([s, text]) => ({ at: new Date(T0 + s * 1000).toISOString().replace(".000", ""), text }));
+}

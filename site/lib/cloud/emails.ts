@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { AbuseReport, StuckAction, type Stuck } from "../../emails/admin";
 import { boxEmails, type BoxCtx, type Built } from "../../emails/box";
 import { renderEmail } from "../../emails/render";
+import { endedWords, type MoneyRow } from "./money";
 
 export const SITE = (process.env.SITE_URL || "https://shiptiffin.com").replace(/\/+$/, "");
 export const ACCOUNT = `${SITE}/account`;
@@ -40,6 +41,7 @@ export const mails = {
   silent: (b: Box, last: Date | null) => build(b.email, boxEmails.silent(ctx(b), last)),
   parked: (b: Box) => build(b.email, boxEmails.parked(ctx(b))),
   killed: (b: Box, reason: string) => build(b.email, boxEmails.killed(ctx(b), reason)),
+  deleted: (b: Box, dataDeleted: boolean, billing: string | null) => build(b.email, boxEmails.deleted(ctx(b), dataDeleted, billing)),
 };
 
 /** For us: a Stripe action the outbox has retried for over an hour. */
@@ -68,7 +70,12 @@ export async function deliver(m: Mail): Promise<{ ok: true } | { ok: false; erro
 }
 
 /** The email an outbox row of this kind sends, or null for a kind that isn't an email. */
-export async function render(kind: string, box: Box & { last_heartbeat_at?: Date | null; extras_paused_at?: Date | null; kill_reason?: string | null }, params: Record<string, any>, now = new Date()): Promise<Mail | null> {
+export async function render(
+  kind: string,
+  box: Box & { last_heartbeat_at?: Date | null; extras_paused_at?: Date | null; kill_reason?: string | null; deleted_at?: Date | null } & Partial<MoneyRow>,
+  params: Record<string, any>,
+  now = new Date(),
+): Promise<Mail | null> {
   const until = params.until ? new Date(params.until) : new Date((box.extras_paused_at ?? now).getTime() + 30 * 86_400_000);
   switch (kind) {
     case "paid":
@@ -105,6 +112,8 @@ export async function render(kind: string, box: Box & { last_heartbeat_at?: Date
       return mails.parked(box);
     case "killed":
       return mails.killed(box, String(params.reason ?? box.kill_reason ?? ""));
+    case "deleted":
+      return mails.deleted(box, params.dataDeleted === true, box.first_paid_at ? endedWords(box as MoneyRow, box.deleted_at ?? now, now) : null);
   }
   return null;
 }

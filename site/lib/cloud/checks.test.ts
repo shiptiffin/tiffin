@@ -199,8 +199,12 @@ describe("monitor", () => {
     expect(decide(paused(31, late), now).removeDns).toBeNull();
     expect(decide(paused(38, { status: "done", doneAt: new Date(now.getTime() - 7 * day) }), now).removeDns?.reason).toBe("grace");
   });
-  test("released, unnamed or unpaid-from-the-start boxes are left alone", () => {
-    expect(decide({ ...base, status: "released" }, now)).toMatchObject({ probe: false, emails: [] });
+  test("released, deleted, unnamed or unpaid-from-the-start boxes are left alone", () => {
+    const silent = new Date(now.getTime() - 30 * 86_400_000);
+    for (const status of ["released", "deleting", "deleted"]) {
+      // Not probed, never parked or warned, whatever its last check-in.
+      expect(decide({ ...base, status, last_heartbeat_at: silent }, now)).toMatchObject({ probe: false, emails: [], removeDns: null });
+    }
     expect(decide({ ...base, plan_status: "past_due", first_paid_at: null }, now).probe).toBe(false);
   });
   test("a box waiting for its certificate isn't probed", () => {
@@ -210,6 +214,11 @@ describe("monitor", () => {
 
 describe("check-ins", () => {
   const box = { status: "active", plan_status: "active", first_paid_at: new Date(), extras_paused_at: null, generation: 2, ipv4: "203.0.113.5", ipv6: "2001:db8:1:2::1", dns_state: "live", killed_at: null } as const;
+  test("a box being deleted, deleted or released isn't managed: its check-ins count for nothing", () => {
+    for (const status of ["deleting", "deleted", "released"]) {
+      expect(heartbeatDecision({ ...box, status } as any, { gen: 2 }, "203.0.113.5")).toEqual({ answer: { managed: false, active: false, updates: true }, counts: false, restore: false });
+    }
+  });
   test("count only from the box's own address, with the current setup's licence", () => {
     expect(heartbeatDecision(box as any, { gen: 2 }, "203.0.113.5")).toMatchObject({ counts: true, answer: { managed: true, active: true } });
     expect(heartbeatDecision(box as any, { gen: 2 }, "2001:db8:1:2:abcd::9").counts).toBe(true); // any address of its /64
@@ -308,6 +317,9 @@ describe("outbox", () => {
     async fail(id: number, attempts: number, error: string) {
       Object.assign(this.rows.find((r) => r.id === id)!, { status: "failed", attempts, error });
     }
+    async drop(id: number, error: string) {
+      Object.assign(this.rows.find((r) => r.id === id)!, { status: "dropped", error });
+    }
     async queue(box_id: string, kind: string, key: string, params: Record<string, unknown>) {
       if (this.rows.some((r) => r.box_id === box_id && r.kind === kind && r.key === key)) return false;
       this.rows.push({ ...row(this.rows.length + 100, kind, params), box_id, key });
@@ -321,7 +333,7 @@ describe("outbox", () => {
   }
   const row = (id: number, kind: string, params: Record<string, unknown> = {}) => ({
     id, box_id: "box_1", kind, key: "", params, attempts: 0, email: "sam@example.com", name: "shop",
-    last_heartbeat_at: null, extras_paused_at: null, kill_reason: null, stripe_subscription_id: "sub_1", status: "queued",
+    last_heartbeat_at: null, extras_paused_at: null, kill_reason: null, stripe_subscription_id: "sub_1", status: "queued", box_status: "active" as string | null,
     created_at: new Date("2026-10-08T12:00:00Z"),
   });
   test("sends, retries with backoff while the mail server is down, gives up after ten tries", async () => {
@@ -331,17 +343,33 @@ describe("outbox", () => {
     let up = false;
     const send = async (m: { subject: string; text: string }) => (up ? (sent.push(m.subject + "|" + m.text), { ok: true as const }) : { ok: false as const, error: "connection refused" });
     const now = new Date("2026-10-08T12:00:00Z");
-    expect(await drain(st, { send, now })).toEqual({ done: 0, retried: 2, failed: 0 });
+    expect(await drain(st, { send, now })).toEqual({ done: 0, retried: 2, failed: 0, dropped: 0 });
     expect(st.rows[0]).toMatchObject({ status: "queued", attempts: 1, error: "connection refused" });
     expect(st.rows[0]!.next!.getTime()).toBe(backoff(1, now).getTime());
     up = true;
-    expect(await drain(st, { send, now })).toEqual({ done: 2, retried: 0, failed: 0 });
+    expect(await drain(st, { send, now })).toEqual({ done: 2, retried: 0, failed: 0, dropped: 0 });
     expect(sent[0]).toContain("ready");
     expect(sent[1]).toContain("apt failed");
     const st2 = new MemOutbox();
     st2.rows.push({ ...row(3, "down"), attempts: MAX_ATTEMPTS - 1 });
     up = false;
-    expect(await drain(st2, { send, now })).toEqual({ done: 0, retried: 0, failed: 1 });
+    expect(await drain(st2, { send, now })).toEqual({ done: 0, retried: 0, failed: 1, dropped: 0 });
+  });
+  test("a box being deleted or deleted gets no email about a running box, only its deleted email", async () => {
+    for (const box_status of ["deleting", "deleted"]) {
+      const st = new MemOutbox();
+      const kinds = ["extras_paused", "dns_soon", "dns_removed", "parked", "silent", "down", "payment_failed"];
+      kinds.forEach((k, i) => st.rows.push({ ...row(i + 1, k), box_status }));
+      st.rows.push({ ...row(20, "deleted", { dataDeleted: false }), box_status: "deleted", first_paid_at: new Date("2026-10-09T00:40:00Z"), founding: true, deleted_at: new Date("2026-10-09T00:57:00Z") });
+      st.rows.push({ ...row(21, "refunded"), box_status });
+      const sent: string[] = [];
+      const send = async (m: { subject: string; text: string }) => (sent.push(m.subject + "|" + m.text), { ok: true as const });
+      expect(await drain(st, { send, now: new Date("2026-10-09T01:00:00Z") })).toMatchObject({ done: 2, dropped: kinds.length });
+      expect(st.rows.filter((r) => r.status === "dropped").map((r) => r.kind)).toEqual(kinds);
+      expect(sent[0]).toStartWith("shop's server is deleted|");
+      expect(sent[0]).toContain("last charged $12 on 9 Oct");
+      expect(sent[0]).toContain("money-back guarantee");
+    }
   });
   test("Stripe actions run through the same retries", async () => {
     const st = new MemOutbox();
