@@ -53,3 +53,19 @@ export const SOURCE = "https://github.com/shiptiffin/tiffin";
 export function sourceURL(h: Health | undefined): string {
   return h?.source || SOURCE;
 }
+
+/** A box ShipTiffin manages: its account page, for box admins (absent on a self-hosted box, and for members). */
+export function shipTiffinAccount(s: StatusReport | undefined): string | undefined {
+  return s?.managed?.account || undefined;
+}
+
+/**
+ * The paused-updates message split around its mention of the account page
+ * ("Renew at shiptiffin.com/account."), so that mention can be the link.
+ * A message that does not mention it gives [message, "", ""].
+ */
+export function splitAccountMention(message: string, account: string): [string, string, string] {
+  const bare = account.replace(/^https?:\/\//, "");
+  const i = message.indexOf(bare);
+  return i < 0 ? [message, "", ""] : [message.slice(0, i), bare, message.slice(i + bare.length)];
+}

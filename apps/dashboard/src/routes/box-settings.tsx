@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { ArrowUpRight } from "lucide-react";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { boxSettingsQuery, memWords, setBoxSettings } from "@/lib/usage";
@@ -16,7 +17,7 @@ import { BoxEmailSection } from "@/components/email-relay";
 import { BoxSize } from "@/components/box-size";
 import { SignInProviders } from "@/components/signin-providers";
 import { boxDomainQuery } from "@/lib/domains";
-import { boxName, boxUp, healthQuery, sourceURL, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
+import { boxName, boxUp, healthQuery, shipTiffinAccount, sourceURL, splitAccountMention, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
 import { Breaker } from "@/components/breaker";
 import { cn } from "@/lib/cn";
@@ -45,6 +46,7 @@ export function SettingsPage() {
   const { admin, role } = useMe();
   const name = boxName(status.data);
   const build = health.data?.build;
+  const account = shipTiffinAccount(status.data);
 
   return (
     <Page>
@@ -62,6 +64,7 @@ export function SettingsPage() {
               res.data && ["Machine", `${res.data.cpu.count} CPUs, ${Math.round(res.data.memory.totalBytes / 1073741824)} GB memory, ${Math.round(res.data.disks.data.totalBytes / 1073741824)} GB data disk`],
               ["Dashboard", <span className="ident">{location.host}</span>],
               status.data && ["Tiffin started", tiffinStarted(status.data.uptime)],
+              account && ["Plan", <Plan account={account} paused={status.data?.managed?.paused} />],
             ].filter(Boolean) as Array<[string, ReactNode]>
           ).map(([k, v]) => (
             <div key={k} className="col-span-2 grid grid-cols-subgrid border-b border-rule py-2.5">
@@ -114,6 +117,35 @@ export function SettingsPage() {
 
       <Updates admin={admin} version={versionLabel(status.data)} build={build} source={sourceURL(health.data)} />
     </Page>
+  );
+}
+
+/** The Plan row on a box ShipTiffin manages: billing lives on shiptiffin.com, one link away. */
+function Plan({ account, paused }: { account: string; paused?: string }) {
+  const [before, mention, after] = paused ? splitAccountMention(paused, account) : ["", "", ""];
+  return (
+    <>
+      Managed by ShipTiffin
+      <span className="text-ink-3"> · </span>
+      <AccountLink href={account}>Manage subscription</AccountLink>
+      {paused && (
+        <span role="status" className="mt-1 block text-[0.8125rem] text-warn-ink">
+          {before}
+          {mention && <AccountLink href={account}>{mention}</AccountLink>}
+          {after}
+        </span>
+      )}
+    </>
+  );
+}
+
+function AccountLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline decoration-rule-3 underline-offset-[3px] hover:decoration-ink">
+      {children}
+      <ArrowUpRight className="size-3.5" aria-hidden />
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
   );
 }
 

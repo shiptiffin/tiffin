@@ -39,7 +39,9 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 - **Frame.** On a desktop the sidebar is a tinted ground (`--side`) and the page a white panel inset 8 px
   on it (Linear, Supabase); a phone gets the plain page.
 - **Account menu** (your name, bottom left): Theme (system, light, dark as three icons),
-  API keys, Sign-ins, "Sign in with Touch ID / Face ID", sign out. The word
+  API keys, Sign-ins, "Sign in with Touch ID / Face ID", sign out. On a box ShipTiffin manages, owners and admins
+  also get "ShipTiffin account ↗" (plan and billing, in a new tab): billing lives in the account menu and
+  Settings › General (a Plan row), never in the main nav. The word
   "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
   sign-in link" as the fallback.
 - **Projects (home)**: the box's memory, CPU and disk in one quiet line under the title (linking to

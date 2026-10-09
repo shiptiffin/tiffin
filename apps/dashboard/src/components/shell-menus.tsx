@@ -1,7 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Scale, Sun } from "lucide-react";
+import { ArrowUpRight, CreditCard, Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Scale, Sun } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
+import { q } from "@/api/queries";
+import { shipTiffinAccount } from "@/lib/box";
 import { roleCopy, useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
 import { passkeyWords } from "@/lib/webauthn";
@@ -33,6 +36,9 @@ export function WhoMenu() {
   const { me, name, role, admin } = useMe();
   const navigate = useNavigate();
   const [early] = useState(() => clickedEarly("who"));
+  // A box ShipTiffin manages links back to the plan and billing (box admins only; the API leaves it out for the rest).
+  const { data: status } = useQuery(q.status());
+  const account = admin ? shipTiffinAccount(status) : undefined;
   if (!me) return <div className="size-9" />;
   const label = name ?? "You";
   return (
@@ -51,6 +57,16 @@ export function WhoMenu() {
         <MenuSeparator />
         <ThemeRow />
         <MenuSeparator />
+        {account && (
+          <MenuItem asChild>
+            <a href={account} target="_blank" rel="noopener noreferrer">
+              <CreditCard />
+              ShipTiffin account
+              <span className="sr-only"> (opens in a new tab)</span>
+              <ArrowUpRight className="ml-auto" aria-hidden />
+            </a>
+          </MenuItem>
+        )}
         {admin && (
           <MenuItem onSelect={() => navigate({ to: "/settings/keys", search: {} })}>
             <KeyRound />
