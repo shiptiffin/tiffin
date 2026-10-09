@@ -8,52 +8,27 @@
 package cloud
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/hkdf"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"strconv"
 	"strings"
+
+	"github.com/btahir/tiffin/internal/sealbox"
 )
 
-// Customers' Hetzner tokens are sealed to the worker's X25519 public key: the
-// website (which holds only CLOUD_SEAL_PUBLIC) can seal but never open; only
-// the worker, which holds CLOUD_SEAL_KEY, opens. Each value gets a fresh
-// ephemeral key. The additional data binds a value to its row
-// ("hetzner:<box id>"), so a value copied to another row does not open.
-//
-// Format: "v2." + base64url(ephemeral public key, 32 bytes) + "." +
-// base64url(nonce(12) | AES-256-GCM(key, value, aad)), where
-// key = HKDF-SHA256(X25519(ephemeral, recipient), salt = ephemeral public |
-// recipient public, info = "shiptiffin seal v2"). The website seals the same
-// way (site/lib/cloud/seal.ts).
-
-const (
-	sealPrefix = "v2."
-	sealInfo   = "shiptiffin seal v2"
-)
-
-var b64 = base64.RawURLEncoding
-
-func decodeKey(s string) ([]byte, error) {
-	s = strings.TrimSpace(s)
-	raw, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		raw, err = base64.RawURLEncoding.DecodeString(s)
-	}
-	return raw, err
-}
+// Customers' Hetzner tokens are sealed to the worker's X25519 public key
+// (sealbox): the website (which holds only CLOUD_SEAL_PUBLIC) can seal but
+// never open; only the worker, which holds CLOUD_SEAL_KEY, opens. The
+// additional data binds a value to its row ("hetzner:<box id>").
 
 // ParseSealKey reads CLOUD_SEAL_KEY: the base64 of a 32-byte X25519 private key.
 func ParseSealKey(s string) (*ecdh.PrivateKey, error) {
-	raw, err := decodeKey(s)
-	if err != nil || len(raw) != 32 {
+	raw, err := sealbox.DecodeKey(s)
+	if err != nil {
 		return nil, errors.New("CLOUD_SEAL_KEY: want the base64 of a 32-byte X25519 private key (tiffin-provisioner keygen makes one)")
 	}
 	return ecdh.X25519().NewPrivateKey(raw)
@@ -61,99 +36,28 @@ func ParseSealKey(s string) (*ecdh.PrivateKey, error) {
 
 // ParseSealPublic reads CLOUD_SEAL_PUBLIC (the website's half).
 func ParseSealPublic(s string) (*ecdh.PublicKey, error) {
-	raw, err := decodeKey(s)
-	if err != nil || len(raw) != 32 {
+	pub, err := sealbox.ParsePublic(s)
+	if err != nil {
 		return nil, errors.New("CLOUD_SEAL_PUBLIC: want the base64 of a 32-byte X25519 public key")
 	}
-	return ecdh.X25519().NewPublicKey(raw)
+	return pub, nil
 }
 
 // KeyText is a key as the secrets hold it.
-func KeyText(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
-
-func sealKey(shared, ephPub, recipPub []byte) ([]byte, error) {
-	salt := append(append([]byte{}, ephPub...), recipPub...)
-	return hkdf.Key(sha256.New, shared, salt, sealInfo, 32)
-}
-
-func gcm(key []byte) (cipher.AEAD, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	return cipher.NewGCM(block)
-}
+func KeyText(b []byte) string { return sealbox.KeyText(b) }
 
 // Seal encrypts value to pub for the row aad names.
 func Seal(pub *ecdh.PublicKey, value []byte, aad string) (string, error) {
-	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return "", err
-	}
-	shared, err := eph.ECDH(pub)
-	if err != nil {
-		return "", err
-	}
-	key, err := sealKey(shared, eph.PublicKey().Bytes(), pub.Bytes())
-	clear(shared)
-	if err != nil {
-		return "", err
-	}
-	defer clear(key)
-	g, err := gcm(key)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, g.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	body := g.Seal(nonce, nonce, value, []byte(aad))
-	return sealPrefix + b64.EncodeToString(eph.PublicKey().Bytes()) + "." + b64.EncodeToString(body), nil
+	return sealbox.Seal(pub, value, aad)
 }
 
 // ErrSealed means a sealed value could not be opened: another key, another
 // row, or changed.
-var ErrSealed = errors.New("sealed value does not open")
+var ErrSealed = sealbox.ErrSealed
 
 // Open decrypts a Seal'ed value with the worker's private key.
 func Open(priv *ecdh.PrivateKey, sealed, aad string) ([]byte, error) {
-	rest, ok := strings.CutPrefix(sealed, sealPrefix)
-	if !ok {
-		return nil, ErrSealed
-	}
-	e, b, ok := strings.Cut(rest, ".")
-	if !ok {
-		return nil, ErrSealed
-	}
-	ephRaw, err1 := b64.DecodeString(e)
-	body, err2 := b64.DecodeString(b)
-	if err1 != nil || err2 != nil || len(ephRaw) != 32 {
-		return nil, ErrSealed
-	}
-	eph, err := ecdh.X25519().NewPublicKey(ephRaw)
-	if err != nil {
-		return nil, ErrSealed
-	}
-	shared, err := priv.ECDH(eph)
-	if err != nil {
-		return nil, ErrSealed
-	}
-	key, err := sealKey(shared, ephRaw, priv.PublicKey().Bytes())
-	clear(shared)
-	if err != nil {
-		return nil, ErrSealed
-	}
-	defer clear(key)
-	g, err := gcm(key)
-	if err != nil || len(body) < g.NonceSize()+g.Overhead() {
-		return nil, ErrSealed
-	}
-	v, err := g.Open(nil, body[:g.NonceSize()], body[g.NonceSize():], []byte(aad))
-	if err != nil {
-		return nil, ErrSealed
-	}
-	return v, nil
+	return sealbox.Open(priv, sealed, aad)
 }
 
 // TokenAAD binds a sealed Hetzner token to its box.
