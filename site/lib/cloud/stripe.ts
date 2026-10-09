@@ -4,6 +4,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const STRIPE_API = "https://api.stripe.com/v1";
+/**
+ * The API version every request asks for (the Stripe-Version header), so a
+ * change of the account's default version in Stripe's dashboard can't change
+ * what this code gets. The version the code and its tests were checked
+ * against; move it on deliberately (docs.stripe.com/upgrades), with the
+ * webhook endpoint's version.
+ */
+export const STRIPE_API_VERSION = "2026-09-30.endive";
 export const PRICE_LOOKUP_KEY = "box_monthly_v1";
 export const FOUNDING_LIMIT = 100;
 
@@ -38,7 +46,7 @@ export type Stripe = ReturnType<typeof stripeClient>;
 export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BASE || STRIPE_API) {
   async function req<T = any>(method: "GET" | "POST" | "DELETE", path: string, params?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
     let url = base.replace(/\/+$/, "") + path;
-    const headers: Record<string, string> = { Authorization: `Bearer ${secretKey}` };
+    const headers: Record<string, string> = { Authorization: `Bearer ${secretKey}`, "Stripe-Version": STRIPE_API_VERSION };
     let body: string | undefined;
     if (params && method === "GET") url += (url.includes("?") ? "&" : "?") + formEncode(params);
     else if (params) {

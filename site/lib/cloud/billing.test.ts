@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { extrasOn, handleEvent, invoiceSubscription, type BillingPatch, type BillingRepo, type BillingStripe, type BoxBilling, type StripeEvent, type SubscriptionNow } from "./billing";
-import { formEncode, paymentIntentOf, signStripePayload, verifyStripeSignature } from "./stripe";
+import { formEncode, paymentIntentOf, signStripePayload, STRIPE_API_VERSION, stripeClient, verifyStripeSignature } from "./stripe";
 
 // Replays of Stripe's webhooks against an in-memory repo (what the Postgres
 // one does) and a fake Stripe that answers what the subscription is now.
@@ -404,6 +404,24 @@ describe("stripe", () => {
     expect(verifyStripeSignature(body + " ", h, secret, now)).toBe(false);
     expect(verifyStripeSignature(body, null, secret, now)).toBe(false);
     expect(verifyStripeSignature(body, "t=abc,v1=", secret, now)).toBe(false);
+  });
+  test("every request names the API version it was written for", async () => {
+    const seen: Headers[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      seen.push(new Headers(init.headers));
+      return Response.json({ id: "cs_1", url: "https://checkout.stripe.test/c/1" });
+    }) as typeof fetch;
+    try {
+      const s = stripeClient("sk_test_x", "https://stripe.test/v1");
+      await s.createCheckout({ mode: "subscription" }, "key_1");
+      await s.getCheckout("cs_1");
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(STRIPE_API_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\.[a-z]+$/);
+    expect(seen.map((h) => h.get("stripe-version"))).toEqual([STRIPE_API_VERSION, STRIPE_API_VERSION]);
+    expect(seen[0]!.get("idempotency-key")).toBe("key_1");
   });
   test("form encoding as Stripe wants it", () => {
     expect(formEncode({ mode: "subscription", line_items: [{ price: "price_1", quantity: 1 }], metadata: { box_id: "box_1" }, payment_method_types: ["card"], skip: undefined })).toBe(
