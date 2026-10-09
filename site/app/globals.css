@@ -400,8 +400,6 @@ code {
   .hero-grid {
     grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
     gap: 64px;
-    /* the art under the copy makes that column taller; keep the box beside the headline */
-    align-items: start;
   }
 }
 .actions {
@@ -616,19 +614,13 @@ code {
   width: 100%;
   height: auto;
 }
-.hero-art {
-  margin-top: 36px;
-  max-width: 260px;
-}
-@media (min-width: 560px) {
-  .hero-art {
-    max-width: 360px;
-  }
+/* The closing call to action: the tin plugged into its server, "ready". */
+.cta-art {
+  max-width: 200px;
 }
 @media (min-width: 960px) {
-  .hero-art {
-    max-width: 400px;
-    margin-top: 44px;
+  .cta-art {
+    max-width: 280px;
   }
 }
 .with-art {
@@ -863,6 +855,20 @@ code {
   align-items: end;
   justify-content: space-between;
   gap: 8px 32px;
+}
+.cta-copy {
+  flex: 1 1 24rem;
+}
+@media (min-width: 760px) {
+  .cta-row {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 48px;
+  }
+  .cta-art {
+    flex: 0 0 auto;
+    width: 34%;
+  }
 }
 .cta .actions {
   margin-top: 24px;

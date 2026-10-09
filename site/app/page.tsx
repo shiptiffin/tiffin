@@ -265,13 +265,6 @@ export default function Home() {
             <p className="fine">
               Ready in about 5 minutes. The first 100 customers pay $12 a month, locked for 24 months.
             </p>
-            <Art
-              name="tin-on-server"
-              className="art hero-art"
-              alt="The ShipTiffin tin sitting on top of a rack server, plugged in."
-              sizes="(min-width: 960px) 400px, (min-width: 560px) 360px, 260px"
-              priority
-            />
           </div>
           <BoxDrawing />
         </div>
@@ -520,7 +513,13 @@ export default function Home() {
 
       <section id="start" className="band cta" aria-labelledby="start-title">
         <div className="wrap cta-row">
-          <div>
+          <Art
+            name="tin-on-server"
+            className="art cta-art"
+            alt="The ShipTiffin tin sitting on top of a rack server, plugged in."
+            sizes="(min-width: 960px) 280px, 200px"
+          />
+          <div className="cta-copy">
             <h2 id="start-title" className="h2">
               All your apps on one box, in about 5 minutes.
             </h2>
