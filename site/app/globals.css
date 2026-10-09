@@ -1708,238 +1708,300 @@ code {
 .replaces .section-head {
   max-width: 44rem;
 }
-.cmp {
-  display: grid;
-  gap: 24px;
-  align-items: start;
+/* The two bills, side by side. Options are columns and needs are rows, so
+   each column adds up to its own total at the foot; ours is tinted. */
+.ledger-mode {
+  margin: 0 0 22px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  max-width: 30rem;
 }
-@media (min-width: 1000px) {
-  .cmp {
-    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-    gap: 48px;
-  }
+.ledger-mode-legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 0.86rem;
+  font-weight: 550;
+  color: var(--ink-3);
 }
-.cmp-table {
+.ledger-mode .seg-opt > span {
+  flex-direction: column;
+  gap: 1px;
+  height: auto;
+  min-height: 52px;
+  padding: 7px 12px;
+  line-height: 1.25;
+  text-align: center;
+}
+.ledger-mode .seg-opt > span span {
+  display: inline;
+  height: auto;
+  background: none;
+}
+.ledger-mode-label {
+  font-weight: 600;
+  color: var(--ink);
+}
+.ledger-mode-hint {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.ledger-table {
+  --ours-bg: color-mix(in oklch, var(--brass) 9%, var(--paper));
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
   font-variant-numeric: lining-nums tabular-nums;
 }
-.cmp-table th,
-.cmp-table td {
+.ledger-col-need {
+  width: 24%;
+}
+.ledger-table th,
+.ledger-table td {
+  padding: 13px 18px;
   text-align: left;
-  vertical-align: top;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--rule);
+  vertical-align: baseline;
   font-weight: 400;
+  border-bottom: 1px solid var(--rule);
 }
-.cmp-table thead th {
-  padding: 0 0 10px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ink-3);
-  border-bottom-color: var(--rule-2);
+.ledger-table th:first-child {
+  padding-left: 0;
 }
-.cmp-table tbody th {
-  width: 26%;
-  padding-right: 16px;
+.ledger-table tbody th {
   font-weight: 600;
   color: var(--ink);
+  text-wrap: balance;
 }
-.cmp-vendor {
-  display: block;
-  color: var(--ink-2);
-  font-weight: 550;
-}
-.cmp-detail {
-  display: block;
-  margin-top: 2px;
-  font-size: 0.88rem;
-  color: var(--ink-3);
-  text-wrap: pretty;
-}
-.cmp-table .num {
-  width: 5rem;
-  padding-left: 12px;
-  text-align: right;
-  white-space: nowrap;
-  color: var(--ink-2);
-}
-.cmp-table tfoot th,
-.cmp-table tfoot td {
+.ledger-table thead th {
   padding-top: 16px;
-  border-bottom: none;
-  border-top: 1px solid var(--rule-3);
-  font-weight: 600;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule-3);
+  vertical-align: bottom;
+}
+.ledger-head {
+  font-size: 1rem;
+  font-weight: 600 !important;
   color: var(--ink);
 }
-.cmp-table tfoot td.num {
-  font-family: var(--font-display);
-  font-weight: 450;
-  font-size: 1.7rem;
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: var(--ink-2);
+.ledger-table .ledger-ours {
+  background: var(--ours-bg);
 }
-@media (max-width: 640px) {
-  .cmp-table,
-  .cmp-table tbody,
-  .cmp-table tfoot {
-    display: block;
-  }
-  .cmp-table thead {
-    display: none;
-  }
-  .cmp-table tr {
-    display: grid;
-    grid-template-columns: auto auto 1fr;
-    column-gap: 22px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--rule);
-  }
-  .cmp-table th,
-  .cmp-table td {
-    padding: 0;
-    border: none;
-  }
-  .cmp-table tbody th,
-  .cmp-table tbody td:not(.num),
-  .cmp-table tfoot th {
-    grid-column: 1 / -1;
-    width: auto;
-  }
-  .cmp-table tbody td:not(.num) {
-    margin-top: 2px;
-  }
-  .cmp-table .num {
-    width: auto;
-    padding: 0;
-    margin-top: 8px;
-    text-align: left;
-  }
-  .cmp-table td.num[data-label="Lean"] {
-    grid-column: 1;
-  }
-  .cmp-table td.num[data-label="Typical"] {
-    grid-column: 2;
-  }
-  .cmp-table .num::before {
-    content: attr(data-label) " ";
-    margin-right: 4px;
-    font-family: var(--font-ui);
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0;
-    color: var(--ink-3);
-  }
-  .cmp-table tfoot {
-    border-top: 1px solid var(--rule-3);
-  }
-  .cmp-table tfoot tr {
-    border-bottom: none;
-  }
-  .cmp-table tfoot th,
-  .cmp-table tfoot td,
-  .cmp-table tfoot td.num {
-    border: none;
-  }
-  .cmp-table tfoot td.num {
-    font-size: 1.5rem;
-  }
-  .cmp-table tfoot .num::before {
-    display: block;
-    margin: 0 0 4px;
-  }
-}
-
-.cmp-box {
-  position: relative;
-  padding: 26px 24px 24px;
-  border: 1px solid color-mix(in oklch, var(--brass) 70%, var(--rule-2));
-  border-radius: 14px;
-  background: var(--paper-raised);
-  box-shadow: var(--lift);
-}
-@media (min-width: 1000px) {
-  .cmp-box {
-    position: sticky;
-    top: 84px;
-    padding: 30px 30px 28px;
-  }
-}
-.cmp-box-label {
-  font-size: 0.86rem;
-  font-weight: 600;
+.ledger-table thead .ledger-ours {
   color: var(--brass-ink);
+  border-radius: 10px 10px 0 0;
 }
-.cmp-box-price {
+.ledger-table tfoot .ledger-ours {
+  border-radius: 0 0 10px 10px;
+}
+.ledger-cell {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-top: 8px;
+  justify-content: space-between;
+  gap: 12px;
 }
-.cmp-box-amount {
-  font-family: var(--font-display);
-  font-weight: 430;
-  font-size: clamp(3.4rem, 2.8rem + 2vw, 4.4rem);
-  line-height: 0.95;
-  letter-spacing: -0.04em;
-  font-variant-numeric: lining-nums;
-}
-.cmp-box-per {
-  font-size: 1rem;
-  color: var(--ink-2);
-}
-.cmp-box-plan {
-  margin-top: 10px;
+.ledger-what {
+  min-width: 0;
   color: var(--ink-2);
   font-size: 0.95rem;
   text-wrap: pretty;
 }
-.cmp-box-list {
-  list-style: none;
-  padding: 0;
-  margin: 18px 0 0;
-  border-top: 1px solid var(--rule);
-}
-.cmp-box-list li {
-  position: relative;
-  padding: 9px 0 9px 26px;
-  border-bottom: 1px solid var(--rule);
-  font-size: 0.97rem;
-}
-.cmp-box-list li::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 50%;
-  width: 14px;
-  height: 14px;
-  translate: 0 -50%;
-  border-radius: 50%;
-  background: var(--brass-wash);
-  box-shadow: inset 0 0 0 1.5px var(--brass);
-}
-.cmp-box-list li::after {
-  content: "";
-  position: absolute;
-  left: 6.5px;
-  top: 50%;
-  width: 5px;
-  height: 8px;
-  translate: 0 -65%;
-  rotate: 45deg;
-  border: solid var(--brass-ink);
-  border-width: 0 1.6px 1.6px 0;
-}
-.cmp-box-save {
-  margin-top: 16px;
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  line-height: 1.4;
+.ledger-usd {
+  flex: none;
+  font-family: var(--font-code);
+  font-size: 0.95rem;
   color: var(--ink);
+  white-space: nowrap;
+}
+.ledger-approx {
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  color: var(--ink-3);
+}
+.ledger-incl {
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  color: var(--ink-3);
+}
+.ledger-none {
+  color: var(--ink-4);
+}
+.ledger-ours-row th {
+  color: var(--ink-2) !important;
+}
+.ledger-total th,
+.ledger-total td {
+  padding-top: 18px;
+  padding-bottom: 18px;
+  border-top: 1px solid var(--rule-3);
+  border-bottom: 0;
+  vertical-align: top;
+}
+.ledger-total th {
+  padding-top: 26px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ledger-big {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 430;
+  font-size: clamp(2.5rem, 1.9rem + 2.2vw, 3.6rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  font-variant-numeric: lining-nums tabular-nums;
+  color: var(--ink-2);
+}
+.ledger-total .ledger-ours .ledger-big {
+  color: var(--ink);
+  padding-bottom: 3px;
+  box-shadow: inset 0 -3px 0 var(--brass);
+}
+.ledger-plus {
+  font-size: 0.6em;
+  vertical-align: 0.5em;
+  margin-left: 1px;
+}
+.ledger-about {
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  font-weight: 450;
+  letter-spacing: 0;
+  color: var(--ink-3);
+}
+.ledger-sub {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--ink-3);
   text-wrap: pretty;
 }
+.ledger-diff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin-top: 22px;
+  padding: 18px 0 0;
+  border-top: 1px solid var(--rule-2);
+}
+.ledger-diff-amount {
+  font-family: var(--font-display);
+  font-weight: 450;
+  font-size: clamp(2rem, 1.6rem + 1.4vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: lining-nums tabular-nums;
+  color: var(--brass-ink);
+}
+.ledger-diff-amount .ledger-about {
+  margin-right: 2px;
+}
+.ledger-diff-text {
+  flex: 1 1 20rem;
+  max-width: 36rem;
+  font-size: 1.05rem;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.ledger-how {
+  margin-top: 18px;
+  max-width: 52rem;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+.ledger-how summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 550;
+  color: var(--ink-2);
+}
+.ledger-how summary:hover {
+  color: var(--ink);
+}
+.ledger-how ul {
+  margin: 10px 0 0;
+  padding-left: 1.1rem;
+}
+.ledger-how li + li {
+  margin-top: 4px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ledger-big,
+  .ledger-diff-amount {
+    animation: ledger-tick 220ms ease-out;
+  }
+}
+@keyframes ledger-tick {
+  from {
+    opacity: 0.35;
+    translate: 0 3px;
+  }
+}
+/* Phones: each need becomes a line of its own above its two prices, and
+   the two bills stay next to each other all the way down to the totals. */
+@media (max-width: 640px) {
+  .ledger-mode {
+    max-width: none;
+  }
+  .ledger-table,
+  .ledger-table thead,
+  .ledger-table tbody,
+  .ledger-table tfoot {
+    display: block;
+  }
+  .ledger-table colgroup {
+    display: none;
+  }
+  .ledger-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .ledger-table th,
+  .ledger-table td {
+    padding: 10px 12px;
+  }
+  .ledger-table thead th:first-child {
+    display: none;
+  }
+  .ledger-table tbody th,
+  .ledger-total th {
+    grid-column: 1 / -1;
+    padding: 14px 0 2px;
+    border-bottom: 0;
+    border-top: 0;
+    font-size: 0.92rem;
+    background: linear-gradient(to right, transparent 50%, var(--ours-bg) 50%);
+  }
+  .ledger-total th {
+    padding-top: 16px;
+    border-top: 1px solid var(--rule-3);
+    background: linear-gradient(to right, transparent 50%, var(--ours-bg) 50%);
+  }
+  .ledger-total td {
+    border-top: 0;
+    padding-top: 6px;
+  }
+  .ledger-table td:nth-child(2) {
+    padding-left: 0;
+  }
+  .ledger-cell {
+    flex-direction: column;
+    gap: 1px;
+  }
+  .ledger-usd {
+    order: -1;
+    font-size: 1rem;
+  }
+  .ledger-what {
+    font-size: 0.86rem;
+  }
+  .ledger-big {
+    font-size: 2.3rem;
+  }
+}
+
 .cmp-sources {
   margin-top: 20px;
   max-width: 52rem;
