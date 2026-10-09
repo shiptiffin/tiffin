@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
 )
 
 // The box firewall keeps app ports local and refuses apps' own connections

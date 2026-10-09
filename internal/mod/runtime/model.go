@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/vercelcfg"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // Deploy statuses.

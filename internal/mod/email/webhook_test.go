@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // ---- test keys, made fresh for each run ----

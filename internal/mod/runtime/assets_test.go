@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 func TestClientAssetsFindsKnownBuilds(t *testing.T) {

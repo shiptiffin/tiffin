@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 var (

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider"
 )
 
 // DataRoot is where every box keeps its data. On a server it is a separate

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // API keys are what people and agents see: a key reaches some projects

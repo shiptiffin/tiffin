@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // UsageHistory is a project's (or one app's) use of the box over time.

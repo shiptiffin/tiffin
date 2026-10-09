@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // These tests drive a real versitygw over TLS with a private CA. Point

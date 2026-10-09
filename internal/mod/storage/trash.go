@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // TrashEntry is a deleted bucket kept for TrashRetention.

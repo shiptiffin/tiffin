@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // EstimateLoss says how many events go when analytics is removed (all of

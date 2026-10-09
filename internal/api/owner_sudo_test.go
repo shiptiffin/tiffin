@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/passkeys"
-	"github.com/btahir/tiffin/internal/passkeys/passkeytest"
-	"github.com/btahir/tiffin/internal/state"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/passkeys"
+	"github.com/shiptiffin/tiffin/internal/passkeys/passkeytest"
+	"github.com/shiptiffin/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // On a box with no relay and no Google or GitHub keys, the owner's own

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/peer"
+	"github.com/shiptiffin/tiffin/internal/peer"
 )
 
 // Apps listen on loopback ports of the host network, where any app could

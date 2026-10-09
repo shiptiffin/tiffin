@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/edge"
 )
 
 func TestSourceRegexp(t *testing.T) {

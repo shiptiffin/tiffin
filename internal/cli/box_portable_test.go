@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"filippo.io/age"
-	"github.com/btahir/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
 )
 
 func writeTestArchive(t *testing.T, m *boxfile.Manifest) string {

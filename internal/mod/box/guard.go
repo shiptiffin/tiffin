@@ -17,12 +17,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/mod/runtime"
-	"github.com/btahir/tiffin/internal/mod/storage"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime"
+	"github.com/shiptiffin/tiffin/internal/mod/storage"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Guard is the disk guard's view of the data disk.

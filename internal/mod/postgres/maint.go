@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Minor updates. The PGDG packages are outside unattended-upgrades'

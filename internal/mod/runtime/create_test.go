@@ -16,9 +16,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/starters"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/starters"
 )
 
 // apiCall serves the full API over the harness's platform.

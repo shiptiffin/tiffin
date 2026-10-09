@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 func init() { platform.Register(New()) }

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // TestDeployVersionsAndProjectList: production deploys are numbered per app,

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Every project's usage goes to the metrics store as gauges: memory without

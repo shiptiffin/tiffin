@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 )
 
 // Calls to a URL outside the box (a cron's or queue's url). They go through

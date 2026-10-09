@@ -34,7 +34,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp"
 )
 
 // Server is a fake GitHub.

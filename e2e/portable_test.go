@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
 )
 
 // portBox is a box for the portable test. spec ("instance:disk:port", from

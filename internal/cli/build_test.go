@@ -17,9 +17,9 @@ func TestUpBuildIsStamped(t *testing.T) {
 	got := strings.Join(args, " ")
 	for _, want := range []string{
 		"build -trimpath -ldflags",
-		"-X github.com/btahir/tiffin/internal/version.Version=v1.4.0-2-gabc1234",
-		"-X github.com/btahir/tiffin/internal/version.Commit=abc1234",
-		"-X github.com/btahir/tiffin/internal/version.Date=2026-10-06T08:00:00Z",
+		"-X github.com/shiptiffin/tiffin/internal/version.Version=v1.4.0-2-gabc1234",
+		"-X github.com/shiptiffin/tiffin/internal/version.Commit=abc1234",
+		"-X github.com/shiptiffin/tiffin/internal/version.Date=2026-10-06T08:00:00Z",
 		"-o /tmp/out ./cmd/tiffin",
 	} {
 		if !strings.Contains(got, want) {

@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 	"github.com/spf13/cobra"
 )
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // A project's colour: stable default from its name, then whatever someone picks.

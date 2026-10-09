@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/dop251/goja"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // Code mode: one "run" tool that executes a short JavaScript program which

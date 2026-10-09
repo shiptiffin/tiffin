@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/mod/backup"
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/version"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/version"
 )
 
 func init() { platform.Register(mod) }

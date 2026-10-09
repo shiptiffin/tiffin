@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 )
 
 // Domain authentication through the relay provider's own API, with the key

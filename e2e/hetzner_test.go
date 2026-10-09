@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
 )
 
 // TestHetzner creates a real CAX11 box on Hetzner Cloud and destroys it.
@@ -163,7 +163,7 @@ func TestHetzner(t *testing.T) {
 func buildArch(t *testing.T, dir, arch, version string) string {
 	t.Helper()
 	out := filepath.Join(dir, "tiffin-linux-"+arch+"-"+version)
-	cmd := exec.Command("go", "build", "-trimpath", "-o", out, "-ldflags", "-X github.com/btahir/tiffin/internal/version.Version="+version, "./cmd/tiffin")
+	cmd := exec.Command("go", "build", "-trimpath", "-o", out, "-ldflags", "-X github.com/shiptiffin/tiffin/internal/version.Version="+version, "./cmd/tiffin")
 	cmd.Dir, cmd.Env = RepoRoot(), append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch)
 	if o, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, o)

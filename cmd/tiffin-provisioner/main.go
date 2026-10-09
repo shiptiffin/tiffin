@@ -51,9 +51,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/cloud"
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/licence"
+	"github.com/shiptiffin/tiffin/internal/cloud"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/licence"
 )
 
 func main() {

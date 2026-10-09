@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/mod/email/templates"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/mod/email/templates"
 )
 
 // The box's own messages. Their HTML and plain text are React Email

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // On a real server (/etc/tiffin/server.json exists) CrowdSec also guards

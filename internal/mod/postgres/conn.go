@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // KV namespaces this module uses in the platform state.

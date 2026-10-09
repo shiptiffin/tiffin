@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/edgelog"
 )
 
 //go:embed script.js

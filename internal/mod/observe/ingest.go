@@ -15,8 +15,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/mod/observe/sentry"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/sentry"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"

@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Branch is a preview copy of a project's database.

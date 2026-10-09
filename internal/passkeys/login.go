@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Passkey sign-in: the dashboard asks for a discoverable credential (no

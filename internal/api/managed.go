@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Managed is how a box that ShipTiffin installed links back to the

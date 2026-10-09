@@ -19,11 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/mod/backup"
-	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
-	"github.com/btahir/tiffin/internal/mod/observe/logtail"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/edgelog"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/logtail"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 func init() {

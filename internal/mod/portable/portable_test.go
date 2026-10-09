@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/mod/runtime"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func openState(t *testing.T, path string) *state.DB {

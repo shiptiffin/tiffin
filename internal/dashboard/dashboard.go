@@ -13,8 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	tiffin "github.com/btahir/tiffin"
-	"github.com/btahir/tiffin/internal/version"
+	tiffin "github.com/shiptiffin/tiffin"
+	"github.com/shiptiffin/tiffin/internal/version"
 )
 
 //go:embed all:dist

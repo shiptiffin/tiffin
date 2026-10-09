@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Invite is a person plus their one-time sign-in link.

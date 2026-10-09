@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/sealbox"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sealbox"
 )
 
 // Off-site backups for managed boxes. Each box sends the public half of an

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // exactRowsUnder is the row estimate below which tables are counted exactly

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/sdkpkg"
+	"github.com/shiptiffin/tiffin/internal/sdkpkg"
 	"github.com/spf13/cobra"
 )
 

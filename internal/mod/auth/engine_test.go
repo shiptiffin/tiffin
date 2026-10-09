@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // SolveAltcha solves the engine's proof-of-work challenge (SHA-256, cost 1):

@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/vercelcfg"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // The box reads what an app already has, so an app moves from Vercel

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/version"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/version"
 )
 
 // boxChecks are the box-level health checks behind /v1/status. They read

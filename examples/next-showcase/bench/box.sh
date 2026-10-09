@@ -42,7 +42,7 @@ up)
   echo "==> building tiffin (host and linux/$arch) from $repo"
   (cd "$repo" && go build -trimpath -o "$work/tiffin" ./cmd/tiffin)
   (cd "$repo" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
-    -ldflags "-X github.com/btahir/tiffin/internal/version.Version=0.0.1-bench -X github.com/btahir/tiffin/internal/version.Commit=$(git -C "$repo" rev-parse --short HEAD)" \
+    -ldflags "-X github.com/shiptiffin/tiffin/internal/version.Version=0.0.1-bench -X github.com/shiptiffin/tiffin/internal/version.Commit=$(git -C "$repo" rev-parse --short HEAD)" \
     -o "$work/tiffin-linux" ./cmd/tiffin)
   echo "==> creating $VM (disk $DISK, https on 127.0.0.1:$PORT)"
   limactl disk create "$DISK" --size 20GiB --format raw --tty=false

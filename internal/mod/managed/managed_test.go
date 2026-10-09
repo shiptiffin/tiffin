@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/licence"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/licence"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func testConfig(t *testing.T, url string) *platform.ManagedConfig {

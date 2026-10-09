@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Layout on the box. The cluster lives on the XFS data disk so database

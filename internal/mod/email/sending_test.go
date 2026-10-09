@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/dnskit/dnstest"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit/dnstest"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // fakeDNS is a connected DNS provider holding some zones.

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 //go:embed all:files

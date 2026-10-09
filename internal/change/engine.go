@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // Store persists project state and the change log. Commit must be atomic:

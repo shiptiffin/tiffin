@@ -16,9 +16,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 	"github.com/robfig/cron/v3"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
 )
 
 // File is the name the box looks for at the top of an app.

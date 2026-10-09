@@ -16,16 +16,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/edge/switchboard"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/mod/valkey"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/mod/valkey"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Deploy addresses. Every production deploy of a web app has an address of

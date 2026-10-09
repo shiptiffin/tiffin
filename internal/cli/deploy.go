@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
-	"github.com/btahir/tiffin/internal/version"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
+	"github.com/shiptiffin/tiffin/internal/version"
 	"github.com/spf13/cobra"
 )
 

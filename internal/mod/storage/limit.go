@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // A project's storage limit (its quota) counts its database and its files

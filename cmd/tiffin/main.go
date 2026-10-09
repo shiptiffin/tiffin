@@ -9,7 +9,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/btahir/tiffin/internal/cli"
+	"github.com/shiptiffin/tiffin/internal/cli"
 )
 
 func main() {

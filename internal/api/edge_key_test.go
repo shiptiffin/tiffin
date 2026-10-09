@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // testEdgeKey stands in for the edge's key: requests that carry it with

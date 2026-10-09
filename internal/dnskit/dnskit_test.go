@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/dnskit/dnstest"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit/dnstest"
 )
 
 var box = []netip.Addr{netip.MustParseAddr("198.51.100.7")}

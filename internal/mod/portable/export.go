@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/mod/backup"
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/mod/valkey"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/mod/valkey"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // exportRun tracks one export's progress and saves it (throttled).

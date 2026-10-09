@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Subscription is one subscriber of a topic: every message published to the

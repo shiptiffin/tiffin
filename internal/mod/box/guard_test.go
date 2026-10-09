@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/mod/storage"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/storage"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 func TestDecide(t *testing.T) {

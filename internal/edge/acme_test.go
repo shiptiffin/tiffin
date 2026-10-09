@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit/dnstest"
 	"github.com/caddyserver/certmagic"
 	pca "github.com/letsencrypt/pebble/v2/ca"
 	pdb "github.com/letsencrypt/pebble/v2/db"
@@ -26,6 +25,7 @@ import (
 	pwfe "github.com/letsencrypt/pebble/v2/wfe"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"github.com/shiptiffin/tiffin/internal/dnskit/dnstest"
 )
 
 // pebble is Let's Encrypt's test CA, in process. Its validation authority

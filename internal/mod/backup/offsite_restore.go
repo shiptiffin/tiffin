@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // offsiteStage is where a restore from the bucket downloads a set.

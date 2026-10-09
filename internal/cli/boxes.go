@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 )
 
 // boxConfig is what the CLI on your computer knows about a box.

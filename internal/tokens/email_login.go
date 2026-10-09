@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // Sign-in links people ask for by email ("Email me a sign-in link" on the

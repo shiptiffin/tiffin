@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp"
 )
 
 func TestGuessFramework(t *testing.T) {

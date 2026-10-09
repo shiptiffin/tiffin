@@ -17,15 +17,15 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/mod/backup"
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 func pendingDir(p *platform.Platform) string { return filepath.Join(dir(p), "pending") }

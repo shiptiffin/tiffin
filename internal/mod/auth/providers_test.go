@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 const social = `{"project":"shop","apps":{"web":{"routes":["shop","shop.example.com"]}},

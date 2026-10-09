@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider"
 	"golang.org/x/crypto/ssh"
 )
 

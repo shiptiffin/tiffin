@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/edge"
 )
 
 // providerRecord is a connected DNS provider as stored: the credentials

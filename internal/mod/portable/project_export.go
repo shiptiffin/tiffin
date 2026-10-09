@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/storage"
-	"github.com/btahir/tiffin/internal/mod/valkey"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/storage"
+	"github.com/shiptiffin/tiffin/internal/mod/valkey"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // reporter receives a job's progress.

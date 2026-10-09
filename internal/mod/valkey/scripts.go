@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // The script guard. Valkey runs one Lua script at a time and nothing else

@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
 	"github.com/ncruces/go-sqlite3"
 	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/shiptiffin/tiffin/internal/change"
 )
 
 // DB is the platform state database. It implements change.Store.

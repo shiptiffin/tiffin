@@ -12,8 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/btahir/tiffin/internal/ids"
 	"github.com/ncruces/go-sqlite3"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // People are the humans who use the box's dashboard. Each has a role; their

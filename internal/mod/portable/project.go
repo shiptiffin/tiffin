@@ -38,13 +38,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/runtime"
-	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
-	"github.com/btahir/tiffin/internal/mod/storage"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/vercelcfg"
+	"github.com/shiptiffin/tiffin/internal/mod/storage"
 )
 
 // ProjectInfo is project.json: what an archive's project is.

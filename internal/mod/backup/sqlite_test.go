@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
 )
 
 // Files in a backed-up folder are the app's to name and fill. A name that

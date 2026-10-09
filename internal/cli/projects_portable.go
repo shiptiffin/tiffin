@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/dnskit"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 	"github.com/spf13/cobra"
 )
 

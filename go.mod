@@ -1,4 +1,4 @@
-module github.com/btahir/tiffin
+module github.com/shiptiffin/tiffin
 
 go 1.27.2
 

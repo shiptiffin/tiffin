@@ -3,8 +3,8 @@ package analytics
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Committed drops the host map once a change commits, so pageviews of an

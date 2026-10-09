@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 func TestList(t *testing.T) {

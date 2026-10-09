@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/state"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // Errors.

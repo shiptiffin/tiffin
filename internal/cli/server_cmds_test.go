@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner"
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
-	"github.com/btahir/tiffin/internal/provider/remote"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/remote"
 )
 
 func TestSSLIP(t *testing.T) {

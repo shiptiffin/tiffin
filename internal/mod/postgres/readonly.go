@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Read-only holds. When the box's disk guard or a project's storage limit

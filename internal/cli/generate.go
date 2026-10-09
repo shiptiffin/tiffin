@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/api"
 	"github.com/spf13/cobra"
 )
 

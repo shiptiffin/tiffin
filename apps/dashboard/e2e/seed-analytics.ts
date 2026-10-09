@@ -131,7 +131,7 @@ for (let t = start; t < now; t += HOUR) {
         ins.run(at + 25_000, dayOf(at), PROJECT, app, "event", "Checkout started", host, path, "", "", "", "", "", country, browser, os, device, visitor, session, JSON.stringify({ plan: "pro" }), "script");
       }
       if (app === "web" && path.startsWith("/docs") && rnd() < 0.08) {
-        ins.run(at + 30_000, dayOf(at), PROJECT, app, "event", "Outbound Link: Click", host, path, "", "", "", "", "", country, browser, os, device, visitor, session, JSON.stringify({ url: "https://github.com/btahir/tiffin" }), "script");
+        ins.run(at + 30_000, dayOf(at), PROJECT, app, "event", "Outbound Link: Click", host, path, "", "", "", "", "", country, browser, os, device, visitor, session, JSON.stringify({ url: "https://github.com/shiptiffin/tiffin" }), "script");
       }
       if (app === "web" && path === "/blog/shipping-on-a-budget" && rnd() < 0.06) {
         ins.run(at + 50_000, dayOf(at), PROJECT, app, "event", "File Download", host, path, "", "", "", "", "", country, browser, os, device, visitor, session, JSON.stringify({ url: "https://hello.tiffin.localhost/budget-sheet.pdf" }), "script");

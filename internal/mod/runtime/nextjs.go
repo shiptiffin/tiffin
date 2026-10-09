@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/sdkpkg"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sdkpkg"
 )
 
 // Next.js apps get the box's adapter: Railpack builds in /app, so the

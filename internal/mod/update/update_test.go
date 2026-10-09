@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/release"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/release"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // fakeBox records what an update did, in order.

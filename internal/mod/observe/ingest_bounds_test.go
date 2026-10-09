@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/mod/observe/sentry"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/sentry"
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"

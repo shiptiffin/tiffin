@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
 )
 
 // routeSpy gives routes named by a version that grows with each call; the

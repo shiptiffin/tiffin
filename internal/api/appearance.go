@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/state"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Enamels are the six project colours the dashboard paints a project's tier

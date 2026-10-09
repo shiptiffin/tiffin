@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // A restore drill proves a backup can be restored: it restores the backup's

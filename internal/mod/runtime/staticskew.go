@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/edge"
 )
 
 // A page of a static site loaded before a deploy asks for the hashed files

@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Dashboard sessions: where each person is signed in, and signing them out.

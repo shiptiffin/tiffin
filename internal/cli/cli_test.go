@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/tokens"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // run executes the CLI like an agent would: no TTY, env from the map.

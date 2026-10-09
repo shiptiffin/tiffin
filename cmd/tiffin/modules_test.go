@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/cli"
-	"github.com/btahir/tiffin/internal/mcp"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/cli"
+	"github.com/shiptiffin/tiffin/internal/mcp"
 )
 
 // Every module's operations must coexist: unique IDs, paths, CLI words and

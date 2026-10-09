@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // Making and changing tables from a form. The server writes the SQL (so the

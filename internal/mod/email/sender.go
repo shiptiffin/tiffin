@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/emersion/go-message"
 	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-message/textproto"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Who a project may send as. Every project shares the box's relay account,

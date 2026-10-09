@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/change"
 )
 
 // Resource states shown to people and agents.

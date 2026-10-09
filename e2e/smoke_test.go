@@ -72,7 +72,7 @@ sudo rm -rf "$d"`)
 	p = time.Now()
 	bin := filepath.Join(t.TempDir(), "tiffin")
 	build := exec.Command("go", "build", "-trimpath",
-		"-ldflags", "-X github.com/btahir/tiffin/internal/version.Version=0.0.0-e2e",
+		"-ldflags", "-X github.com/shiptiffin/tiffin/internal/version.Version=0.0.0-e2e",
 		"-o", bin, "./cmd/tiffin")
 	build.Dir = RepoRoot()
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+HostArch())

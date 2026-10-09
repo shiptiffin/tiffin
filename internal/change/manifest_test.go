@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // roundTripConfigs are every valid config in the repo: the manifest golden

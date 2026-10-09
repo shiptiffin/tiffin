@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
+	"github.com/shiptiffin/tiffin/internal/mod/analytics/enrich"
 )
 
 // fakeStore blocks or fails inserts and rollups on demand.

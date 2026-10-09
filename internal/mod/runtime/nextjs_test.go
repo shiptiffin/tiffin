@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 func TestPrepareNextWritesTheAdapter(t *testing.T) {

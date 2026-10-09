@@ -1,6 +1,6 @@
 # Tiffin build tasks.
 
-MODULE   := github.com/btahir/tiffin
+MODULE   := github.com/shiptiffin/tiffin
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 # The commit's date, not the build's: the same commit builds the same bytes.

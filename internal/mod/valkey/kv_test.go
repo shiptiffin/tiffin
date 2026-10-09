@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
 )
 
 // memValkey is a small in-memory Valkey for the write API: the six types,

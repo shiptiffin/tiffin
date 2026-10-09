@@ -20,13 +20,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/provider"
-	"github.com/btahir/tiffin/internal/provider/hetzner"
-	"github.com/btahir/tiffin/internal/provider/remote"
-	"github.com/btahir/tiffin/internal/version"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
+	"github.com/shiptiffin/tiffin/internal/provider/remote"
+	"github.com/shiptiffin/tiffin/internal/version"
 	"github.com/spf13/cobra"
 )
 

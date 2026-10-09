@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Resources is the box view: the machine, its services and its apps.

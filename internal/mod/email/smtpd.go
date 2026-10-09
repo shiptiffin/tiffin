@@ -18,11 +18,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // smtpServer is Tiffin's own SMTP submission server. Apps authenticate with

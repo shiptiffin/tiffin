@@ -13,9 +13,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/provider"
-	"github.com/btahir/tiffin/internal/provider/hetzner"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
 )
 
 // resizeCommand is the command that makes the resize, for hints.

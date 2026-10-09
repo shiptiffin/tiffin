@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // tenantCluster is a real Postgres with a project "shop" set up as the box

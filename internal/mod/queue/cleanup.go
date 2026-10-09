@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 var _ platform.ProjectCleaner = (*Module)(nil)

@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/btahir/tiffin/internal/provider/lima"
-	"github.com/btahir/tiffin/internal/provider/remote"
+	"github.com/shiptiffin/tiffin/internal/provider/lima"
+	"github.com/shiptiffin/tiffin/internal/provider/remote"
 	"github.com/spf13/cobra"
 )
 

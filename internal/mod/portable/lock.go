@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
 )
 
 // exclusive takes the lock backups, restores, exports and imports share,

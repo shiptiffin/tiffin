@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 func TestAptPackages(t *testing.T) {

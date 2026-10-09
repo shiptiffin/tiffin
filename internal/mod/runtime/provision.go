@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Paths on the box. Everything big lives on the XFS data disk.

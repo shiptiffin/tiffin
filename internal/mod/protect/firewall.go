@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // The baseline firewall: one nftables table, loaded by a oneshot unit at

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // Reach is how the world reaches the box: its public addresses, where its

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // dataEvery is how often Metrics has a project's data (database, files,

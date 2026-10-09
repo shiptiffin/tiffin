@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/change"
 )
 
 // embedded starts a real Postgres (embedded, downloaded once into

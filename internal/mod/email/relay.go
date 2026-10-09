@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Relay TLS modes.

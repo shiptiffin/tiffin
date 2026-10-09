@@ -17,7 +17,7 @@ import (
 
 	"github.com/libdns/libdns"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
 )
 
 // shortDir is a temp dir short enough for unix socket paths (macOS: 104 bytes).

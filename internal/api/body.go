@@ -8,8 +8,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // MaxJSONValues is the most values (array items and object members) one

@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/postgres"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/version"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/version"
 )
 
 // Off-box copies: every backup set is copied to an S3-compatible bucket

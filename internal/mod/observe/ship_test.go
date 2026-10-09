@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/edgelog"
 )
 
 func TestShipParsing(t *testing.T) {

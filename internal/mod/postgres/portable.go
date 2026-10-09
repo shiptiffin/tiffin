@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Prepare makes a project's role and its empty main database (Tiffin's

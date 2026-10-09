@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/runtime"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime"
 )
 
 // An update that added units (the edge's own, on the first update to that

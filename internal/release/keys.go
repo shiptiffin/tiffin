@@ -13,7 +13,7 @@ var trustedKeys = []string{
 
 // extraKeys adds keys at link time, for test builds:
 //
-//	-ldflags "-X github.com/btahir/tiffin/internal/release.extraKeys=<key>,<key>"
+//	-ldflags "-X github.com/shiptiffin/tiffin/internal/release.extraKeys=<key>,<key>"
 var extraKeys string
 
 // TrustedKeys returns the keys release manifests must be signed with.

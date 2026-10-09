@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 )
 
 // TestCloudflareLive talks to the real Cloudflare API. It is skipped unless

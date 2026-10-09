@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // hosts is a fake DNS for URL targets.

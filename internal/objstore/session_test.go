@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/objstore"
-	"github.com/btahir/tiffin/internal/objstore/objstoretest"
+	"github.com/shiptiffin/tiffin/internal/objstore"
+	"github.com/shiptiffin/tiffin/internal/objstore/objstoretest"
 )
 
 // Temporary credentials (R2's, limited to a folder): the session token is

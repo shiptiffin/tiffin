@@ -20,8 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Pinned upstream releases (Apache-2.0). Bump version and both checksums

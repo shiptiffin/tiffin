@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // ParseRoute splits a manifest app route into its host and path prefix:

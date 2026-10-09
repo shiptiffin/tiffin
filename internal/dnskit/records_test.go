@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/dnskit"
-	"github.com/btahir/tiffin/internal/dnskit/dnstest"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit/dnstest"
 )
 
 func TestListAndDeleteValues(t *testing.T) {

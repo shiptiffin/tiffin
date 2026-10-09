@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 type projectKeys struct {

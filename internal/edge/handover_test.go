@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
 )
 
 // TestEdgeRestartHandsOverSockets: with its ports held outside the edge (as

@@ -19,14 +19,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/cloud/cftest"
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/licence"
-	"github.com/btahir/tiffin/internal/provider"
-	"github.com/btahir/tiffin/internal/provider/hetzner"
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
-	"github.com/btahir/tiffin/internal/provider/remote"
 	"github.com/libdns/cloudflare"
+	"github.com/shiptiffin/tiffin/internal/cloud/cftest"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/licence"
+	"github.com/shiptiffin/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/remote"
 )
 
 // fakeMachine is a new server reached over SSH: it records what runs.

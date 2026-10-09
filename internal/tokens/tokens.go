@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // Scope is one permission. Scopes form a ladder: each implies the ones below.

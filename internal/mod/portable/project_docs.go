@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Credentials of the services docker-compose.yml starts: local only, and

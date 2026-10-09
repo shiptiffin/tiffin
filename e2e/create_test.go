@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // gitRepo is a tiny public repository (a static page) for the git-URL deploy.

@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/mod/runtime"
-	"github.com/btahir/tiffin/internal/mod/valkey"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime"
+	"github.com/shiptiffin/tiffin/internal/mod/valkey"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // ---- app containers (nerdctl, the runtime's containerd namespace) ----

@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/mod/observe/logtail"
-	"github.com/btahir/tiffin/internal/mod/observe/sentry"
-	"github.com/btahir/tiffin/internal/tokens"
 	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/logtail"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/sentry"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Store is observe's own SQLite database (issues, alerts, ingest keys,

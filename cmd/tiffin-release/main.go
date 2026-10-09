@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/release"
+	"github.com/shiptiffin/tiffin/internal/release"
 )
 
 func main() {

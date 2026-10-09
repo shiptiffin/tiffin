@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/change"
 )
 
 func queueSpec(t *testing.T, q any) json.RawMessage {

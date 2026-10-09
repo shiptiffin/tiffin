@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 const demoConfig = `import { defineConfig } from "@shiptiffin/sdk";

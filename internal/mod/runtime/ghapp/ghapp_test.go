@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp/ghfake"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp/ghfake"
 )
 
 func fake(t *testing.T) (*ghfake.Server, *ghapp.Client) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
 )
 
 // The box runs its edge in its own process (`tiffin edge`, unit

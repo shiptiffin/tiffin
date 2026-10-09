@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
-	"github.com/btahir/tiffin/internal/mod/observe/logtail"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/edgelog"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/logtail"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // activityNoter is the runtime's: every request to an app's host counts as

@@ -3,7 +3,7 @@ package backup
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/objstore"
+	"github.com/shiptiffin/tiffin/internal/objstore"
 )
 
 // objectStore is what off-box copies need from a bucket. s3Client is the

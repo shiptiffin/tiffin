@@ -11,9 +11,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
 )
 
 // clusterTable is one user table and its row count.

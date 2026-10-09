@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // A 3 GB dev box (MemTotal 2899 MB, 2 CPUs).

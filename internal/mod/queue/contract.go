@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // This file is the queue module's contract with the modules it meets. The

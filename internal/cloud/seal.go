@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/sealbox"
+	"github.com/shiptiffin/tiffin/internal/sealbox"
 )
 
 // Customers' Hetzner tokens are sealed to the worker's X25519 public key

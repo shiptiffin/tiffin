@@ -19,11 +19,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // The box hosts one bare git repository per project, served over git's

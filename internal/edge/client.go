@@ -18,7 +18,7 @@ import (
 
 	"github.com/libdns/libdns"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
 )
 
 // Client drives an edge process from the control plane (it is the

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func sinkRelay(t *testing.T, r *rig, provider string) *sink {

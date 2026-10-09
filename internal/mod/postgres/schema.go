@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // The table editor's view of a table: columns with what the editor needs to

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/mod/email/templates"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/mod/email/templates"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // localQueue is the default in-process queue: queued rows live in the state

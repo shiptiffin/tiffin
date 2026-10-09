@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/peer/peertest"
+	"github.com/shiptiffin/tiffin/internal/peer/peertest"
 )
 
 func TestMain(m *testing.M) {

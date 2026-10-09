@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // TestReportStatus: an app whose config is applied but whose first deploy

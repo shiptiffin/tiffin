@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/release"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/release"
 )
 
 // ReleaseBinaries fetches signed Tiffin release builds: the channel's

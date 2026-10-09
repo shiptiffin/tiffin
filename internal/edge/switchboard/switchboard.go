@@ -38,7 +38,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/peer"
+	"github.com/shiptiffin/tiffin/internal/peer"
 )
 
 // Instance is one running app container.

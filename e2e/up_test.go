@@ -180,7 +180,7 @@ func buildTiffinFrom(t *testing.T, src, dir, goos, version string, xflags ...str
 	out := filepath.Join(dir, name)
 	args := []string{"build", "-trimpath", "-o", out}
 	if version != "" {
-		xflags = append(xflags, "-X github.com/btahir/tiffin/internal/version.Version="+version)
+		xflags = append(xflags, "-X github.com/shiptiffin/tiffin/internal/version.Version="+version)
 	}
 	if len(xflags) > 0 {
 		args = append(args, "-ldflags", strings.Join(xflags, " "))

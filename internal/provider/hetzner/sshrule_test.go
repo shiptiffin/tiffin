@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
 )
 
 // sshSources reads the fake firewall's SSH rule.

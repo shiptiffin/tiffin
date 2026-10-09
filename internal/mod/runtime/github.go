@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp"
 )
 
 // Connecting the box to GitHub. A box gets its own GitHub App through the

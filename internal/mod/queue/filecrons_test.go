@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Crons from an app's vercel.json: called with GET and CRON_SECRET as

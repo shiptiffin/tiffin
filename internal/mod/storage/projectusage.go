@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // ProjectUsage reports a project's bucket files (from the periodic scan),

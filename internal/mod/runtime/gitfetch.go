@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
 )
 
 // Deploying from a git URL: the box shallow-clones one commit of a public

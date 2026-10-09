@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // Workflows are durable functions that run inside the app (@shiptiffin/sdk).

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Run runs the suite. newStore must return a fresh, empty store.

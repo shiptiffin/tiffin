@@ -39,7 +39,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // retryNote is what the CLI says when it sends a request again.

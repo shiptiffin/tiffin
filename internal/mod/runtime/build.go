@@ -22,10 +22,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/budget"
-	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/vercelcfg"
 )
 
 // BuildRequest is one build.

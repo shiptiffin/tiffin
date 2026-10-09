@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // CrowdSec runs as its own systemd service from its signed apt repository.

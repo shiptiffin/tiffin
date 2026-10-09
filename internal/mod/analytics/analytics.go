@@ -25,15 +25,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
-	"github.com/btahir/tiffin/internal/mod/backup"
-	"github.com/btahir/tiffin/internal/mod/observe"
-	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
-	"github.com/btahir/tiffin/internal/mod/observe/logtail"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/mod/analytics/enrich"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/observe"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/edgelog"
+	"github.com/shiptiffin/tiffin/internal/mod/observe/logtail"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 func init() {

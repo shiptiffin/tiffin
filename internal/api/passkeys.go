@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/btahir/tiffin/internal/passkeys"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/passkeys"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func (a *API) passkeysMgr() (*passkeys.Manager, error) {

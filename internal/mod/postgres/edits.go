@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Row edits from the table editor: insert, update and delete by primary key.

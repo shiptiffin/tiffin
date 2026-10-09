@@ -7,9 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Delete all data. Every project always has a Database, KV and Files

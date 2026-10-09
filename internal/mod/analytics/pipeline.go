@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
+	"github.com/shiptiffin/tiffin/internal/mod/analytics/enrich"
 )
 
 // Hit is one raw observation before enrichment. IP and UA are used to

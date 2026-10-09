@@ -28,8 +28,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/provider"
 )
 
 // Box paths and settings.

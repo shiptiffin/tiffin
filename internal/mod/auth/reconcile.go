@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Kinds: the auth service. It is reconciled after every apply of its

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 func TestOwnerSeenAllowlistsOncePerAddress(t *testing.T) {

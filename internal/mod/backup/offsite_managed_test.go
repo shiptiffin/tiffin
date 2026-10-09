@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/objstore/objstoretest"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/objstore/objstoretest"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // managedBucket is ShipTiffin's backup bucket (a fake that checks

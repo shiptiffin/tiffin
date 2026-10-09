@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Signed file URLs let a private bucket's object (or a resized copy of it)

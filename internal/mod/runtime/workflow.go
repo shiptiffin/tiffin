@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Apps that use Vercel's Workflow DevKit (the `workflow` package) run

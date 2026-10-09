@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // liveDB opens a WAL database that keeps its commits in the WAL, like a

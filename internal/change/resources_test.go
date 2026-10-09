@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // A read-only hold is the box's, not the manifest's: plans keep it, and

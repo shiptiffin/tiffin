@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 func testPlatform(t *testing.T) *platform.Platform {

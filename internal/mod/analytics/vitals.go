@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
+	"github.com/shiptiffin/tiffin/internal/mod/analytics/enrich"
 )
 
 // Web Vitals arrive as beacons on each app's own origin, at VitalsPath (the

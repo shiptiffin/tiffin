@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/change/changetest"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/change/changetest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 func openTemp(t *testing.T) *DB {

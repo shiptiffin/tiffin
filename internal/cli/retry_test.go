@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 func init() {

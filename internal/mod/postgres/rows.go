@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // Browsing a table: filters, sort and keyset pages. Every value a person

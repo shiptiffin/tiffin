@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // ProjectUsage measures a project's databases (branches included) and its

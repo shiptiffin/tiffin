@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // IdempotencyHeader carries a client's key for one create request.

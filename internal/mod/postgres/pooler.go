@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // The connection pooler. Apps reach Postgres through PgBouncer in

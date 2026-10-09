@@ -3,8 +3,8 @@ package valkey
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // ProjectUsage reports the project's keys and the memory they take, for

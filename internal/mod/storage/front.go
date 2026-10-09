@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // frontServer is the storage front: S3 with quota checks (any host but

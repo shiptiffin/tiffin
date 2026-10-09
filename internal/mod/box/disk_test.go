@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/mod/runtime"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime"
 )
 
 // The disk report names each folder of the data disk with its size, and

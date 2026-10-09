@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btahir/tiffin/internal/passkeys"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/passkeys"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Passkey sign-in: two unauthenticated, dashboard-only operations.

@@ -19,10 +19,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/danielgtaylor/huma/v2"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Instructions tell a connecting agent how Tiffin works.

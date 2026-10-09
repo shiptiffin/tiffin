@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/objstore"
+	"github.com/shiptiffin/tiffin/internal/objstore"
 )
 
 // R2 is ShipTiffin's bucket for managed boxes' off-site backups, in

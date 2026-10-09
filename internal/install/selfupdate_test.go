@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // fakeService stands in for systemd: "restarting" reads the build the

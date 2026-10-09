@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
 )
 
 func TestCloseSetupAccess(t *testing.T) {

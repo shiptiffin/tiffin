@@ -3,9 +3,9 @@ package auth
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Dashboard sign-in with Google or GitHub uses the box-wide keys and their

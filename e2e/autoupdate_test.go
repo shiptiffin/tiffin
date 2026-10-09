@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/release"
+	"github.com/shiptiffin/tiffin/internal/release"
 )
 
 // releaseHost serves signed release manifests and builds to the box, as
@@ -93,7 +93,7 @@ func TestAutoUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	trust := "-X github.com/btahir/tiffin/internal/release.extraKeys=" + key.Public().String()
+	trust := "-X github.com/shiptiffin/tiffin/internal/release.extraKeys=" + key.Public().String()
 	p := time.Now()
 	v1 := buildTiffinFrom(t, RepoRoot(), dir, "linux", "0.1.0", trust)
 	v2 := buildTiffinFrom(t, RepoRoot(), dir, "linux", "0.2.0", trust)

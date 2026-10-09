@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/passkeys"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/passkeys"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // The box's own mail to the people who use its dashboard: invites, sign-in

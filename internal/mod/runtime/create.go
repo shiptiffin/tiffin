@@ -12,12 +12,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
-	"github.com/btahir/tiffin/internal/starters"
-	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
+	"github.com/shiptiffin/tiffin/internal/starters"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // Creating apps from the dashboard: starter templates shipped inside tiffin

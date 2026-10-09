@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/change"
 )
 
 // startDeploy queues a deploy of app and starts its pipeline without

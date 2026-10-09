@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/edge"
 )
 
 // TestProtect is the protection acceptance test on a fresh box, through the CLI,

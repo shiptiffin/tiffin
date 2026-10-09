@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/release"
-	"github.com/btahir/tiffin/internal/tokens"
-	"github.com/btahir/tiffin/internal/version"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/release"
+	"github.com/shiptiffin/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/version"
 )
 
 // Status is how the box keeps Tiffin up to date.

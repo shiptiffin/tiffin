@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
-	"github.com/btahir/tiffin/internal/provider/remote"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/remote"
 )
 
 func newProvider(t *testing.T, f *hetznertest.Fake, mod func(*Config)) *Provider {

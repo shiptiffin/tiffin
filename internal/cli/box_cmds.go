@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/provider"
-	"github.com/btahir/tiffin/internal/provider/lima"
-	"github.com/btahir/tiffin/internal/release"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider/lima"
+	"github.com/shiptiffin/tiffin/internal/release"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 	"github.com/spf13/cobra"
 )
 
@@ -395,7 +395,7 @@ func gitStamp(ctx context.Context, root string) stamp {
 
 // buildArgs are `go build`'s arguments for tiffin, stamped like `make build`.
 func buildArgs(out string, s stamp) []string {
-	const v = "github.com/btahir/tiffin/internal/version."
+	const v = "github.com/shiptiffin/tiffin/internal/version."
 	return []string{"build", "-trimpath", "-ldflags", "-s -w -X " + v + "Version=" + s.version + " -X " + v + "Commit=" + s.commit + " -X " + v + "Date=" + s.date,
 		"-o", out, "./cmd/tiffin"}
 }
@@ -420,7 +420,7 @@ func elfArch(path string) string {
 func repoRoot() string {
 	dir, _ := os.Getwd()
 	for dir != "" && dir != "/" {
-		if raw, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil && strings.Contains(string(raw), "module github.com/btahir/tiffin\n") {
+		if raw, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil && strings.Contains(string(raw), "module github.com/shiptiffin/tiffin\n") {
 			return dir
 		}
 		dir = filepath.Dir(dir)

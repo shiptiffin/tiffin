@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/edge/switchboard"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // The switchboard (internal/edge/switchboard) runs in the edge process,

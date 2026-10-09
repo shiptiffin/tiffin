@@ -23,7 +23,7 @@ func TestOwnModulesReturnPointers(t *testing.T) {
 		if typ.Kind() == reflect.Pointer {
 			pkg = typ.Elem().PkgPath()
 		}
-		if !strings.HasPrefix(pkg, "github.com/btahir/tiffin/") {
+		if !strings.HasPrefix(pkg, "github.com/shiptiffin/tiffin/") {
 			continue
 		}
 		n++

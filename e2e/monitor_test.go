@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/watch"
+	"github.com/shiptiffin/tiffin/internal/watch"
 )
 
 // TestOutsideCheck is the box's heartbeat end to end: a `tiffin watch`

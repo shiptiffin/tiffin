@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Client assets: the hashed JS and CSS a server app's pages load. The box

@@ -5,7 +5,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/btahir/tiffin/internal/watch"
+	"github.com/shiptiffin/tiffin/internal/watch"
 	"github.com/spf13/cobra"
 )
 

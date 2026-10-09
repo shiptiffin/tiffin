@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // After an upload through the front (a PUT, a completed multipart upload,

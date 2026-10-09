@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/projicon"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/projicon"
 )
 
 // OAuthApp is a sign-in provider's client credentials and settings.

@@ -2,7 +2,7 @@ package box
 
 import (
 	"context"
-	"github.com/btahir/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
 	"testing"
 	"time"
 )

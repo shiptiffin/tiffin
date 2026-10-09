@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
 )
 
 // Builds and images run the app's own code, so whatever they leave on the

@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
 )
 
 // offsiteDest is a bucket the boxes copy to, and the test's own view of it.

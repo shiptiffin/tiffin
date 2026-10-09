@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/datakit"
-	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/jackc/pgx/v5"
+	"github.com/shiptiffin/tiffin/internal/mod/datakit"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
 )
 
 // pgMeta is postgres/meta.json: what pg_dump without --create leaves out.

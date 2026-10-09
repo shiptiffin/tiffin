@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // ProjectDeleted runs once a destroyed project has no resources left. A

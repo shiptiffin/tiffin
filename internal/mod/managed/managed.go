@@ -45,10 +45,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/licence"
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/sealbox"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/licence"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sealbox"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func init() { platform.Register(&Module{}) }

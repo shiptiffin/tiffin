@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/btahir/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/change"
 )
 
 // Images and what else a deploy leaves on the data disk.

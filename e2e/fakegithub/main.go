@@ -26,7 +26,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp/ghfake"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp/ghfake"
 )
 
 func main() {

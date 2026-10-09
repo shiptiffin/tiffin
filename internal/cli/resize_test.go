@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/provider"
-	"github.com/btahir/tiffin/internal/provider/hetzner"
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
 )
 
 // resizeEnv is a Hetzner box "shop" (cax11, 40 GB volume) this computer knows.

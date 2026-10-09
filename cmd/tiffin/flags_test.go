@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/cli"
+	"github.com/shiptiffin/tiffin/internal/cli"
 )
 
 func runCLI(t *testing.T, env map[string]string, args ...string) (int, []byte, string) {

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/queue"
+	"github.com/shiptiffin/tiffin/internal/mod/queue"
 )
 
 // TestJobsURL is a project with no apps whose cron and queue call a web

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
 )
 
 // With Owner set the provider sees only what it made for that owner: a box

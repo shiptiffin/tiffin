@@ -53,8 +53,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/boxfile"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 func init() { platform.Register(&Module{}) }

@@ -3,8 +3,8 @@ package analytics
 import (
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
-	_ "github.com/btahir/tiffin/internal/mod/observe"
+	"github.com/shiptiffin/tiffin/internal/api"
+	_ "github.com/shiptiffin/tiffin/internal/mod/observe"
 )
 
 // Both modules register into one spec without schema name clashes, and

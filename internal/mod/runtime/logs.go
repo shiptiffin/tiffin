@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // LogLine is one line an app instance wrote.

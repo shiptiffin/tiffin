@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // TestPlatform returns a Platform with a real state DB and box key in a temp dir.

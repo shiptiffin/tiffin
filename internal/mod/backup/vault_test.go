@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/ids"
 )
 
 // memStore is an objectStore in memory.

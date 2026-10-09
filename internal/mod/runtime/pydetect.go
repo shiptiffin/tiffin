@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Python apps in a repository: a folder with a pyproject.toml, a

@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 func init() { platform.Register(&Module{}) }

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // AppRoutes returns each app's routes in a project's stored resources, for

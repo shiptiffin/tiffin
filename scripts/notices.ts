@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
 const GO_LICENSES = "github.com/google/go-licenses/v2@v2.0.1";
-const OWN_MODULE = "github.com/btahir/tiffin";
+const OWN_MODULE = "github.com/shiptiffin/tiffin";
 const root = join(import.meta.dir, "..");
 const targets = process.argv.slice(2).length ? process.argv.slice(2) : ["linux/amd64", "linux/arm64", "darwin/arm64", "darwin/amd64"];
 const apache = join(root, "packages", "sdk", "LICENSE"); // the plain Apache-2.0 text

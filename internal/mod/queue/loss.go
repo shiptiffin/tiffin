@@ -3,8 +3,8 @@ package queue
 import (
 	"context"
 
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Waiting counts the jobs deleting a queue would destroy (scheduled, queued,

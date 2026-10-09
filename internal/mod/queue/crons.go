@@ -9,9 +9,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/jackc/pgx/v5"
 	"github.com/robfig/cron/v3"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)

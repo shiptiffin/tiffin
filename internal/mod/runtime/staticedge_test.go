@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // A static export builds with Railpack but makes no image: the plan's

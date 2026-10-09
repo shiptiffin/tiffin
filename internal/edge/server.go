@@ -23,7 +23,7 @@ import (
 	"github.com/caddyserver/certmagic"
 	"github.com/libdns/libdns"
 
-	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/shiptiffin/tiffin/internal/edge/switchboard"
 )
 
 // Server is the edge process: Caddy and the switchboard, serving the

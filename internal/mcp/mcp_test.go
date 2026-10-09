@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	tmcp "github.com/btahir/tiffin/internal/mcp"
-	"github.com/btahir/tiffin/internal/state"
-	"github.com/btahir/tiffin/internal/tokens"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	tmcp "github.com/shiptiffin/tiffin/internal/mcp"
+	"github.com/shiptiffin/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func connect(t *testing.T, scopes ...tokens.Scope) *sdk.ClientSession {

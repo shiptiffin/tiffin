@@ -23,10 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/backup"
-	"github.com/btahir/tiffin/internal/mod/email"
-	"github.com/btahir/tiffin/internal/mod/email/templates"
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/email"
+	"github.com/shiptiffin/tiffin/internal/mod/email/templates"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // Rule kinds.

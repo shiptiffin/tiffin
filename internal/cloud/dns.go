@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/dnskit"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 )
 
 // DNS keeps the records of managed boxes in the shiptiffin.app zone. Each box

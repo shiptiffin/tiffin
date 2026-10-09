@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp"
 )
 
 // maxFolders caps the folder list a repository's detail carries.

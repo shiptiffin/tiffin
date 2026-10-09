@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/install"
 	"github.com/spf13/cobra"
 )
 

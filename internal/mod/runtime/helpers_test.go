@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // fakeNerdctl is a nerdctl stand-in: it logs each call's arguments (one

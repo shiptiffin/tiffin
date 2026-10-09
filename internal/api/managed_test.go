@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // managedBox makes the box under test look ShipTiffin-managed, with

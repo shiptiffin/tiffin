@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
 	"github.com/hetznercloud/hcloud-go/v2/hcloud"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
 )
 
 func TestPlanResizePricesAndRefuses(t *testing.T) {

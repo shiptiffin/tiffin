@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
-	"github.com/btahir/tiffin/internal/sealbox"
-	"github.com/btahir/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sealbox"
+	"github.com/shiptiffin/tiffin/internal/state"
 )
 
 // The box's off-site key is made once and kept sealed; a grant sealed to

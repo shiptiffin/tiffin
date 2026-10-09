@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/api"
 )
 
 // KVGroup is the keys further down one branch of the tree.

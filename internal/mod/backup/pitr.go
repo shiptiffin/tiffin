@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btahir/tiffin/internal/mod/postgres"
+	"github.com/shiptiffin/tiffin/internal/mod/postgres"
 )
 
 // BackupRestorable is the range a point-in-time restore can reach.

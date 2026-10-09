@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/change"
-	"github.com/btahir/tiffin/internal/change/changetest"
-	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/change/changetest"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // fakeQuota is quotaFS in memory: a project's usage is what its folders

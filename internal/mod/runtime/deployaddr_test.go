@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/edge"
-	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/edge"
+	"github.com/shiptiffin/tiffin/internal/ids"
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Deploy addresses are d-<last 8 of the ID>--<the app's name under the apps

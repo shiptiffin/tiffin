@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/btahir/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
 // The engine, bundled by `make auth-engine` (bun build of packages/auth-engine,

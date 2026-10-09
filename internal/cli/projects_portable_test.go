@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/boxfile"
+	"github.com/shiptiffin/tiffin/internal/boxfile"
 )
 
 // projects import checks the archive on this computer before uploading.

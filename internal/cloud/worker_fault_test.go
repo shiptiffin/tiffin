@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/install"
-	"github.com/btahir/tiffin/internal/provider"
-	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
-	"github.com/btahir/tiffin/internal/provider/remote"
+	"github.com/shiptiffin/tiffin/internal/install"
+	"github.com/shiptiffin/tiffin/internal/provider"
+	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/shiptiffin/tiffin/internal/provider/remote"
 )
 
 // faultStore is the Postgres store with faults injected into some calls.

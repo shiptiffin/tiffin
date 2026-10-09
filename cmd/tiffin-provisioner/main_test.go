@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/cloud"
-	"github.com/btahir/tiffin/internal/licence"
+	"github.com/shiptiffin/tiffin/internal/cloud"
+	"github.com/shiptiffin/tiffin/internal/licence"
 )
 
 // keygen's halves belong together: what the website seals the worker opens,

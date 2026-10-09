@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/manifest"
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
-	"github.com/btahir/tiffin/internal/mod/runtime/ghapp/ghfake"
-	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/manifest"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp"
+	"github.com/shiptiffin/tiffin/internal/mod/runtime/ghapp/ghfake"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // ghHarness is a box (the runtime harness behind the full API) and a fake
