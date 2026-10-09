@@ -8,7 +8,7 @@ import { currentAccount } from "@/lib/cloud/session";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const acct = await currentAccount();
+  const acct = await currentAccount({ fresh: true });
   const { id } = await params;
   if (!acct) return Response.redirect(new URL(`/sign-in?next=/account`, request.url), 303);
   try {
