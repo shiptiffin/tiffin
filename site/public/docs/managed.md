@@ -150,7 +150,19 @@ its next check-in.
 
 **Stop managed service** (in your account, under *Stop or delete this box*) ends the
 subscription at once, removes the address and any key we hold, and leaves the server exactly
-as it is: an ordinary Tiffin box of yours, which goes on installing updates by itself.
+as it is: an ordinary Tiffin box of yours, which goes on installing updates by itself. Your
+account shows it as *Not managed*.
+
+**Delete the server** (same place; it asks for a Hetzner token) removes the address first,
+then deletes the server, its firewall and, if you tick it, its data volume: only what
+carries the box's `shiptiffin-box` label. It ends the subscription at once. Your account
+shows the progress, then a single *Deleted* line, and you get an email saying what went.
+A deleted box stays deleted; a data volume you kept stays in your Hetzner project, billed
+by Hetzner, until you delete it there.
+
+**What you pay when you stop or delete.** The subscription ends immediately and you won't be
+charged again. The month already paid isn't refunded (it's a monthly service); within 14
+days of your first payment, ask for the money-back guarantee at hello@shiptiffin.com.
 
 ## Abuse
 

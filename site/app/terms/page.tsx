@@ -167,6 +167,11 @@ const sections: Section[] = [
           30 days after that, with an email when that starts, a week before it goes and when it goes. To stop
           paying Hetzner too, delete the server there.
         </p>
+        <p>
+          Stopping the managed service or deleting the server in your account ends the subscription at once: you
+          are not charged again, and the month already paid is not refunded. The money-back guarantee above still
+          applies.
+        </p>
       </>
     ),
   },
