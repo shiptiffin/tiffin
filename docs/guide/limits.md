@@ -642,11 +642,10 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   holds. A compromised website (or its database) could swap the key and get credentials
   for a box's folder: enough to delete its copies, not to read them (the passphrase never
   leaves the box).
-- **Listing a folder with prefix-scoped credentials is assumed.** Cloudflare documents
-  that prefix-scoped temporary credentials reach the objects under the prefix; the box
-  also lists them (`ListObjectsV2` with that prefix). Tested against a fake bucket that
-  behaves that way, not yet against R2 itself: check with `tiffin backups offsite test`
-  on the first managed box.
+- **Folder scoping is Cloudflare's, checked once by hand.** On 2026-10-09 a 15-minute
+  credential scoped to `probe/` wrote, listed and deleted inside its folder and was refused
+  (403) writing outside it, against R2 itself. Nothing re-checks this automatically; the
+  tests use a fake bucket that behaves the same way.
 - **Automatic updates are gated, the releases are not.** An unpaid managed box stops
   installing updates by itself; the signed releases stay where every box reads them, so an
   owner can still update by hand. Gating is a courtesy switch on a server the customer
