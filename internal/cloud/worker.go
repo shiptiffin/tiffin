@@ -41,7 +41,10 @@ type Worker struct {
 	DNS     DNS
 	// ControlURL is where boxes check in, e.g. https://shiptiffin.com.
 	ControlURL string
-	Log        *slog.Logger
+	// Offsite mints managed boxes' off-site backup credentials and empties
+	// deleted boxes' folders (nil: off).
+	Offsite *Offsite
+	Log     *slog.Logger
 
 	// HetznerEndpoint overrides the API (tests).
 	HetznerEndpoint string
@@ -126,7 +129,9 @@ const (
 )
 
 // Run claims and runs jobs until ctx ends. Every minute it also sweeps up
-// after stopped workers and checks boxes still waiting for a certificate.
+// after stopped workers and checks boxes still waiting for a certificate;
+// every five minutes it renews off-site backup credentials and empties
+// deleted boxes' folders (with Offsite set).
 func (w *Worker) Run(ctx context.Context) {
 	w.defaults()
 	// Setup keys of jobs that were running when this worker last stopped:
@@ -140,7 +145,7 @@ func (w *Worker) Run(ctx context.Context) {
 	sem := make(chan struct{}, w.Concurrency)
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	lastSweep := time.Time{}
+	lastSweep, lastOffsite := time.Time{}, time.Time{}
 	for ctx.Err() == nil {
 		if time.Since(lastSweep) > time.Minute {
 			if did, err := w.Store.Sweep(ctx, w.Now()); err != nil {
@@ -150,6 +155,11 @@ func (w *Worker) Run(ctx context.Context) {
 			}
 			w.CheckCertificates(ctx)
 			lastSweep = time.Now()
+		}
+		if w.Offsite != nil && time.Since(lastOffsite) > offsiteEvery {
+			w.RefreshOffsite(ctx)
+			w.PurgeOffsite(ctx)
+			lastOffsite = time.Now()
 		}
 		select {
 		case sem <- struct{}{}:

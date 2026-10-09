@@ -16,6 +16,16 @@
 //	CLOUD_SSH_FROM         optional: this worker's public IPs (else asked of ipify)
 //	CLOUD_RELEASE_SOURCE   optional: the signed release manifest URL ({channel})
 //
+// Off-site backups for managed boxes (off until the first three are set):
+//
+//	CLOUD_R2_ACCOUNT_ID     the Cloudflare account that holds the bucket
+//	CLOUD_R2_API_TOKEN      a Cloudflare API token with Workers R2 Storage · Edit
+//	CLOUD_R2_ACCESS_KEY_ID  the access key ID of the R2 API token the boxes'
+//	                        temporary credentials derive from (the same token's)
+//	CLOUD_R2_BUCKET         default shiptiffin-customer-backups (it must exist)
+//	CLOUD_R2_ENDPOINT       optional: the bucket's S3 endpoint (default
+//	                        https://<account>.r2.cloudflarestorage.com)
+//
 // The website gets only the public halves: CLOUD_SEAL_PUBLIC and
 // CLOUD_LICENCE_PUBLIC. `tiffin-provisioner keygen` makes both pairs and prints
 // which secret goes to which project.
@@ -36,6 +46,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -71,6 +82,11 @@ func main() {
 		log.Warn("tiffin-provisioner is not configured yet; waiting (set the project secrets, then redeploy)", "missing", strings.Join(missing, ", "))
 		<-ctx.Done()
 		return
+	}
+	if w.Offsite != nil {
+		log.Info("off-site backups for managed boxes: on", "bucket", w.Offsite.R2.Bucket)
+	} else {
+		log.Info("off-site backups for managed boxes: off (set CLOUD_R2_ACCOUNT_ID, CLOUD_R2_API_TOKEN and CLOUD_R2_ACCESS_KEY_ID to turn them on)")
 	}
 	log.Info("tiffin-provisioner running", "zone", w.DNS.Zone, "control", w.ControlURL,
 		"CLOUD_SEAL_PUBLIC", cloud.KeyText(w.SealKey.PublicKey().Bytes()),
@@ -135,7 +151,35 @@ func configure(ctx context.Context, log *slog.Logger) (*cloud.Worker, []string) 
 		Log:        log,
 		EgressIPs:  cloud.EgressIPs(os.Getenv("CLOUD_SSH_FROM")),
 		Binary:     rel.Get,
+		Offsite:    offsite(log),
 	}, nil
+}
+
+// offsite reads the CLOUD_R2_* settings: nil (off) until the account, the
+// API token and the parent access key ID are all set.
+func offsite(log *slog.Logger) *cloud.Offsite {
+	r2 := &cloud.R2{
+		AccountID:         strings.TrimSpace(os.Getenv("CLOUD_R2_ACCOUNT_ID")),
+		Token:             strings.TrimSpace(os.Getenv("CLOUD_R2_API_TOKEN")),
+		ParentAccessKeyID: strings.TrimSpace(os.Getenv("CLOUD_R2_ACCESS_KEY_ID")),
+		Bucket:            env("CLOUD_R2_BUCKET", "shiptiffin-customer-backups"),
+		Endpoint:          strings.TrimSpace(os.Getenv("CLOUD_R2_ENDPOINT")),
+	}
+	var missing []string
+	for k, v := range map[string]string{"CLOUD_R2_ACCOUNT_ID": r2.AccountID, "CLOUD_R2_API_TOKEN": r2.Token, "CLOUD_R2_ACCESS_KEY_ID": r2.ParentAccessKeyID} {
+		if v == "" {
+			missing = append(missing, k)
+		}
+	}
+	switch len(missing) {
+	case 0:
+		return &cloud.Offsite{R2: r2}
+	case 3:
+	default:
+		slices.Sort(missing)
+		log.Warn("off-site backups stay off: some CLOUD_R2_* settings are missing", "missing", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // keygen prints fresh keys: the private halves for the provisioner project, the

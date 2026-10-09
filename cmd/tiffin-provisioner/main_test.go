@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -40,5 +41,26 @@ func TestKeygen(t *testing.T) {
 	lpub, err := licence.ParsePublicKey(v["CLOUD_LICENCE_PUBLIC"])
 	if err != nil || !lpub.Equal(key.Public().(ed25519.PublicKey)) {
 		t.Fatal("licence pair does not match")
+	}
+}
+
+// Off-site backups stay off until all three CLOUD_R2_* settings are there.
+func TestOffsiteSettings(t *testing.T) {
+	log := slog.New(slog.DiscardHandler)
+	for _, k := range []string{"CLOUD_R2_ACCOUNT_ID", "CLOUD_R2_API_TOKEN", "CLOUD_R2_ACCESS_KEY_ID", "CLOUD_R2_BUCKET", "CLOUD_R2_ENDPOINT"} {
+		t.Setenv(k, "")
+	}
+	if offsite(log) != nil {
+		t.Fatal("on without settings")
+	}
+	t.Setenv("CLOUD_R2_ACCOUNT_ID", "acct")
+	t.Setenv("CLOUD_R2_API_TOKEN", "tok")
+	if offsite(log) != nil {
+		t.Fatal("on without the parent access key")
+	}
+	t.Setenv("CLOUD_R2_ACCESS_KEY_ID", "parent")
+	o := offsite(log)
+	if o == nil || o.R2.Bucket != "shiptiffin-customer-backups" || o.R2.S3Endpoint() != "https://acct.r2.cloudflarestorage.com" {
+		t.Fatalf("settings: %+v", o)
 	}
 }

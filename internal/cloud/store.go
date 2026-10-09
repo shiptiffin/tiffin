@@ -127,6 +127,19 @@ type Store interface {
 	// ClearAttention clears the note if it still says why (a later job fixed it).
 	ClearAttention(ctx context.Context, l Lease, boxID, why string) error
 	CheckedHTTPS(ctx context.Context, boxID string) error
+	// DropOffsite clears the off-site credentials of boxes that may not
+	// have them (no longer active, or the subscription is not in good
+	// standing) and of those past their expiry.
+	DropOffsite(ctx context.Context) (int64, error)
+	// OffsiteDue lists active boxes with a backup key whose off-site
+	// credentials are missing or expire before before, soonest first.
+	OffsiteDue(ctx context.Context, before time.Time, limit int) ([]OffsiteBox, error)
+	// SetOffsite stores credentials sealed to key, if the box still has that
+	// key and may have them.
+	SetOffsite(ctx context.Context, boxID, key, sealed string, expires time.Time) (bool, error)
+	// OffsitePurgeDue lists boxes whose off-site folder is due to be emptied.
+	OffsitePurgeDue(ctx context.Context, now time.Time, limit int) ([]string, error)
+	OffsitePurged(ctx context.Context, boxID string) error
 	// Sweep recovers after workers that stopped (failing or retrying their
 	// jobs), wipes tokens past their time and expired sign-in links, and
 	// queues the clean-up a failed or deleted box still needs. It says what it did.
@@ -381,8 +394,9 @@ var runningKinds = []string{"ready", "attention", "server_off", "extras_paused",
 func (s *PG) Deleted(ctx context.Context, l Lease, boxID string, dataDeleted bool) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `update cloud_boxes set status = 'deleted', deleted_at = coalesce(deleted_at, now()), data_deleted = $2,
-			signin_code = null, signin_expires_at = null, signin_requested_at = null, attention = null, attention_at = null, updated_at = now()
-			where id = $1 and status = 'deleting'`+fmt.Sprintf(fence, l.JobID, l.Gen), boxID, dataDeleted)
+			signin_code = null, signin_expires_at = null, signin_requested_at = null, attention = null, attention_at = null,
+			offsite_sealed = null, offsite_expires_at = null, offsite_purge_after = coalesce(offsite_purge_after, now() + make_interval(days => $3)),
+			updated_at = now() where id = $1 and status = 'deleting'`+fmt.Sprintf(fence, l.JobID, l.Gen), boxID, dataDeleted, PurgeDays)
 		if err != nil {
 			return err
 		}
@@ -648,5 +662,55 @@ func resizeGaveUp(ctx context.Context, tx pgx.Tx, boxID string, jobID int64) err
 		return err
 	}
 	_, err := tx.Exec(ctx, `insert into cloud_outbox (box_id, kind, key, params) values ($1, 'server_off', $2, '{}'::jsonb) on conflict do nothing`, boxID, fmt.Sprint(jobID))
+	return err
+}
+
+// offsiteOK is when a box may have off-site credentials: it runs, and its
+// subscription is in good standing (as extrasOn).
+const offsiteOK = `status in ('active', 'cert_pending') and extras_paused_at is null and first_paid_at is not null
+	and plan_status in ('active', 'trialing', 'past_due')`
+
+func (s *PG) DropOffsite(ctx context.Context) (int64, error) {
+	tag, err := s.Pool.Exec(ctx, `update cloud_boxes set offsite_sealed = null, offsite_expires_at = null
+		where offsite_sealed is not null and (not (`+offsiteOK+`) or backup_key is null or offsite_expires_at is null or offsite_expires_at < now())`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (s *PG) OffsiteDue(ctx context.Context, before time.Time, limit int) ([]OffsiteBox, error) {
+	rows, err := s.Pool.Query(ctx, `select id, backup_key from cloud_boxes where backup_key is not null and `+offsiteOK+`
+		and (offsite_sealed is null or offsite_expires_at is null or offsite_expires_at < $1) order by offsite_expires_at nulls first, id limit $2`, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (OffsiteBox, error) {
+		var b OffsiteBox
+		err := r.Scan(&b.ID, &b.BackupKey)
+		return b, err
+	})
+}
+
+func (s *PG) SetOffsite(ctx context.Context, boxID, key, sealed string, expires time.Time) (bool, error) {
+	tag, err := s.Pool.Exec(ctx, `update cloud_boxes set offsite_sealed = $3, offsite_expires_at = $4
+		where id = $1 and backup_key = $2 and `+offsiteOK, boxID, key, sealed, expires)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func (s *PG) OffsitePurgeDue(ctx context.Context, now time.Time, limit int) ([]string, error) {
+	rows, err := s.Pool.Query(ctx, `select id from cloud_boxes where offsite_purge_after <= $1 and offsite_purged_at is null
+		and status in ('deleted', 'released') order by offsite_purge_after limit $2`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+func (s *PG) OffsitePurged(ctx context.Context, boxID string) error {
+	_, err := s.Pool.Exec(ctx, `update cloud_boxes set offsite_purged_at = now() where id = $1`, boxID)
 	return err
 }

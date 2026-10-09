@@ -71,6 +71,11 @@ create table if not exists cloud_boxes (
   last_charge_currency text,
   last_charge_at timestamptz,
   plan_ended_at timestamptz,
+  backup_key text,
+  offsite_sealed text,
+  offsite_expires_at timestamptz,
+  offsite_purge_after timestamptz,
+  offsite_purged_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -87,6 +92,11 @@ alter table cloud_boxes add column if not exists last_charge_cents integer;
 alter table cloud_boxes add column if not exists last_charge_currency text;
 alter table cloud_boxes add column if not exists last_charge_at timestamptz;
 alter table cloud_boxes add column if not exists plan_ended_at timestamptz;
+alter table cloud_boxes add column if not exists backup_key text;
+alter table cloud_boxes add column if not exists offsite_sealed text;
+alter table cloud_boxes add column if not exists offsite_expires_at timestamptz;
+alter table cloud_boxes add column if not exists offsite_purge_after timestamptz;
+alter table cloud_boxes add column if not exists offsite_purged_at timestamptz;
 -- Columns dropped since: a customer's Hetzner token lives only on its job.
 alter table cloud_boxes drop column if exists token_sealed;
 alter table cloud_boxes drop column if exists token_kept_at;
@@ -118,6 +128,9 @@ comment on column cloud_boxes.status is 'awaiting_payment, paid (first payment s
 comment on column cloud_boxes.deleted_at is 'When the delete_server job finished: the address, the server, its firewall and (data_deleted) its data volume are gone.';
 comment on column cloud_boxes.last_charge_cents is 'The subscription''s latest paid invoice, from the Stripe events we receive (with last_charge_currency and last_charge_at): what the account page and emails say was last charged.';
 comment on column cloud_boxes.plan_ended_at is 'When the subscription ended (Stripe''s ended_at, else canceled_at).';
+comment on column cloud_boxes.backup_key is 'The public half of the box''s own X25519 key, from its check-ins that count: its off-site backup credentials are sealed to it.';
+comment on column cloud_boxes.offsite_sealed is 'The box''s off-site backup credentials (R2 temporary credentials for its folder <box id>/ in the customer backup bucket), sealed to backup_key by the provisioner: the website hands them over at check-ins and cannot read them. Only while the subscription is active; offsite_expires_at is when they stop working.';
+comment on column cloud_boxes.offsite_purge_after is 'When the box''s folder in the customer backup bucket is emptied (7 days after it was deleted or released); offsite_purged_at when it was.';
 comment on column cloud_boxes.data_deleted is 'For a deleted box: whether its data volume was deleted too (false: it stays in the customer''s Hetzner project).';
 comment on column cloud_boxes.plan_status is 'The Stripe subscription''s status as retrieved from Stripe (active, past_due, unpaid, canceled, …). active and trialing keep the managed extras on; past_due too once the first payment succeeded.';
 comment on column cloud_boxes.first_paid_at is 'When the first invoice was paid. Setup needs it.';

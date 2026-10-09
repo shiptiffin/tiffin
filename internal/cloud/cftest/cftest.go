@@ -1,7 +1,8 @@
-// Package cftest is an in-memory fake of the parts of Cloudflare's DNS API
-// that libdns/cloudflare uses (zones, and listing, creating, patching and
-// deleting DNS records). Hand Client() to cloudflare.Provider.HTTPClient:
-// requests never leave the process.
+// Package cftest is an in-memory fake of the parts of Cloudflare's API the
+// control plane uses: what libdns/cloudflare uses (zones, and listing,
+// creating, patching and deleting DNS records), and R2's temporary access
+// credentials. Hand Client() to cloudflare.Provider.HTTPClient (or the
+// worker's R2): requests never leave the process.
 package cftest
 
 import (
@@ -40,6 +41,23 @@ type Fake struct {
 	// Fault, when set, fails the requests it returns true for (HTTP 500,
 	// nothing changed): for "Cloudflare broke half way" tests.
 	Fault func(method, path string) bool
+	// Minted is every R2 temporary credentials request that succeeded.
+	Minted []Mint
+	// OnMint, when set, is told about each one with the credentials made
+	// (a fake bucket can accept them).
+	OnMint func(m Mint, accessKeyID, secretAccessKey, sessionToken string)
+}
+
+// Mint is a request for R2 temporary access credentials
+// (POST /accounts/{account_id}/r2/temp-access-credentials).
+type Mint struct {
+	Account           string   `json:"-"`
+	Bucket            string   `json:"bucket"`
+	ParentAccessKeyID string   `json:"parentAccessKeyId"`
+	Permission        string   `json:"permission"`
+	TTLSeconds        int      `json:"ttlSeconds"`
+	Prefixes          []string `json:"prefixes"`
+	Objects           []string `json:"objects"`
 }
 
 // SetFault sets Fault under the fake's lock.
@@ -79,6 +97,13 @@ func (f *Fake) Records(name string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Mints returns the R2 temporary credentials requests so far.
+func (f *Fake) Mints() []Mint {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Mint(nil), f.Minted...)
 }
 
 // Count is how many records the fake holds.
@@ -127,6 +152,26 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	q := r.URL.Query()
 	switch {
+	case len(parts) == 4 && parts[0] == "accounts" && parts[2] == "r2" && parts[3] == "temp-access-credentials" && r.Method == http.MethodPost:
+		var m Mint
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil || m.Bucket == "" || m.ParentAccessKeyID == "" || m.TTLSeconds <= 0 || m.TTLSeconds > 604800 {
+			reply(w, 400, "bucket, parentAccessKeyId, permission and ttlSeconds (at most 604800) are required", nil)
+			return
+		}
+		switch m.Permission {
+		case "admin-read-write", "admin-read-only", "object-read-write", "object-read-only":
+		default:
+			reply(w, 400, "unknown permission "+m.Permission, nil)
+			return
+		}
+		m.Account = parts[1]
+		f.next++
+		access, secret, token := fmt.Sprintf("tmpkey%d", f.next), fmt.Sprintf("tmpsecret%d", f.next), fmt.Sprintf("tmptoken%d", f.next)
+		f.Minted = append(f.Minted, m)
+		if f.OnMint != nil {
+			f.OnMint(m, access, secret, token)
+		}
+		reply(w, 200, map[string]string{"accessKeyId": access, "secretAccessKey": secret, "sessionToken": token}, nil)
 	case len(parts) == 1 && parts[0] == "zones" && r.Method == http.MethodGet:
 		var out []map[string]any
 		for name, id := range f.zones {
