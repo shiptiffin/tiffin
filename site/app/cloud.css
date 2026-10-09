@@ -1159,21 +1159,6 @@
 .cp-pill[data-tone="bad"] {
   color: var(--danger);
 }
-.cp-facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
-  margin: 0;
-  font-size: 0.95rem;
-}
-.cp-facts dt {
-  color: var(--ink-3);
-}
-.cp-facts dd {
-  margin: 0;
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
 .cp details {
   border-top: 1px solid var(--rule);
   padding-top: 12px;
