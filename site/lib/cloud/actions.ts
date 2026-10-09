@@ -65,24 +65,6 @@ export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_pa
 }
 
 /**
- * Which payment methods Checkout offers, and who is the seller.
- * STRIPE_MANAGED_PAYMENTS=1: Stripe Managed Payments, Stripe (Link) is the
- * merchant of record and collects and files sales tax and VAT; it picks the
- * payment methods itself and refuses a configuration alongside.
- * Otherwise the Stripe payment method configuration in STRIPE_PAYMENT_METHODS
- * (pmc_…; cards and wallets only); without it, cards only
- * (allowed_payment_method_types filters the account's default
- * configuration), never the default's full list (Klarna, Cash App Pay, …).
- * Stripe refuses payment_method_types on Checkout Sessions since API version
- * 2026-09-30.endive, and takes only one of these.
- */
-export function paymentMethods(env: Record<string, string | undefined> = process.env): Record<string, unknown> {
-  if (env.STRIPE_MANAGED_PAYMENTS?.trim() === "1") return { managed_payments: { enabled: true } };
-  const pmc = env.STRIPE_PAYMENT_METHODS?.trim();
-  return pmc ? { payment_method_configuration: pmc } : { allowed_payment_method_types: ["card"] };
-}
-
-/**
  * The Checkout page for a box: a new box, or (renew) one of the account's
  * boxes whose subscription ended, whatever stage it reached (paid and
  * waiting for Hetzner, set up, or a setup that failed). The new
@@ -90,8 +72,9 @@ export function paymentMethods(env: Record<string, string | undefined> = process
  * session per box: stored, and handed out again until it expires, so two
  * tabs pay for one subscription; the request is saved before Stripe is
  * called, so a retry after any failure sends the very same request
- * (checkout.ts). Payment methods: see paymentMethods. Either way a box is
- * set up only once its first invoice is paid (billing.ts).
+ * (checkout.ts). Stripe Managed Payments: Stripe (as Link) is the merchant of
+ * record, collects and files sales tax and VAT, and picks the payment
+ * methods. A box is set up only once its first invoice is paid (billing.ts).
  */
 export async function startCheckout(acct: Account, base = SITE, renew?: string): Promise<string> {
   let box: q.BoxRow;
@@ -111,7 +94,7 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
     const params: Record<string, unknown> = {
       mode: "subscription",
       line_items: [{ price, quantity: 1 }],
-      ...paymentMethods(),
+      managed_payments: { enabled: true },
       // The terms URL lives in the Stripe account's public details; Checkout refuses this without it.
       consent_collection: { terms_of_service: "required" },
       success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,

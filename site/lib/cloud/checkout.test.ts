@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { paymentMethods, renewable } from "./actions";
+import { renewable } from "./actions";
 import { checkoutUrl, type CheckoutAttempt, type CheckoutBox, type CheckoutRepo, type Session } from "./checkout";
 import { StripeError } from "./stripe";
 
@@ -176,13 +176,3 @@ test("Renew covers every box whose subscription ended, whatever stage it reached
   expect(renewable(b("paid", "canceled", { first_paid_at: null }))).toBe(false);
 });
 
-test("Checkout's payment methods: the configuration when set, else cards only (never payment_method_types)", () => {
-  expect(paymentMethods({ STRIPE_PAYMENT_METHODS: " pmc_123 " })).toEqual({ payment_method_configuration: "pmc_123" });
-  expect(paymentMethods({})).toEqual({ allowed_payment_method_types: ["card"] });
-  expect(paymentMethods({ STRIPE_PAYMENT_METHODS: "" })).toEqual({ allowed_payment_method_types: ["card"] });
-});
-
-test("Managed Payments: Stripe picks the methods, so no configuration goes with it", () => {
-  expect(paymentMethods({ STRIPE_MANAGED_PAYMENTS: "1", STRIPE_PAYMENT_METHODS: "pmc_123" })).toEqual({ managed_payments: { enabled: true } });
-  expect(paymentMethods({ STRIPE_MANAGED_PAYMENTS: "0", STRIPE_PAYMENT_METHODS: "pmc_123" })).toEqual({ payment_method_configuration: "pmc_123" });
-});
