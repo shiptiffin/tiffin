@@ -20,8 +20,16 @@ export function Steps({ now }: { now: number }) {
   );
 }
 
+const OFFLINE = "We couldn't reach the server. Check your connection and try again.";
+
+/** POSTs JSON. Never throws: a failed request, even one that never got an answer, comes back as ok: false with a message. */
 async function post<T>(url: string, body?: unknown): Promise<T & { ok: boolean; message?: string }> {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    return { ok: false, message: OFFLINE } as T & { ok: boolean; message?: string };
+  }
   const json = (await res.json().catch(() => ({ ok: false, message: "That didn't work. Try again in a minute." }))) as T & { ok: boolean; message?: string };
   if (!res.ok && json.ok !== false) return { ...json, ok: false };
   return json;
@@ -246,10 +254,21 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
     setBusy(true);
     setError("");
     const res = await post(`/api/cloud/boxes/${box.id}/create`, { token, name, serverType, location });
-    if (res.ok) onStarted(name);
+    if (res.ok || (await started())) onStarted(name);
     else {
       setError(res.message ?? "Setup couldn't start.");
       setBusy(false);
+    }
+  }
+
+  /** Whether setup is running after all: the answer may have been lost on the way back (the server starts it once). */
+  async function started(): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/cloud/boxes/${box.id}`, { cache: "no-store" });
+      const j = (await res.json()) as { box?: { status: string } };
+      return j.box?.status === "provisioning" || j.box?.status === "cert_pending" || j.box?.status === "active";
+    } catch {
+      return false;
     }
   }
 

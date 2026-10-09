@@ -28,7 +28,9 @@ export function SignInForm({ next }: { next: string }) {
 
   async function post(path: string, body: unknown) {
     const headers = { "Content-Type": "application/json", ...((await captcha.current?.()) ?? {}) };
-    const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body), credentials: "same-origin" });
+    const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body), credentials: "same-origin" }).catch(() => {
+      throw new Error("We couldn't reach the server. Check your connection and try again.");
+    });
     const json = (await res.json().catch(() => ({}))) as { url?: string; message?: string; code?: string };
     if (!res.ok) throw new Error(json.message || "That didn't work. Try again in a minute.");
     return json;
