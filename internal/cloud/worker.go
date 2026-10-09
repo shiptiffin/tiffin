@@ -353,7 +353,7 @@ type CleanupArgs struct {
 // a box that paid again meanwhile keeps its address, a box that checked in
 // meanwhile is not parked, and only the kill switch's own job sets "killed".
 type DNSArgs struct {
-	// dns_remove: kill, grace, parked, setup_failed, released.
+	// dns_remove: kill, grace, parked, setup_failed, released (also for a deleted box).
 	// dns_set: heartbeat, renewed, admin_restore.
 	Reason string `json:"reason"`
 	Gen    int64  `json:"gen"`
@@ -941,8 +941,9 @@ func (w *Worker) serverMayBeOff(ctx context.Context, job *Job, box *Box, progres
 
 // deleteServer deletes the customer's server when they ask: the address
 // first (so no name points at an IP Hetzner may hand to someone else), then
-// only the resources carrying this box's label, then the box is released.
-// Each phase is checkpointed; a retry skips what is done.
+// only the resources carrying this box's label; then the box is deleted,
+// for good, and the customer emailed. Each phase is checkpointed; a retry
+// skips what is done. The account page reads the steps (site/lib/cloud/progress.ts).
 func (w *Worker) deleteServer(ctx context.Context, job *Job, box *Box, a DeleteArgs, progress func(string)) error {
 	if box.Status != "deleting" {
 		return fmt.Errorf("the box is %s, not being deleted", box.Status)
@@ -970,6 +971,7 @@ func (w *Worker) deleteServer(ctx context.Context, job *Job, box *Box, a DeleteA
 		if err != nil {
 			return err
 		}
+		progress("Deleting the server in your Hetzner project")
 		in, err := hp.Inventory(ctx)
 		if err != nil {
 			return err
@@ -993,7 +995,11 @@ func (w *Worker) deleteServer(ctx context.Context, job *Job, box *Box, a DeleteA
 			return err
 		}
 	}
-	return w.Store.Released(ctx, job.Lease, box.ID)
+	if err := w.Store.Deleted(ctx, job.Lease, box.ID, a.DeleteData); err != nil {
+		return err
+	}
+	progress("Deleted")
+	return nil
 }
 
 // dnsSet puts an address back, once it checks out that the box is the one
@@ -1063,7 +1069,7 @@ func (w *Worker) dnsRemove(ctx context.Context, job *Job, box *Box, a DNSArgs, p
 			why = "the box checked in meanwhile"
 		}
 	case "setup_failed", "released":
-		if box.Status != "failed" && box.Status != "released" && box.Status != "deleting" {
+		if box.Status != "failed" && box.Status != "released" && box.Status != "deleting" && box.Status != "deleted" {
 			why = "the box is " + box.Status
 		}
 	default:

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/netip"
@@ -587,10 +588,32 @@ func TestDeleteRemovesDNSFirst(t *testing.T) {
 	if h.cf.Count() == 0 {
 		t.Fatal("the retry redid a phase its checkpoint says is done")
 	}
-	_ = h.w.DNS.Remove(context.Background(), "gone")
-	// A job that keeps failing gives up after MaxAttempts.
-	h.exec(`update cloud_boxes set status = 'deleting' where id = 'box_11'`)
-	id = h.enqueue("box_11", "delete_server", "a-revoked-token", DeleteArgs{})
+	if srv, vols, _, _ := h.hz.Count(); srv != 0 || vols != 1 {
+		t.Fatalf("after delete: servers %d volumes %d (the data volume stays unless asked)", srv, vols)
+	}
+	// Deleted, for good, with when and whether the data went too; the customer is emailed once.
+	b := h.box("box_11")
+	if b.Status != "deleted" || h.str(`select signin_code from cloud_boxes where id = 'box_11'`) != "" {
+		t.Fatalf("box %+v", b)
+	}
+	if h.num(`select count(*) from cloud_boxes where id = 'box_11' and deleted_at is not null and data_deleted = false and released_at is null`) != 1 {
+		t.Fatal("deleted_at and data_deleted not recorded")
+	}
+	if h.str(`select params->>'dataDeleted' from cloud_outbox where box_id = 'box_11' and kind = 'deleted' and key = $1`, fmt.Sprint(id)) != "false" {
+		t.Fatal("no deleted email")
+	}
+	if j := h.job(id); !strings.HasSuffix(j.text(), "Deleted") {
+		t.Fatalf("the last step says it's deleted: %s", j.text())
+	}
+}
+
+// A delete that keeps failing gives up after MaxAttempts: the box stays
+// "deleting" (the account offers to try again) and is never marked deleted.
+func TestDeleteGivesUp(t *testing.T) {
+	h := newHarness(t)
+	h.provisioned("box_31", "stuck", ProvisionArgs{})
+	h.exec(`update cloud_boxes set status = 'deleting' where id = 'box_31'`)
+	id := h.enqueue("box_31", "delete_server", "a-revoked-token", DeleteArgs{})
 	for i := 0; i < MaxAttempts; i++ {
 		h.exec(`update cloud_jobs set not_before = null where id = $1`, id)
 		h.runNext()
@@ -598,15 +621,115 @@ func TestDeleteRemovesDNSFirst(t *testing.T) {
 	if j := h.job(id); j.Status != "failed" || j.Token != nil {
 		t.Fatalf("after %d tries: %s", MaxAttempts, j.text())
 	}
-	h.exec(`update cloud_boxes set status = 'released' where id = 'box_11'`)
-	if srv, vols, _, _ := h.hz.Count(); srv != 0 || vols != 1 {
-		t.Fatalf("after delete: servers %d volumes %d", srv, vols)
-	}
-	if b := h.box("box_11"); b.Status != "released" {
+	if b := h.box("box_31"); b.Status != "deleting" || b.DNSState != "removed" {
 		t.Fatalf("box %+v", b)
 	}
-	if h.str(`select signin_code from cloud_boxes where id = 'box_11'`) != "" {
-		t.Fatal("a released box keeps no sign-in link")
+	if srv, _, _, _ := h.hz.Count(); srv != 1 {
+		t.Fatal("the server went without a working key?")
+	}
+	if h.num(`select count(*) from cloud_outbox where box_id = 'box_31' and kind = 'deleted'`) != 0 {
+		t.Fatal("a deleted email for a box that wasn't deleted")
+	}
+}
+
+// Deleting with the data deletes the volume too, and says so.
+func TestDeleteWithData(t *testing.T) {
+	h := newHarness(t)
+	h.provisioned("box_32", "wipe", ProvisionArgs{})
+	h.exec(`update cloud_boxes set status = 'deleting' where id = 'box_32'`)
+	id := h.enqueue("box_32", "delete_server", hetznertest.Token, DeleteArgs{DeleteData: true})
+	// Emails about the running box still waiting (the subscription's end, a warning) go unsent; others stay.
+	h.exec(`insert into cloud_outbox (box_id, kind, key) values ('box_32', 'extras_paused', 'sub_1'), ('box_32', 'dns_soon', 'x'), ('box_32', 'refunded', '')`)
+	h.runNext()
+	if j := h.job(id); j.Status != "done" {
+		t.Fatalf("delete: %s", j.text())
+	}
+	if srv, vols, _, _ := h.hz.Count(); srv != 0 || vols != 0 {
+		t.Fatalf("servers %d volumes %d", srv, vols)
+	}
+	if h.num(`select count(*) from cloud_boxes where id = 'box_32' and status = 'deleted' and data_deleted`) != 1 {
+		t.Fatal("not recorded as deleted with its data")
+	}
+	if h.str(`select params->>'dataDeleted' from cloud_outbox where box_id = 'box_32' and kind = 'deleted'`) != "true" {
+		t.Fatal("the email doesn't know the data went")
+	}
+	if h.str(`select string_agg(kind || '=' || status, ',' order by kind) from cloud_outbox where box_id = 'box_32'`) != "deleted=queued,dns_soon=dropped,extras_paused=dropped,ready=dropped,refunded=queued" {
+		t.Fatalf("outbox: %s", h.str(`select string_agg(kind || '=' || status, ',' order by kind) from cloud_outbox where box_id = 'box_32'`))
+	}
+}
+
+// Nothing brings a deleted box back: not a late job, not a write that
+// forgets to check (the table refuses), not the sweep.
+func TestDeletedIsForGood(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.provisioned("box_33", "late", ProvisionArgs{})
+	h.exec(`update cloud_boxes set status = 'deleting' where id = 'box_33'`)
+	h.enqueue("box_33", "delete_server", hetznertest.Token, DeleteArgs{})
+	h.runNext()
+	if b := h.box("box_33"); b.Status != "deleted" {
+		t.Fatalf("box %+v", b)
+	}
+	// A late address restore (a check-in queued it) stays off.
+	h.exec(`update cloud_boxes set last_heartbeat_at = now() where id = 'box_33'`)
+	set := h.enqueue("box_33", "dns_set", "", DNSArgs{Reason: "heartbeat", Gen: 1})
+	h.runNext()
+	if j := h.job(set); h.cf.Count() != 0 || !strings.Contains(j.text(), "the box is deleted") {
+		t.Fatalf("a deleted box's address came back: %s", j.text())
+	}
+	// A late setup or resize refuses.
+	prov := h.enqueue("box_33", "provision", hetznertest.Token, ProvisionArgs{Name: "late", ServerType: "cax11", Location: "fsn1"})
+	h.runNext()
+	if j := h.job(prov); j.Status != "failed" {
+		t.Fatalf("a setup ran on a deleted box: %s", j.text())
+	}
+	rs := h.enqueue("box_33", "resize", hetznertest.Token, ResizeArgs{ServerType: "cax21"})
+	h.runNext()
+	if j := h.job(rs); j.Status != "failed" {
+		t.Fatalf("a resize ran on a deleted box: %s", j.text())
+	}
+	// Any write that would change the status keeps it deleted, with its date and data flag.
+	h.exec(`update cloud_boxes set status = 'active', deleted_at = null, data_deleted = true, name = name where id = 'box_33'`)
+	if h.num(`select count(*) from cloud_boxes where id = 'box_33' and status = 'deleted' and deleted_at is not null and data_deleted = false`) != 1 {
+		t.Fatal("a deleted box changed back")
+	}
+	if b := h.box("box_33"); b.Status != "deleted" {
+		t.Fatalf("box %+v", b)
+	}
+	// The sweep queues nothing for it.
+	if _, err := h.store.Sweep(ctx, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.num(`select count(*) from cloud_jobs where box_id = 'box_33' and status = 'queued'`); n != 0 {
+		t.Fatalf("%d jobs queued for a deleted box", n)
+	}
+	if srv, _, _, _ := h.hz.Count(); srv != 0 {
+		t.Fatal("servers came back")
+	}
+}
+
+// Boxes deleted before the "deleted" status existed were left "released":
+// applying the schema finds them by their finished delete_server job. A box
+// released with "Stop managed service" (no delete job) stays released.
+func TestSchemaFindsEarlierDeletes(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.addBox("box_34", "acme")
+	h.addBox("box_35", "kept")
+	h.addBox("box_36", "half")
+	h.exec(`alter table cloud_boxes disable trigger cloud_boxes_keep_deleted`)
+	h.exec(`update cloud_boxes set status = 'released' where id in ('box_34', 'box_35', 'box_36')`)
+	h.exec(`insert into cloud_jobs (box_id, kind, status, args, finished_at) values ('box_34', 'delete_server', 'done', '{"deleteData": true}', '2026-10-09T10:00:00Z')`)
+	h.exec(`insert into cloud_jobs (box_id, kind, status, args, finished_at) values ('box_36', 'delete_server', 'failed', '{}', now())`)
+	h.exec(`alter table cloud_boxes enable trigger cloud_boxes_keep_deleted`)
+	if err := h.store.Apply(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if h.num(`select count(*) from cloud_boxes where id = 'box_34' and status = 'deleted' and deleted_at = '2026-10-09T10:00:00Z' and data_deleted`) != 1 {
+		t.Fatal("an earlier delete wasn't found")
+	}
+	if h.box("box_35").Status != "released" || h.box("box_36").Status != "released" {
+		t.Fatal("a released box (or one whose delete didn't finish) was marked deleted")
 	}
 }
 

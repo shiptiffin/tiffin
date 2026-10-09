@@ -100,7 +100,10 @@ type Store interface {
 	SetDNS(ctx context.Context, l Lease, boxID, state string) error
 	SetFingerprint(ctx context.Context, l Lease, boxID, fp string) error
 	SetSignin(ctx context.Context, l Lease, boxID, code string, expires time.Time) error
-	Released(ctx context.Context, l Lease, boxID string) error
+	// Deleted marks a box deleted for good (its address, server and
+	// firewall are gone; its data volume too when dataDeleted) and queues
+	// the "deleted" email, keyed by the job, in the same transaction.
+	Deleted(ctx context.Context, l Lease, boxID string, dataDeleted bool) error
 	// QueueEmail puts an email in the outbox (sent by the website), once per (box, kind, key).
 	QueueEmail(ctx context.Context, l Lease, boxID, kind, key string, params map[string]any) error
 	RecordCall(ctx context.Context, boxID string, jobID int64, purpose string, c Call) error
@@ -371,9 +374,33 @@ func (s *PG) SetSignin(ctx context.Context, l Lease, boxID, code string, expires
 	return s.fenced(ctx, l, `update cloud_boxes set signin_code = $2, signin_expires_at = $3, updated_at = now() where id = $1`, boxID, nullable(code), exp)
 }
 
-func (s *PG) Released(ctx context.Context, l Lease, boxID string) error {
-	return s.fenced(ctx, l, `update cloud_boxes set status = 'released', released_at = coalesce(released_at, now()),
-		signin_code = null, signin_expires_at = null, updated_at = now() where id = $1`, boxID)
+// runningKinds are the emails about a box that runs; a deleted box gets none
+// (site/lib/cloud/outbox.ts RUNNING_ONLY, the same list).
+var runningKinds = []string{"ready", "attention", "server_off", "extras_paused", "extras_resumed", "payment_failed", "dns_soon", "dns_removed", "parked", "silent", "down", "up"}
+
+func (s *PG) Deleted(ctx context.Context, l Lease, boxID string, dataDeleted bool) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `update cloud_boxes set status = 'deleted', deleted_at = coalesce(deleted_at, now()), data_deleted = $2,
+			signin_code = null, signin_expires_at = null, signin_requested_at = null, attention = null, attention_at = null, updated_at = now()
+			where id = $1 and status = 'deleting'`+fmt.Sprintf(fence, l.JobID, l.Gen), boxID, dataDeleted)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			if !s.held(ctx, l) {
+				return ErrLeaseLost
+			}
+			return errors.New("the box is no longer being deleted")
+		}
+		// Emails about a running box still waiting (the subscription ended, the address goes, …) are wrong now.
+		if _, err := tx.Exec(ctx, `update cloud_outbox set status = 'dropped', last_error = 'the box was deleted', done_at = now()
+			where box_id = $1 and status = 'queued' and kind = any($2)`, boxID, runningKinds); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `insert into cloud_outbox (box_id, kind, key, params) values ($1, 'deleted', $2, $3::jsonb) on conflict do nothing`,
+			boxID, fmt.Sprint(l.JobID), fmt.Sprintf(`{"dataDeleted": %t}`, dataDeleted))
+		return err
+	})
 }
 
 func (s *PG) QueueEmail(ctx context.Context, l Lease, boxID, kind, key string, params map[string]any) error {
@@ -586,12 +613,12 @@ func (s *PG) Sweep(ctx context.Context, now time.Time) (string, error) {
 	if n := tag.RowsAffected(); n > 0 {
 		out = append(out, fmt.Sprintf("forgot %d sign-in links", n))
 	}
-	// An address live (or being published, or half published) on a box that failed, is being deleted or was
-	// released: remove it (again, if an earlier try failed), at most every
+	// An address live (or being published, or half published) on a box that failed, is being deleted, was
+	// deleted or was released: remove it (again, if an earlier try failed), at most every
 	// five minutes per box.
 	tag, err = s.Pool.Exec(ctx, `insert into cloud_jobs (box_id, kind, args)
 		select b.id, 'dns_remove', jsonb_build_object('reason', case b.status when 'failed' then 'setup_failed' else 'released' end, 'gen', b.generation)
-		from cloud_boxes b where b.dns_state in ('live', 'pending') and b.status in ('failed', 'deleting', 'released')
+		from cloud_boxes b where b.dns_state in ('live', 'pending') and b.status in ('failed', 'deleting', 'deleted', 'released')
 		and not exists (select 1 from cloud_jobs j where j.box_id = b.id and (j.status in ('queued', 'running') or j.created_at > $1::timestamptz - interval '5 minutes'))`, now)
 	if err != nil {
 		return "", err

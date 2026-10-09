@@ -14,7 +14,7 @@ create table if not exists cloud_boxes (
   email text not null,
   name text unique,
   status text not null default 'awaiting_payment'
-    check (status in ('awaiting_payment', 'paid', 'provisioning', 'cert_pending', 'active', 'failed', 'deleting', 'released')),
+    check (status in ('awaiting_payment', 'paid', 'provisioning', 'cert_pending', 'active', 'failed', 'deleting', 'deleted', 'released')),
   plan_status text not null default 'none',
   cancel_at_period_end boolean not null default false,
   current_period_end timestamptz,
@@ -65,6 +65,12 @@ create table if not exists cloud_boxes (
   killed_at timestamptz,
   kill_reason text,
   released_at timestamptz,
+  deleted_at timestamptz,
+  data_deleted boolean,
+  last_charge_cents integer,
+  last_charge_currency text,
+  last_charge_at timestamptz,
+  plan_ended_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -75,18 +81,44 @@ alter table cloud_boxes add column if not exists attention_at timestamptz;
 alter table cloud_boxes add column if not exists handoff_closed_at timestamptz;
 alter table cloud_boxes add column if not exists signin_requested_at timestamptz;
 alter table cloud_boxes add column if not exists checkout_attempt jsonb;
+alter table cloud_boxes add column if not exists deleted_at timestamptz;
+alter table cloud_boxes add column if not exists data_deleted boolean;
+alter table cloud_boxes add column if not exists last_charge_cents integer;
+alter table cloud_boxes add column if not exists last_charge_currency text;
+alter table cloud_boxes add column if not exists last_charge_at timestamptz;
+alter table cloud_boxes add column if not exists plan_ended_at timestamptz;
 -- Columns dropped since: a customer's Hetzner token lives only on its job.
 alter table cloud_boxes drop column if exists token_sealed;
 alter table cloud_boxes drop column if exists token_kept_at;
 alter table cloud_boxes drop constraint if exists cloud_boxes_dns_state_check;
 alter table cloud_boxes add constraint cloud_boxes_dns_state_check check (dns_state in ('none', 'pending', 'live', 'removed', 'parked', 'killed'));
+alter table cloud_boxes drop constraint if exists cloud_boxes_status_check;
+alter table cloud_boxes add constraint cloud_boxes_status_check
+  check (status in ('awaiting_payment', 'paid', 'provisioning', 'cert_pending', 'active', 'failed', 'deleting', 'deleted', 'released'));
+-- Deleted is for good: no late job, webhook or check-in changes it back.
+create or replace function cloud_boxes_keep_deleted() returns trigger language plpgsql as $$
+begin
+  if old.status = 'deleted' then
+    new.status := 'deleted';
+    new.deleted_at := old.deleted_at;
+    new.data_deleted := old.data_deleted;
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists cloud_boxes_keep_deleted on cloud_boxes;
+create trigger cloud_boxes_keep_deleted before update on cloud_boxes for each row execute function cloud_boxes_keep_deleted();
 create index if not exists cloud_boxes_user on cloud_boxes (user_id, created_at);
 -- One box waiting for its first payment per account: two tabs reuse it.
 create unique index if not exists cloud_boxes_one_pending on cloud_boxes (user_id) where status = 'awaiting_payment';
 
 comment on table cloud_boxes is 'Managed boxes: one row per box a customer started at shiptiffin.com/start. The server itself is in the customer''s own Hetzner project; this is our side (billing, address, check-ins).';
 comment on column cloud_boxes.id is 'Box id (box_…): in the Stripe subscription''s metadata, the box''s licence, and the shiptiffin-box label on every Hetzner resource we make for it.';
-comment on column cloud_boxes.status is 'awaiting_payment, paid (first payment succeeded; ready to connect Hetzner), provisioning, cert_pending (installed; waiting for its HTTPS certificate), active, failed (setup failed; can be retried), deleting, or released (no longer managed by us).';
+comment on column cloud_boxes.status is 'awaiting_payment, paid (first payment succeeded; ready to connect Hetzner), provisioning, cert_pending (installed; waiting for its HTTPS certificate), active, failed (setup failed; can be retried), deleting, deleted (the customer had us delete the server: for good, see deleted_at) or released (the customer stopped the managed service; the server is theirs and runs on).';
+comment on column cloud_boxes.deleted_at is 'When the delete_server job finished: the address, the server, its firewall and (data_deleted) its data volume are gone.';
+comment on column cloud_boxes.last_charge_cents is 'The subscription''s latest paid invoice, from the Stripe events we receive (with last_charge_currency and last_charge_at): what the account page and emails say was last charged.';
+comment on column cloud_boxes.plan_ended_at is 'When the subscription ended (Stripe''s ended_at, else canceled_at).';
+comment on column cloud_boxes.data_deleted is 'For a deleted box: whether its data volume was deleted too (false: it stays in the customer''s Hetzner project).';
 comment on column cloud_boxes.plan_status is 'The Stripe subscription''s status as retrieved from Stripe (active, past_due, unpaid, canceled, …). active and trialing keep the managed extras on; past_due too once the first payment succeeded.';
 comment on column cloud_boxes.first_paid_at is 'When the first invoice was paid. Setup needs it.';
 comment on column cloud_boxes.extras_paused_at is 'When the managed extras paused (subscription ended or unpaid). The shiptiffin.app address is removed 30 days later.';
@@ -180,7 +212,7 @@ create table if not exists cloud_outbox (
   kind text not null,
   key text not null default '',
   params jsonb not null default '{}',
-  status text not null default 'queued' check (status in ('queued', 'done', 'failed')),
+  status text not null default 'queued' check (status in ('queued', 'done', 'failed', 'dropped')),
   attempts integer not null default 0,
   next_attempt_at timestamptz not null default now(),
   last_error text,
@@ -189,7 +221,9 @@ create table if not exists cloud_outbox (
   unique (box_id, kind, key)
 );
 create index if not exists cloud_outbox_due on cloud_outbox (next_attempt_at) where status = 'queued';
-comment on table cloud_outbox is 'Emails (kind = the template) and Stripe actions (kind stripe_…) to carry out after the change that asked for them committed, each once (box, kind, key), retried with backoff until done or failed.';
+alter table cloud_outbox drop constraint if exists cloud_outbox_status_check;
+alter table cloud_outbox add constraint cloud_outbox_status_check check (status in ('queued', 'done', 'failed', 'dropped'));
+comment on table cloud_outbox is 'Emails (kind = the template) and Stripe actions (kind stripe_…) to carry out after the change that asked for them committed, each once (box, kind, key), retried with backoff until done or failed. Dropped: not sent on purpose (an email about a running box, for a box that was deleted).';
 
 create table if not exists cloud_billing_log (
   id bigint generated always as identity primary key,
@@ -200,3 +234,9 @@ create table if not exists cloud_billing_log (
   at timestamptz not null default now()
 );
 comment on table cloud_billing_log is 'Billing actions we took on our own: a duplicate subscription cancelled and refunded, a money-back refund, a refund seen from Stripe.';
+
+-- Boxes deleted before "deleted" existed were marked released: a released
+-- box whose latest delete_server job finished was deleted by it.
+update cloud_boxes b set status = 'deleted', deleted_at = j.finished_at, data_deleted = coalesce((j.args->>'deleteData')::boolean, false)
+from (select distinct on (box_id) box_id, status, finished_at, args from cloud_jobs where kind = 'delete_server' order by box_id, id desc) j
+where j.box_id = b.id and j.status = 'done' and b.status = 'released';
