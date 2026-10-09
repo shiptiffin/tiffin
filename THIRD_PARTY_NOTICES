@@ -266,7 +266,7 @@ golang.org/x/crypto v0.57.0                                   BSD-3-Clause  [tex
 golang.org/x/crypto/x509roots/fallback v0.0.0-20260929172509-b39ff6d641ec  BSD-3-Clause  [text 6]
 golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba           BSD-3-Clause  [text 6]
 golang.org/x/image v0.46.0                                    BSD-3-Clause  [text 6]
-golang.org/x/net v0.59.0                                      BSD-3-Clause  [text 6]
+golang.org/x/net v0.60.0                                      BSD-3-Clause  [text 6]
 golang.org/x/oauth2 v0.37.0                                   BSD-3-Clause  [text 6]
 golang.org/x/sync v0.23.0                                     BSD-3-Clause  [text 6]
 golang.org/x/sys v0.48.0                                      BSD-3-Clause  [text 6]
@@ -1245,7 +1245,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 6] filippo.io/hpke v0.4.0, github.com/smallstep/pkcs7/internal/cryptobyte v0.2.3, golang.org/x/crypto v0.57.0, golang.org/x/crypto/x509roots/fallback v0.0.0-20260929172509-b39ff6d641ec, golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba, golang.org/x/image v0.46.0, golang.org/x/net v0.59.0, golang.org/x/oauth2 v0.37.0, golang.org/x/sync v0.23.0, golang.org/x/sys v0.48.0, golang.org/x/term v0.46.0, golang.org/x/text v0.42.0, golang.org/x/time/rate v0.16.0 ----
+---- [text 6] filippo.io/hpke v0.4.0, github.com/smallstep/pkcs7/internal/cryptobyte v0.2.3, golang.org/x/crypto v0.57.0, golang.org/x/crypto/x509roots/fallback v0.0.0-20260929172509-b39ff6d641ec, golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba, golang.org/x/image v0.46.0, golang.org/x/net v0.60.0, golang.org/x/oauth2 v0.37.0, golang.org/x/sync v0.23.0, golang.org/x/sys v0.48.0, golang.org/x/term v0.46.0, golang.org/x/text v0.42.0, golang.org/x/time/rate v0.16.0 ----
 
 Copyright 2009 The Go Authors.
 

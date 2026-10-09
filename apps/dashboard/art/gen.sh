@@ -8,7 +8,7 @@
 # (mascot.txt, style.txt, next to this script). Pass the mascot reference
 # (mascot-base) for anything with the mascot in it. Candidates land in
 # $ART_SRC/raw/<batch>/; pick, then run cut.py and export.py.
-# Set HEAVY to a job limiter (e.g. research/heavy.sh) to queue behind other heavy work.
+# Set HEAVY to a job limiter (any script that queues heavy jobs) to queue behind other heavy work.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ART="${ART_SRC:?set ART_SRC to a work folder outside the repo}"

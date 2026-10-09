@@ -143,7 +143,7 @@ async function boxDomain(p: Page, b: unknown, check?: { ok: boolean; managedBy?:
     });
 }
 
-const cfZones = { name: "cloudflare", label: "Cloudflare", zones: ["example.com", "shopdemo.dev", "bilal.dev"], boxDomain: false, connectedAt: ago(3 * 86400), connectedBy: "Bilal" };
+const cfZones = { name: "cloudflare", label: "Cloudflare", zones: ["example.com", "shopdemo.dev", "acme.dev"], boxDomain: false, connectedAt: ago(3 * 86400), connectedBy: "Alex" };
 async function dns(p: Page, connected: boolean) {
   await p.route("**/v1/dns/providers", (r) => r.fulfill({ json: { connected: connected ? [cfZones] : [], available: [], summary: "" } }));
 }

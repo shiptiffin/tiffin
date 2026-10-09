@@ -43,3 +43,9 @@ site/CLAUDE.md
 
 # Launch video and assets (local only)
 /launch/
+
+# Never commit
+research/
+*.p8
+*.key
+owner-token

@@ -626,7 +626,7 @@ func TestProvidersAPIAndRelayPresets(t *testing.T) {
 func TestPublicAddress(t *testing.T) {
 	for u, want := range map[string]bool{
 		"https://dashboard.shiptiffin.com": true, "https://dashboard.46-224-210-97.sslip.io": true, "https://dashboard.tiffin.localhost:8443": false,
-		"http://127.0.0.1:7392": false, "https://10.0.0.5": false, "https://box.test": false, "": false, "https://46.224.210.97": true,
+		"http://127.0.0.1:7392": false, "https://10.0.0.5": false, "https://box.test": false, "": false, "https://95.216.1.2": true,
 	} {
 		if got := publicAddress(u); got != want {
 			t.Errorf("%s: %v", u, got)

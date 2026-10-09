@@ -141,7 +141,7 @@ must accept the sender's domain.
 
 ```bash
 tiffin email box get
-tiffin email box set --from "ShipTiffin <hello@shiptiffin.com>" --reply-to help@shiptiffin.com
+tiffin email box set --from "ShipTiffin <hello@shiptiffin.com>" --reply-to hello@shiptiffin.com
 tiffin email box messages            # owners and admins: it holds invites
 tiffin people email <usr_id> --email maya@example.com   # the owner token; API keys can't
 ```

@@ -308,8 +308,8 @@ func TestBoxSenderAPIAndInvites(t *testing.T) {
 	if code, m, _ := call(owner, "PUT", "/v1/email/box", `{"from":"not an address"}`); code != 422 {
 		t.Fatalf("bad sender: %d %v", code, m)
 	}
-	if code, m, _ := call(owner, "PUT", "/v1/email/box", `{"from":"ShipTiffin <hello@shiptiffin.com>","replyTo":"help@shiptiffin.com"}`); code != 200 ||
-		m["from"] != "ShipTiffin <hello@shiptiffin.com>" || m["replyTo"] != "help@shiptiffin.com" || m["default"] != false {
+	if code, m, _ := call(owner, "PUT", "/v1/email/box", `{"from":"ShipTiffin <hello@shiptiffin.com>","replyTo":"hello@shiptiffin.com"}`); code != 200 ||
+		m["from"] != "ShipTiffin <hello@shiptiffin.com>" || m["replyTo"] != "hello@shiptiffin.com" || m["default"] != false {
 		t.Fatalf("set sender: %d %v", code, m)
 	}
 
@@ -340,7 +340,7 @@ func TestBoxSenderAPIAndInvites(t *testing.T) {
 	headers, _ := d["headers"].([]any)
 	reply := false
 	for _, h := range headers {
-		if hm := h.(map[string]any); hm["name"] == "Reply-To" && strings.Contains(hm["value"].(string), "help@shiptiffin.com") {
+		if hm := h.(map[string]any); hm["name"] == "Reply-To" && strings.Contains(hm["value"].(string), "hello@shiptiffin.com") {
 			reply = true
 		}
 	}

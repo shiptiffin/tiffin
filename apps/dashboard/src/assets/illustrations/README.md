@@ -97,7 +97,7 @@ Subject lines, in short (each was 2–3 variants; the best kept):
 
 Sources stay out of git (they are about 2 MB each). In a work folder outside the repo:
 
-1. **Generate:** `ART_SRC=<work> HEAVY=<path>/research/heavy.sh apps/dashboard/art/gen.sh <batch> <subjects.txt> <mascot-base.png>`
+1. **Generate:** `ART_SRC=<work> HEAVY=<job-limiter script> apps/dashboard/art/gen.sh <batch> <subjects.txt> <mascot-base.png>`
    (Codex image tool; run at most two at once). Pick the best of each into `<work>/picks/`.
 2. **Cut out:** `ART_SRC=<work> python apps/dashboard/art/cut.py <work>/cut` (numpy, scipy, pillow,
    opencv-python-headless). It keys the paper out by flood fill from the edges (paper-coloured pockets enclosed
