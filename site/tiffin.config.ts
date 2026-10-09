@@ -39,6 +39,8 @@ export default defineConfig({
     auth: { methods: ["magic-link", "google", "github"], organizations: false },
     email: { from: "hello@shiptiffin.com" },
   },
+  // The name the sign-in emails and pages use (else the project name, "website").
+  env: { APP_NAME: "ShipTiffin" },
   crons: {
     monitor: { schedule: "*/5 * * * *", app: "web", path: "/api/cron/monitor", timeoutSeconds: 120 },
   },
