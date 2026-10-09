@@ -1,1 +1,0 @@
-function e(e=`<your key>`){return`claude mcp add tiffin -e TIFFIN_TOKEN=${e} -- tiffin mcp`}export{e as t};
