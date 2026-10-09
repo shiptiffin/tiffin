@@ -83,10 +83,13 @@ export function Pricing() {
           <div className="plan price2-server">
             <h3 className="plan-name">Your server, from Hetzner</h3>
             <p className="plan-price">
-              <span className="plan-amount">&euro;5&ndash;7</span>
+              <span className="plan-amount">~$10</span>
               <span className="plan-per">/month</span>
             </p>
-            <p className="plan-yearly">For a small server: 2 vCPU, 4 GB of memory.</p>
+            <p className="plan-yearly">
+              For the smallest server (2 vCPU, 4 GB of memory), with its IPv4 address and a 40 GB data volume, before
+              VAT.
+            </p>
             <p className="price2-text">
               Billed by Hetzner to you, in your own account, at their prices. A small server fits about 3&ndash;5
               small apps; move to a bigger one in a click when you need more room, and pay Hetzner&rsquo;s price for

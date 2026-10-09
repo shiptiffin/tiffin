@@ -4,8 +4,9 @@
 // services (lean or typical, the reader picks) against one ShipTiffin box.
 // Every price was read on the vendor's own pricing page on 2026-10-08.
 // Re-check each one, and the date in compare.tsx, before changing a number.
-// Our side: $19 a box ($12 founding), plus about $7 for a small Hetzner
-// server (2 vCPU, 4 GB), billed by Hetzner. Keep in step with pricing.tsx.
+// Our side: $19 a box ($12 founding), plus about $10 for the smallest
+// Hetzner server (cx23 $6.49 + IPv4 ~$0.60 + 40 GB volume ~$2.80, net, Hetzner
+// API 2026-10-08), billed by Hetzner. Keep in step with pricing.tsx.
 
 import { useId, useState, type CSSProperties } from "react";
 
@@ -61,7 +62,7 @@ const LINES: Line[] = [
 
 const PLAN = 19;
 const FOUNDING = 12;
-const SERVER = 7;
+const SERVER = 10;
 const OURS = PLAN + SERVER;
 
 const total = (mode: Mode) => LINES.reduce((n, l) => n + l.usd[mode], 0);
@@ -172,7 +173,7 @@ export function CompareLedger() {
             </td>
             <td className="ledger-ours">
               <span className="ledger-cell">
-                <span className="ledger-what">Small server, billed by Hetzner</span>
+                <span className="ledger-what">Smallest server, billed by Hetzner</span>
                 <span className="ledger-usd">
                   <span className="ledger-approx">about </span>
                   {usd(SERVER)}
@@ -223,7 +224,7 @@ export function CompareLedger() {
           ))}
           <li>
             ShipTiffin is ${PLAN} a month per box, or ${FOUNDING} for the first 100 customers, locked for 24 months.
-            The server is a small Hetzner server (2 vCPU, 4 GB), about ${SERVER} a month, billed by Hetzner to you.
+            The server is the smallest Hetzner server (2 vCPU, 4 GB) with its IPv4 address and a 40 GB data volume, about ${SERVER} a month before VAT, billed by Hetzner to you.
           </li>
         </ul>
       </details>

@@ -56,9 +56,9 @@ export function Compare() {
               {i < SOURCES.length - 2 ? ", " : i === SOURCES.length - 2 ? " and " : "."}
             </span>
           ))}{" "}
-          US dollars before tax, for one person. The Hetzner figure is for a small server (2 vCPU, 4 GB) and changes
-          with Hetzner&rsquo;s prices. Email isn&rsquo;t counted on either side: on ShipTiffin you send through your
-          own provider too.
+          US dollars before tax, for one person. The Hetzner figure is for the smallest server (2 vCPU, 4 GB) with its
+          IPv4 address and a 40 GB data volume, and changes with Hetzner&rsquo;s prices. Email isn&rsquo;t counted on
+          either side: on ShipTiffin you send through your own provider too.
         </p>
 
         <div className="juggle">
