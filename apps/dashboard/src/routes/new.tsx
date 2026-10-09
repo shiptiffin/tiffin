@@ -7,6 +7,7 @@ import type { components } from "@/api/schema";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
 import { Command, CopyButton } from "@/components/copy";
+import { appAddress } from "@/components/deploy-parts";
 import { EditCodeButton } from "@/components/edit-code";
 import { useTitle } from "@/components/favicon";
 import { Mascot, type MascotState } from "@/components/mascot";
@@ -26,7 +27,7 @@ import { checkPick, emptyPick, GitHubImport, unsupportedWhy, type GitHubPick } f
 import { ImportFile, ImportPanel, ImportSteps, useProjectImport } from "@/components/project-import";
 import { deployGitHub, nameFromRepo, setSecret, type RepoRoot } from "@/lib/github";
 import { useMe } from "@/lib/me";
-import { mcpCommand } from "@/lib/mcp";
+import { agentConnect, mcpCommand } from "@/lib/mcp";
 import { boxDomainQuery } from "@/lib/domains";
 import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
@@ -878,7 +879,7 @@ function Launch({
   const status = deploy?.status;
   const now = useNow(phase === "launching");
   const since = (now - L.started) / 1000;
-  const url = deploy?.url;
+  const url = appAddress(deploy);
   const host = url?.replace(/^https?:\/\//, "");
   const what =
     L.source.kind === "starter"
@@ -1015,17 +1016,29 @@ function Live({
   deploy?: Deploy;
   log: ReturnType<typeof useLaunchBuildLog>;
 }) {
-  const url = deploy?.url;
+  const url = appAddress(deploy);
   const host = url?.replace(/^https?:\/\//, "");
   const thumb = L.source.kind === "starter" ? thumbOf(L.source.starter) : undefined;
   const { admin } = useMe();
-  const agent = (
+  const connect = agentConnect();
+  const agent = connect.needsKey ? (
+    <NextStep
+      n={2}
+      title="Connect your agent"
+      line="Create an API key, then run this with it. Claude Code asks you before anything destructive, and every change lands in History, where you can undo it."
+    >
+      <Command cmd={connect.cmd} />
+      <Link to="/settings/keys" search={{ create: true }} className="mt-2 inline-block text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
+        Create a key in Settings › API keys
+      </Link>
+    </NextStep>
+  ) : (
     <NextStep
       n={2}
       title="Connect your agent"
       line="Claude Code gets the box’s agent key: full access to every project. It asks you before anything destructive, and every change lands in History, where you can undo it."
     >
-      <Command cmd="claude mcp add tiffin -- tiffin mcp" />
+      <Command cmd={connect.cmd} />
       {admin && (
         <Link to="/settings/keys" search={{ create: true }} className="mt-2 inline-block text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
           Or make a key for just {L.project}, or read only

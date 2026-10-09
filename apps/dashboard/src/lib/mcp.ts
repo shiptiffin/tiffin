@@ -12,3 +12,12 @@ export function mcpCommand(key = "<your key>", origin = typeof location === "und
   if (!origin || onThisComputer(new URL(origin).hostname)) return `claude mcp add tiffin -e TIFFIN_TOKEN=${key} -- tiffin mcp`;
   return `claude mcp add --transport http tiffin ${origin}/mcp --header "Authorization: Bearer ${key}"`;
 }
+
+/**
+ * How a new project's page connects Claude Code. On this computer `tiffin mcp` uses the box's own
+ * agent key, so there is nothing to make first; a box on a server needs an API key, sent over HTTP.
+ */
+export function agentConnect(origin = typeof location === "undefined" ? "" : location.origin): { needsKey: boolean; cmd: string } {
+  if (!origin || onThisComputer(new URL(origin).hostname)) return { needsKey: false, cmd: "claude mcp add tiffin -- tiffin mcp" };
+  return { needsKey: true, cmd: mcpCommand(undefined, origin) };
+}

@@ -242,6 +242,12 @@ export function rollbackTarget(list: Deploy[], current?: Deploy): Deploy | undef
 }
 
 /**
+ * The address to send people to: the app's own, stable one (appUrl), where
+ * whichever deploy is live serves. url is this version's d-<id>-- address.
+ */
+export const appAddress = (d?: Pick<Deploy, "url" | "appUrl">) => d?.appUrl || d?.url || undefined;
+
+/**
  * Where a deploy can be opened: a production version the box still keeps
  * (each has an address of its own, d-<id>--<app>), or a live preview.
  */
