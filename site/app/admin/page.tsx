@@ -143,19 +143,21 @@ export default async function Admin() {
                   )}
                 </td>
                 <td>
-                  {b.dns_state === "killed" ? (
-                    <AdminButton body={{ action: "restore", boxId: b.id }} label="Restore" ask="Point the address at the box again?" />
-                  ) : b.dns_state === "live" || b.dns_state === "pending" ? (
-                    <AdminButton body={{ action: "kill", boxId: b.id }} label="Kill" ask="Remove this box's shiptiffin.app records? The customer is emailed." reason />
-                  ) : null}
-                  {b.attention && <AdminButton body={{ action: "resolve", boxId: b.id }} label="Seen to" ask="Clear this box's attention note?" />}
-                  {b.stripe_subscription_id && b.first_paid_at && !b.refunded_at && (
-                    <AdminButton
-                      body={{ action: "refund", boxId: b.id }}
-                      label="Refund and cancel"
-                      ask="The 14-day money-back: refund the first payment in full and end the subscription now? The customer is emailed."
-                    />
-                  )}
+                  <div className="cp-actions">
+                    {b.dns_state === "killed" ? (
+                      <AdminButton body={{ action: "restore", boxId: b.id }} label="Restore" ask="Point the address at the box again?" />
+                    ) : b.dns_state === "live" || b.dns_state === "pending" ? (
+                      <AdminButton body={{ action: "kill", boxId: b.id }} label="Kill" ask="Remove this box's shiptiffin.app records? The customer is emailed." reason />
+                    ) : null}
+                    {b.attention && <AdminButton body={{ action: "resolve", boxId: b.id }} label="Seen to" ask="Clear this box's attention note?" />}
+                    {b.stripe_subscription_id && b.first_paid_at && !b.refunded_at && b.plan_status !== "canceled" && b.status !== "deleted" && (
+                      <AdminButton
+                        body={{ action: "refund", boxId: b.id }}
+                        label="Refund and cancel"
+                        ask="The 14-day money-back: refund the first payment in full and end the subscription now? The customer is emailed."
+                      />
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
