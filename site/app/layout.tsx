@@ -4,7 +4,7 @@ import { mono, sans, serif } from "./fonts";
 import "./globals.css";
 
 const description =
-  "ShipTiffin sets up a server in your own Hetzner account with Postgres, sign-in, file storage, jobs, analytics, error tracking and backups already on it. Run all your apps on it, each with a hard limit, for $19 a month plus the server.";
+  "ShipTiffin sets up a server in your own Hetzner account with a database, auth, file storage, jobs, analytics, error tracking and backups already on it. Run all your apps on it, each with a hard limit, for $19 a month plus the server.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://shiptiffin.com"),

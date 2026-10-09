@@ -277,7 +277,7 @@ export default function Home() {
             </h1>
             <p className="lede">
               ShipTiffin sets up a server in your Hetzner account with everything your apps need already on it:
-              Postgres, sign-in, file storage, jobs, analytics, error tracking and backups. Run all your projects on
+              a database, auth, file storage, jobs, analytics, error tracking and backups. Run all your projects on
               it, each with a hard limit, for $19 a month plus the server, about $10 at Hetzner. No usage
               bills from us.
             </p>
