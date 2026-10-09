@@ -16,7 +16,6 @@ import { toneClass, useProjectPulse } from "@/lib/pulse";
 import { memWords, useBoxShares, type Shares } from "@/lib/usage";
 import { useRecentProjects } from "@/lib/recent";
 import { useProjectHome } from "@/lib/switch";
-import { PartGlyphs } from "@/components/part-glyph";
 import { ProjectIcon } from "@/components/project-icon";
 
 /**
@@ -302,9 +301,6 @@ function ProjectCard({ project }: { project: string }) {
         <div className="mt-4 flex min-h-5 items-center gap-2 text-[0.875rem] text-ink-2">
           <Status project={project} pulse={pulse} />
         </div>
-        <div className="mt-auto flex items-center justify-between gap-3 pt-5">
-          <PartGlyphs apps={pulse.apps.length} services={pulse.services} />
-        </div>
       </div>
     </li>
   );
@@ -318,7 +314,7 @@ function ProjectRow({ project }: { project: string }) {
   return (
     <li
       ref={ref}
-      className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] sm:px-2"
+      className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:px-2"
     >
       <span className="flex min-w-0 items-center gap-2.5">
         <ProjectIcon project={project} size={20} />
@@ -329,7 +325,6 @@ function ProjectRow({ project }: { project: string }) {
       <span className="col-span-2 row-start-2 flex min-w-0 items-center gap-2 text-[0.8125rem] text-ink-2 sm:col-span-1 sm:row-start-auto">
         <Status project={project} pulse={pulse} />
       </span>
-      <PartGlyphs apps={pulse.apps.length} services={pulse.services} className="max-sm:hidden" />
     </li>
   );
 }
