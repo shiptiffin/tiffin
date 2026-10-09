@@ -37,6 +37,7 @@ export default defineConfig({
   },
   services: {
     auth: { methods: ["magic-link", "google", "github"], organizations: false },
+    email: { from: "hello@shiptiffin.com" },
   },
   crons: {
     monitor: { schedule: "*/5 * * * *", app: "web", path: "/api/cron/monitor", timeoutSeconds: 120 },
