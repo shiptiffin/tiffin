@@ -278,11 +278,7 @@ func (r *rendered) load(ctx context.Context) error {
 // load loads r into this process's Caddy and waits until it is served.
 // fallback says why Caddy refused Config when it serves Fallback instead.
 func (r *Rendered) load(ctx context.Context) (fallback, err error) {
-	set := make(map[string]bool, len(r.Allowed))
-	for _, h := range r.Allowed {
-		set[h] = true
-	}
-	allowed.Store(&set)
+	setAllowed(r.Allowed)
 	if r.DNS != "" {
 		providersMu.Lock()
 		if providers[r.DNS] == nil && remoteDNS != nil {
@@ -298,6 +294,15 @@ func (r *Rendered) load(ctx context.Context) (fallback, err error) {
 		return nil, err
 	}
 	return fallback, waitReady(ctx, r.Probe)
+}
+
+// setAllowed makes hosts the ask gate's list (see askGate).
+func setAllowed(hosts []string) {
+	set := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		set[h] = true
+	}
+	allowed.Store(&set)
 }
 
 // caddyLoad loads a Caddy JSON config. Not forced: an identical config is

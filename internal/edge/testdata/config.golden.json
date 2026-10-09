@@ -317,6 +317,30 @@
             {
               "handle": [
                 {
+                  "handler": "static_response",
+                  "headers": {
+                    "Cache-Control": [
+                      "no-store"
+                    ],
+                    "Location": [
+                      "https://dashboard.tiffin.localhost:8443/"
+                    ]
+                  },
+                  "status_code": 302
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
                   "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003ctitle\u003eNot found\u003c/title\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003c/head\u003e\u003cbody style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"\u003e\u003ch1\u003eNothing here\u003c/h1\u003e\u003cp\u003eThis address is not served by this Tiffin box.\u003c/p\u003e\u003cp\u003eOpen the \u003ca href=\"https://dashboard.tiffin.localhost:8443/\"\u003edashboard\u003c/a\u003e to see what is running.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e",
                   "handler": "static_response",
                   "headers": {
@@ -382,7 +406,8 @@
               "*.tiffin.localhost",
               "dashboard.tiffin.localhost",
               "custom.example.test",
-              "shop.tiffin.localhost"
+              "shop.tiffin.localhost",
+              "tiffin.localhost"
             ]
           }
         ]

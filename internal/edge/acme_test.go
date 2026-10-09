@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -110,6 +111,7 @@ func TestACMEIssuanceAndAskGate(t *testing.T) {
 	dns.AddZone("box.test")
 	dns.AddZone("example.test")
 	dns.Set("*.box.test", "A", "127.0.0.1")
+	dns.Set("box.test", "A", "127.0.0.1")
 	dns.Set("example.test", "A", "127.0.0.1")
 	dns.Set("www.example.test", "A", "127.0.0.1")
 	dns.Set("waiting.example.test", "A", "127.0.0.1") // points here, but the box was not told yet
@@ -177,6 +179,13 @@ func TestACMEIssuanceAndAskGate(t *testing.T) {
 		t.Fatalf("app: %d %s", res.StatusCode, body)
 	}
 	waitCert(t, "app.box.test", "live", 5*time.Second)
+	// The bare box domain, served by no app: on demand too, a redirect to
+	// the dashboard.
+	res, _ = get(t, c, "https://box.test/some/path")
+	if want := "https://dashboard.box.test:" + strconv.Itoa(ports[1]) + "/"; res.StatusCode != 302 || res.Header.Get("Location") != want {
+		t.Errorf("bare domain: %d %q, want 302 %q", res.StatusCode, res.Header.Get("Location"), want)
+	}
+	waitCert(t, "box.test", "live", 5*time.Second)
 	res, body = get(t, c, "https://example.test/")
 	if res.StatusCode != 200 || !strings.Contains(body, "hello from app") {
 		t.Fatalf("custom domain: %d %s", res.StatusCode, body)
@@ -469,6 +478,111 @@ func TestAppsDomainConfig(t *testing.T) {
 	}
 	if _, err := ConfigJSON(Config{Domain: "example.com", Apps: "bad_name", Upstream: "127.0.0.1:1", DataDir: "/x", Internal: true}); err == nil {
 		t.Error("an invalid apps domain must be refused")
+	}
+}
+
+// TestBareDomainRedirects: the bare box domain (and a separate apps
+// domain) redirects while no route serves it, and the ask gate allows a
+// certificate for exactly that name, only while it is unclaimed.
+func TestBareDomainRedirects(t *testing.T) {
+	defer setAllowed(nil)
+	gate := func(c Config, host string) bool {
+		t.Helper()
+		r, err := render(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		setAllowed(r.Allowed)
+		return askGate{}.CertificateAllowed(context.Background(), host) == nil
+	}
+	redirect := func(c Config, host string) string {
+		t.Helper()
+		n, err := c.normalized()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rt := range buildConfig(n)["apps"].(obj)["http"].(obj)["servers"].(obj)["https"].(obj)["routes"].([]obj) {
+			m, _ := rt["match"].([]obj)
+			if len(m) != 1 || !slices.Equal(m[0]["host"].([]string), []string{host}) {
+				continue
+			}
+			h := rt["handle"].([]obj)[0]
+			if h["status_code"] != 302 {
+				return ""
+			}
+			return h["headers"].(obj)["Location"].([]string)[0]
+		}
+		return ""
+	}
+
+	// A managed name and an own domain behave the same.
+	for _, domain := range []string{"acme.shiptiffin.app", "example.com"} {
+		c := Config{Domain: domain, Upstream: "127.0.0.1:7070", DataDir: "/x", ACME: &ACME{},
+			Routes: []Route{{Host: "web." + domain, Upstream: "127.0.0.1:1"}}}
+		if got := redirect(c, domain); got != "https://dashboard."+domain+"/" {
+			t.Errorf("%s redirects to %q", domain, got)
+		}
+		if !gate(c, domain) || !gate(c, strings.ToUpper(domain)) {
+			t.Errorf("%s: the gate refuses the unclaimed bare domain", domain)
+		}
+		// Only that name: not its parent, a lookalike, a deeper name or
+		// another domain.
+		for _, h := range []string{"shiptiffin.app", "com", "x" + domain, "a.b." + domain, "www." + domain, "evil.test", domain + ".evil.test"} {
+			if gate(c, h) {
+				t.Errorf("%s: the gate allows %s", domain, h)
+			}
+		}
+		// An app claims it: the app's route wins, and the name is a custom
+		// domain, allowed only once its DNS points here.
+		claimed := c
+		claimed.Routes = append(slices.Clone(c.Routes), Route{Host: domain, Upstream: "127.0.0.1:2"})
+		if got := redirect(claimed, domain); got != "" {
+			t.Errorf("%s claimed: still redirects to %q", domain, got)
+		}
+		if gate(claimed, domain) {
+			t.Errorf("%s claimed: allowed before its DNS is confirmed", domain)
+		}
+		ready := claimed
+		ready.ACME = &ACME{Ready: []string{domain}}
+		if !gate(ready, domain) {
+			t.Errorf("%s claimed and ready: refused", domain)
+		}
+		// A path of it is a claim too.
+		part := c
+		part.Routes = append(slices.Clone(c.Routes), Route{Host: domain, PathPrefix: "/api", Upstream: "127.0.0.1:2"})
+		if got := redirect(part, domain); got != "" {
+			t.Errorf("%s/api claimed: still redirects to %q", domain, got)
+		}
+		// Removing the app brings the redirect back.
+		if !gate(c, domain) {
+			t.Errorf("%s unclaimed again: refused", domain)
+		}
+	}
+
+	// Apps on a domain of their own: its bare name goes to the dashboard,
+	// or to the box domain once an app serves that (the owner's website).
+	apart := Config{Domain: "example.com", Apps: "example.app", Upstream: "127.0.0.1:7070", DataDir: "/x", ACME: &ACME{}}
+	if got := redirect(apart, "example.app"); got != "https://dashboard.example.com/" {
+		t.Errorf("example.app redirects to %q", got)
+	}
+	if !gate(apart, "example.com") || !gate(apart, "example.app") {
+		t.Error("apart: the gate refuses an unclaimed bare domain")
+	}
+	site := apart
+	site.Routes = []Route{{Host: "example.com", Upstream: "127.0.0.1:2"}}
+	if got := redirect(site, "example.app"); got != "https://example.com/" {
+		t.Errorf("example.app with example.com served: redirects to %q", got)
+	}
+	if redirect(site, "example.com") != "" || gate(site, "example.com") {
+		t.Error("example.com served by an app (DNS unconfirmed): still redirected or allowed")
+	}
+	// A box on another port, with a public dashboard URL.
+	local := Config{Domain: "tiffin.localhost", Upstream: "127.0.0.1:7070", DataDir: "/x", Internal: true, HTTPSPort: 8443, DashboardURL: "https://dashboard.tiffin.localhost:8475"}
+	if got := redirect(local, "tiffin.localhost"); got != "https://dashboard.tiffin.localhost:8475/" {
+		t.Errorf("local: redirects to %q", got)
+	}
+	if n, _ := local.normalized(); !slices.Contains(n.managedHosts(), "tiffin.localhost") {
+		t.Error("local: the internal CA does not cover the bare domain")
 	}
 }
 

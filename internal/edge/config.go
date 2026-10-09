@@ -206,6 +206,73 @@ func (c Config) hostsFor(host string) []string {
 	return out
 }
 
+// BareRedirect is a bare box or apps domain ("example.com" itself, not a
+// name under it) that no route serves: it redirects instead of failing.
+type BareRedirect struct {
+	Host string
+	// To is the host whose root it redirects to; empty: the dashboard.
+	To string
+}
+
+// BareRedirects are the bare domains that redirect while no route serves
+// them (served reports whether one does):
+//
+//   - the box domain goes to the dashboard;
+//   - a separate apps domain goes to the box domain when a route serves
+//     that (the owner's website, say), else to the dashboard too.
+//
+// An app that claims the name wins; removing it brings the redirect back.
+func BareRedirects(domain, apps string, served func(host string) bool) []BareRedirect {
+	var out []BareRedirect
+	if !served(domain) {
+		out = append(out, BareRedirect{Host: domain})
+	}
+	if apps != "" && apps != domain && !served(apps) {
+		r := BareRedirect{Host: apps}
+		if served(domain) {
+			r.To = domain
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// bareRedirects are this config's BareRedirects. A bare domain that is
+// the dashboard's or a one-label app host's name (an odd setup) is left
+// to those.
+func (c Config) bareRedirects() []BareRedirect {
+	routed := map[string]bool{}
+	for _, r := range c.Routes {
+		routed[r.Host] = true
+	}
+	var out []BareRedirect
+	for _, b := range BareRedirects(c.Domain, c.Apps, func(h string) bool { return routed[h] }) {
+		if !slices.Contains(c.dashboardHosts(), b.Host) && !c.isBoxHost(b.Host) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// bareRoute answers a bare domain with a temporary redirect (302, so no
+// browser keeps it once an app claims the name) to the dashboard's root or
+// to another bare domain's.
+func (c Config) bareRoute(b BareRedirect, portSuffix string) obj {
+	to := c.dashboardURL(portSuffix) + "/"
+	if b.To != "" {
+		to = "https://" + b.To + portSuffix + "/"
+	}
+	return obj{
+		"match": []obj{{"host": []string{b.Host}}},
+		"handle": []obj{{
+			"handler":     "static_response",
+			"status_code": 302,
+			"headers":     obj{"Location": []string{to}, "Cache-Control": []string{"no-store"}},
+		}},
+		"terminal": true,
+	}
+}
+
 // hstsMaxAge is the effective Strict-Transport-Security max-age (0: off).
 func (c Config) hstsMaxAge() time.Duration {
 	switch {
@@ -391,6 +458,12 @@ func (c Config) managedHosts() []string {
 				have[h] = true
 				subjects = append(subjects, h)
 			}
+		}
+	}
+	for _, b := range c.bareRedirects() {
+		if !have[b.Host] {
+			have[b.Host] = true
+			subjects = append(subjects, b.Host)
 		}
 	}
 	return subjects
@@ -665,6 +738,9 @@ func buildConfig(c Config) obj {
 	}
 	for _, r := range c.Routes {
 		routes = append(routes, routeFor(c, r, portSuffix))
+	}
+	for _, b := range c.bareRedirects() {
+		routes = append(routes, c.bareRoute(b, portSuffix))
 	}
 	wild := []string{"*." + c.appsDomain()}
 	for _, a := range c.Aliases {

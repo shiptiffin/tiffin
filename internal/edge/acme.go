@@ -43,7 +43,10 @@ const (
 //   - other hosts (custom domains) right away, but only
 //     those listed in Ready: their DNS points at this box. A route whose
 //     DNS does not point here yet gets no certificate attempts at all, so a
-//     waiting domain never burns Let's Encrypt's failed-validation limit.
+//     waiting domain never burns Let's Encrypt's failed-validation limit;
+//   - the bare box domain (and a separate apps domain) on its first visit
+//     while no route serves it, for its redirect (see BareRedirects). Once
+//     an app claims it, it is a custom domain like any other.
 //
 // On-demand issuance is gated by the route table: a name gets a
 // certificate only if the box serves it (see Allowed).
@@ -227,6 +230,11 @@ func (c Config) Allowed() map[string]bool {
 		} else if c.ACME == nil || slices.Contains(c.ACME.Ready, r.Host) {
 			out[r.Host] = true
 		}
+	}
+	// Exactly the bare domains that redirect: a claimed one is a route
+	// above, gated by its DNS like any custom domain.
+	for _, b := range c.bareRedirects() {
+		out[b.Host] = true
 	}
 	return out
 }

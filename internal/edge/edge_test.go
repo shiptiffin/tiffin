@@ -576,3 +576,61 @@ func TestDashboardUpstreamOnAUnixSocket(t *testing.T) {
 		t.Fatalf("dashboard over the socket: %d %q", resp.StatusCode, body)
 	}
 }
+
+// TestBareDomainEndToEnd: the bare box domain redirects to the dashboard
+// until an app claims it, and again once the app lets it go.
+func TestBareDomainEndToEnd(t *testing.T) {
+	isolate(t)
+	up := upstreamServer(t, "platform")
+	app := upstreamServer(t, "site")
+	cfg := testConfig(t, addr(up))
+	e, err := Start(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Stop()
+	pemRoot, err := e.RootCAPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := client(t, pemRoot, cfg.HTTPSPort)
+	port := strconv.Itoa(cfg.HTTPSPort)
+	bare := func() (int, string) {
+		t.Helper()
+		var res *http.Response
+		var err error
+		for range 100 { // the internal CA issues the name's certificate in the background
+			if res, err = c.Get("https://tiffin.localhost:" + port + "/x?y=1"); err == nil {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		if res.StatusCode == 302 {
+			return 302, res.Header.Get("Location")
+		}
+		return res.StatusCode, string(b)
+	}
+	dash := "https://dashboard.tiffin.localhost:" + port + "/"
+	if code, got := bare(); code != 302 || got != dash {
+		t.Fatalf("unclaimed: %d %q, want 302 %q", code, got, dash)
+	}
+	cfg.Routes = []Route{{Host: "tiffin.localhost", Upstream: addr(app)}}
+	if err := e.Reload(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if code, got := bare(); code != 200 || got != "hello from site /x" {
+		t.Errorf("claimed: %d %q", code, got)
+	}
+	cfg.Routes = nil
+	if err := e.Reload(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if code, got := bare(); code != 302 || got != dash {
+		t.Errorf("released: %d %q", code, got)
+	}
+}
