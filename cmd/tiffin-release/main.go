@@ -93,12 +93,17 @@ func secretKey(path string) (release.SecretKey, error) {
 	return release.ParseSecretKey(string(raw))
 }
 
-// Platforms the box runs on: a manifest lists their builds.
+// Platforms the box runs on: a manifest must list their builds.
 var boxPlatforms = []string{"linux/amd64", "linux/arm64"}
+
+// Platforms the CLI alone runs on (people's own computers): listed when
+// their builds are in dist, so installs on a Mac are checked against the
+// same signed manifest.
+var cliPlatforms = []string{"darwin/arm64", "darwin/amd64"}
 
 func manifest(args []string) error {
 	fs := flag.NewFlagSet("manifest", flag.ExitOnError)
-	dist := fs.String("dist", "dist", "directory with the builds (tiffin-linux-amd64, tiffin-linux-arm64)")
+	dist := fs.String("dist", "dist", "directory with the builds (tiffin-linux-amd64, tiffin-linux-arm64; tiffin-darwin-* when present)")
 	ver := fs.String("version", "", "the release's version, e.g. 1.4.0 (a leading v is dropped)")
 	channels := fs.String("channels", "", "channels to publish to, comma-separated (default: stable,edge for a release, edge for a pre-release)")
 	minVer := fs.String("min-version", "", "the oldest version that may update to this one directly")
@@ -129,6 +134,21 @@ func manifest(args []string) error {
 	for _, p := range boxPlatforms {
 		name := "tiffin-" + strings.ReplaceAll(p, "/", "-")
 		sum, size, err := hashFile(filepath.Join(*dist, name))
+		if err != nil {
+			return err
+		}
+		a := release.Artifact{Name: name, SHA256: sum, Size: size}
+		if *baseURL != "" {
+			a.URL = strings.TrimSuffix(*baseURL, "/") + "/" + name
+		}
+		m.Artifacts[p] = a
+	}
+	for _, p := range cliPlatforms {
+		name := "tiffin-" + strings.ReplaceAll(p, "/", "-")
+		sum, size, err := hashFile(filepath.Join(*dist, name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
