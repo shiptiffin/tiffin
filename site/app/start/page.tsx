@@ -3,7 +3,8 @@
 // provisioner's tables made) it shows the sign-up list instead.
 import type { Metadata } from "next";
 import Link from "next/link";
-import { confirmCheckout } from "@/lib/cloud/actions";
+import { after } from "next/server";
+import { confirmCheckout, drainOutbox } from "@/lib/cloud/actions";
 import { foundingCoupon, signupOpen } from "@/lib/cloud/config";
 import { boxesFor, foundingCount, latestJob, type BoxRow } from "@/lib/cloud/db";
 import { FOUNDING_LIMIT } from "@/lib/cloud/stripe";
@@ -42,7 +43,10 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
       </Shell>
     );
   }
-  if (sp.box && sp.session_id) await confirmCheckout(acct, sp.box, sp.session_id);
+  if (sp.box && sp.session_id) {
+    await confirmCheckout(acct, sp.box, sp.session_id);
+    after(() => drainOutbox().catch((e) => console.error("outbox", e instanceof Error ? e.message : e)));
+  }
   const boxes = await boxesFor(acct.id);
   const inSetup = [...boxes].reverse().find((b) => b.status === "paid" || b.status === "provisioning" || b.status === "cert_pending" || b.status === "failed");
   const justDone = sp.box ? boxes.find((b) => b.id === sp.box && b.status === "active") : undefined;

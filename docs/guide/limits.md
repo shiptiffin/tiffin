@@ -694,7 +694,7 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   admin (`CLOUD_ABUSE_NOTIFY`, else `EARLY_ACCESS_NOTIFY`) once. Emails still stop after
   ten tries.
 - **Billing is cards and wallets only.** Checkout uses the payment method configuration in
-  `STRIPE_PAYMENT_METHODS` (cards, Apple Pay, Google Pay), so a box is set up only after
+  `STRIPE_PAYMENT_METHODS` (cards, Apple Pay, Google Pay; without it, cards only), so a box is set up only after
   its first payment went through; bank debits and other methods that confirm days later
   are off until the setup can wait for them.
 - **Refunds outside the guarantee are manual.** The admin page's *Refund and cancel* is

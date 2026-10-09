@@ -65,6 +65,20 @@ export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_pa
 }
 
 /**
+ * Which payment methods Checkout offers. The Stripe payment method
+ * configuration in STRIPE_PAYMENT_METHODS (pmc_…; cards and wallets only: no
+ * method that confirms days later); without it, cards only
+ * (allowed_payment_method_types filters the account's default
+ * configuration), never the default's full list (Klarna, Cash App Pay, …).
+ * Stripe refuses payment_method_types on Checkout Sessions since API version
+ * 2026-09-30.endive, and takes only one of these two.
+ */
+export function paymentMethods(env: Record<string, string | undefined> = process.env): Record<string, unknown> {
+  const pmc = env.STRIPE_PAYMENT_METHODS?.trim();
+  return pmc ? { payment_method_configuration: pmc } : { allowed_payment_method_types: ["card"] };
+}
+
+/**
  * The Checkout page for a box: a new box, or (renew) one of the account's
  * boxes whose subscription ended, whatever stage it reached (paid and
  * waiting for Hetzner, set up, or a setup that failed). The new
@@ -72,10 +86,8 @@ export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_pa
  * session per box: stored, and handed out again until it expires, so two
  * tabs pay for one subscription; the request is saved before Stripe is
  * called, so a retry after any failure sends the very same request
- * (checkout.ts). Payment methods come from the Stripe payment method
- * configuration in STRIPE_PAYMENT_METHODS (cards and wallets only: no method
- * that confirms days later); without it, the account's default. Either way a
- * box is set up only once its first invoice is paid (billing.ts).
+ * (checkout.ts). Payment methods: see paymentMethods. Either way a box is
+ * set up only once its first invoice is paid (billing.ts).
  */
 export async function startCheckout(acct: Account, base = SITE, renew?: string): Promise<string> {
   let box: q.BoxRow;
@@ -95,7 +107,7 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
     const params: Record<string, unknown> = {
       mode: "subscription",
       line_items: [{ price, quantity: 1 }],
-      ...(process.env.STRIPE_PAYMENT_METHODS ? { payment_method_configuration: process.env.STRIPE_PAYMENT_METHODS } : {}),
+      ...paymentMethods(),
       success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: renew ? `${base}/account` : `${base}/start?canceled=1`,
       client_reference_id: b.id,
@@ -108,7 +120,11 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
   });
 }
 
-/** Back from Checkout: confirm with Stripe at once rather than wait for the webhook. */
+/**
+ * Back from Checkout: confirm with Stripe at once rather than wait for the
+ * webhook. What it queued (the "paid" email) is the caller's to send, with
+ * drainOutbox, after the page is answered.
+ */
 export async function confirmCheckout(acct: Account, boxId: string, sessionId: string): Promise<void> {
   const box = await q.boxFor(boxId, acct.id);
   if (!box || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return;
@@ -117,7 +133,6 @@ export async function confirmCheckout(acct: Account, boxId: string, sessionId: s
     const cs = await s.getCheckout(sessionId);
     if ((cs.metadata?.box_id ?? cs.client_reference_id) !== box.id || cs.status !== "complete") return;
     await handleEvent(q.pgBilling(), s, { id: `return:${cs.id}`, type: "checkout.session.completed", created: cs.created ?? Math.floor(Date.now() / 1000), data: { object: cs } });
-    await drainOutbox();
   } catch (e) {
     console.error("confirm checkout", e instanceof Error ? e.message : e);
   }

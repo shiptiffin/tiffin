@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { renewable } from "./actions";
+import { paymentMethods, renewable } from "./actions";
 import { checkoutUrl, type CheckoutAttempt, type CheckoutBox, type CheckoutRepo, type Session } from "./checkout";
 import { StripeError } from "./stripe";
 
@@ -174,4 +174,10 @@ test("Renew covers every box whose subscription ended, whatever stage it reached
   expect(renewable(b("active", "past_due"))).toBe(false);
   expect(renewable(b("failed", "canceled", { refunded_at: new Date() }))).toBe(false);
   expect(renewable(b("paid", "canceled", { first_paid_at: null }))).toBe(false);
+});
+
+test("Checkout's payment methods: the configuration when set, else cards only (never payment_method_types)", () => {
+  expect(paymentMethods({ STRIPE_PAYMENT_METHODS: " pmc_123 " })).toEqual({ payment_method_configuration: "pmc_123" });
+  expect(paymentMethods({})).toEqual({ allowed_payment_method_types: ["card"] });
+  expect(paymentMethods({ STRIPE_PAYMENT_METHODS: "" })).toEqual({ allowed_payment_method_types: ["card"] });
 });

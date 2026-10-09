@@ -6,6 +6,7 @@
 // checkout.session.async_payment_failed, customer.subscription.created,
 // customer.subscription.updated, customer.subscription.deleted, invoice.paid,
 // invoice.payment_failed and charge.refunded.
+import { after } from "next/server";
 import { drainOutbox, stripe } from "@/lib/cloud/actions";
 import { handleEvent, type StripeEvent } from "@/lib/cloud/billing";
 import { pgBilling, tablesReady } from "@/lib/cloud/db";
@@ -33,11 +34,14 @@ export async function POST(request: Request) {
     console.error("stripe webhook", ev.type, ev.id, e instanceof Error ? e.message : e);
     return new Response("failed; retry", { status: 500 });
   }
-  // Emails and Stripe actions the event asked for (the cron retries what fails).
-  try {
-    await drainOutbox();
-  } catch (e) {
-    console.error("outbox", e instanceof Error ? e.message : e);
-  }
+  // Emails and Stripe actions the event asked for, once Stripe has its answer
+  // (they are committed in the outbox; the cron retries what fails).
+  after(async () => {
+    try {
+      await drainOutbox();
+    } catch (e) {
+      console.error("outbox", e instanceof Error ? e.message : e);
+    }
+  });
   return Response.json({ received: true });
 }
