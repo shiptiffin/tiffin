@@ -179,7 +179,7 @@ with an email when it starts, a week before it goes and when it goes. The addres
 goes until the week-before warning was accepted by our mail server at least seven days
 earlier: a warning that fails is sent again a day later, and the address stays meanwhile.
 Point a domain of your own at the box before then. **Renew** in your account starts a new
-subscription for the same box, whatever stage it reached (set up, waiting for Hetzner, or
+subscription for the same box, at $19 a month (the founding price doesn't carry over), whatever stage it reached (set up, waiting for Hetzner, or
 a setup that failed); everything turns back on, and the address returns within a few hours
 (at the box's next check-in).
 

@@ -52,6 +52,7 @@ export type BoxBilling = {
   generation: number;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  /** Whether the founding price applies now: the bound subscription's discount is running. The claim on the offer is in cloud_founding_claims. */
   founding: boolean;
 };
 
@@ -102,7 +103,19 @@ export type SubscriptionNow = {
   latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number; currency?: string; status_transitions?: { paid_at?: number | null } } | null;
   canceled_at?: number | null;
   ended_at?: number | null;
+  /** Its discounts (expanded): the founding coupon is the only one we give. */
+  discounts?: (string | { end?: number | null })[];
 };
+
+/**
+ * Whether the subscription is at the founding price now: it has a discount
+ * that hasn't ended. A renewal has none, and the founding coupon ends after
+ * 24 months. Undefined when Stripe didn't say.
+ */
+export function foundingNow(sub: SubscriptionNow, now: Date): boolean | undefined {
+  if (!Array.isArray(sub.discounts)) return undefined;
+  return sub.discounts.some((d) => typeof d === "string" || d.end == null || d.end * 1000 > now.getTime());
+}
 
 /** What the subscription says about money, for the account page and emails: the last charge, and when it ended. */
 export function moneyFacts(sub: SubscriptionNow): Pick<BillingPatch, "lastCharge" | "planEndedAt"> {
@@ -239,6 +252,8 @@ export async function handleEvent(repo: BillingRepo, stripe: BillingStripe, ev: 
         await r.claimFounding(box.id);
       }
     }
+    const founding = foundingNow(sub, now);
+    if (founding !== undefined && founding !== (patch.founding ?? box.founding)) patch.founding = founding;
 
     const firstPaid = Boolean(box.firstPaidAt) || (latestPaid(sub) && (sub.status === "active" || sub.status === "trialing"));
     if (firstPaid && !box.firstPaidAt) patch.firstPaidAt = now;

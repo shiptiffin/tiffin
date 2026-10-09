@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { extrasOn, handleEvent, invoiceSubscription, type BillingPatch, type BillingRepo, type BillingStripe, type BoxBilling, type StripeEvent, type SubscriptionNow } from "./billing";
+import { priceWords } from "./money";
 import { formEncode, paymentIntentOf, signStripePayload, STRIPE_API_VERSION, stripeClient, verifyStripeSignature } from "./stripe";
 
 // Replays of Stripe's webhooks against an in-memory repo (what the Postgres
@@ -366,6 +367,35 @@ describe("renewing a cancelled box", () => {
       expect(repo.boxes.size).toBe(1);
     });
   }
+});
+
+describe("the price shown is the subscription's price now", () => {
+  const day = 86_400;
+  const now = Math.floor(Date.now() / 1000); // handleEvent's clock
+  test("a founding box that renews is at the full price, still counted as a founding claim", async () => {
+    stripe.set("sub_1", "active", "paid", { discounts: [{ end: now + 730 * day }] });
+    await run(completed());
+    expect(b1().founding).toBe(true);
+    stripe.set("sub_1", "canceled", "paid", { discounts: [{ end: now + 730 * day }] });
+    await run(ev("customer.subscription.deleted", { id: "sub_1" }));
+    stripe.set("sub_2", "active", "paid", { discounts: [] });
+    await run(completed({ id: "cs_renew", subscription: "sub_2", total_details: {} }));
+    expect(b1()).toMatchObject({ stripeSubscriptionId: "sub_2", founding: false });
+    expect(priceWords(b1().founding)).toBe("$19 a month");
+    expect(repo.founding.has("box_1")).toBe(true);
+  });
+  test("the founding discount ending after 24 months moves the box to the full price", async () => {
+    stripe.set("sub_1", "active", "paid", { discounts: [{ end: now + 730 * day }] });
+    await run(completed());
+    expect(b1().founding).toBe(true);
+    // Month 25: Stripe has ended the discount (gone, or its end passed).
+    stripe.set("sub_1", "active", "paid", { discounts: [{ end: now - day }] });
+    await run(ev("invoice.paid", { id: "in_25", subscription: "sub_1" }));
+    expect(b1().founding).toBe(false);
+    stripe.set("sub_1", "active", "paid", { discounts: [] });
+    await run(ev("invoice.paid", { id: "in_26", subscription: "sub_1" }));
+    expect(b1().founding).toBe(false);
+  });
 });
 
 describe("refunds", () => {

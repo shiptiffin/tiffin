@@ -93,10 +93,10 @@ export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BA
     expireCheckout(id: string) {
       return req<any>("POST", `/checkout/sessions/${encodeURIComponent(id)}/expire`);
     },
-    /** The subscription as Stripe has it now (the latest invoice expanded), or null when it doesn't exist. */
+    /** The subscription as Stripe has it now (the latest invoice and discounts expanded), or null when it doesn't exist. */
     async getSubscription(id: string): Promise<StripeSubscription | null> {
       try {
-        return await req<StripeSubscription>("GET", `/subscriptions/${encodeURIComponent(id)}`, { expand: ["latest_invoice"] });
+        return await req<StripeSubscription>("GET", `/subscriptions/${encodeURIComponent(id)}`, { expand: ["latest_invoice", "discounts"] });
       } catch (e) {
         if (e instanceof StripeError && e.status === 404) return null;
         throw e;
@@ -180,6 +180,7 @@ export type StripeSubscription = {
   latest_invoice?: string | { id: string; status: string; billing_reason?: string; amount_paid?: number; currency?: string; status_transitions?: { paid_at?: number | null } } | null;
   canceled_at?: number | null;
   ended_at?: number | null;
+  discounts?: (string | { end?: number | null })[];
 };
 
 /** An invoice's payment intent, in both API shapes. */
