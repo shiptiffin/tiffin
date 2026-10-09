@@ -114,7 +114,8 @@ The [quickstart](docs/guide/quickstart.md) has the details.
 
 At [shiptiffin.com/start](https://shiptiffin.com/start) you paste a Hetzner Cloud API key and
 we build the box in your own Hetzner account in about five minutes. The server is yours and
-Hetzner bills you for it (about €5–7 a month for a small one). ShipTiffin charges $19 a month
+Hetzner bills you for it: about $10 a month before VAT for the smallest, with its IPv4
+address and a 40 GB data volume. ShipTiffin charges $19 a month
 per box ($12 for the first 100 customers, locked for 24 months) for:
 
 - setup in your Hetzner account, then updates;

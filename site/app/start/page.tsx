@@ -99,7 +99,7 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
           <li>One-click resize, and support by email</li>
         </ul>
         <ul className="cp-facts">
-          <li>Hetzner bills the server itself: about €5 to €7 a month.</li>
+          <li>Hetzner bills the server itself: about $10 a month for the smallest, with its address and a 40 GB data volume.</li>
           <li>Cancel any time. Your server and apps keep running.</li>
           <li>14-day money-back guarantee.</li>
         </ul>
