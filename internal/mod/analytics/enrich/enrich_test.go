@@ -14,6 +14,7 @@ func TestBots(t *testing.T) {
 		"python-requests/2.31.0",
 		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36",
 		"facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 https://example.com/about",
 		"",
 	}
 	humans := []string{
@@ -30,6 +31,44 @@ func TestBots(t *testing.T) {
 	for _, ua := range humans {
 		if b.IsBot(ua) {
 			t.Errorf("want human: %q", ua)
+		}
+	}
+}
+
+// Cloud and hosting addresses are servers; homes, phones, loopback and
+// private networks are not.
+func TestDatacenter(t *testing.T) {
+	for ip, want := range map[string]bool{
+		"3.5.0.1":        true, // AWS
+		"5.9.0.1":        true, // Hetzner
+		"2a01:4f8::1":    true, // Hetzner
+		"::ffff:3.5.0.1": true,
+		"81.2.69.142":    false,
+		"127.0.0.1":      false,
+		"::1":            false,
+		"10.0.0.7":       false,
+		"192.168.1.20":   false,
+		"fd00::1":        false,
+		"":               false,
+		"nonsense":       false,
+	} {
+		if got := Datacenter(ip); got != want {
+			t.Errorf("Datacenter(%q) = %v, want %v", ip, got, want)
+		}
+	}
+}
+
+func TestSpamReferrer(t *testing.T) {
+	for ref, want := range map[string]bool{
+		"https://0-0.fr/":                        true,
+		"http://www.0-0.fr/page":                 true, // under a listed domain
+		"https://research.ifmo.ru:8080/":         true,
+		"https://ifmo.ru/":                       false, // only research.ifmo.ru is listed
+		"https://news.ycombinator.com/item?id=1": false,
+		"":                                       false,
+	} {
+		if got := SpamReferrer(ref); got != want {
+			t.Errorf("SpamReferrer(%q) = %v, want %v", ref, got, want)
 		}
 	}
 }
@@ -59,6 +98,23 @@ func TestPageAndReferrer(t *testing.T) {
 	}
 	if s, _ := Referrer("https://t.co/abc", "a.com", nil); s != "X (Twitter)" {
 		t.Fatal(s)
+	}
+	// Only Google's and Yandex's search hosts are "Google" and "Yandex".
+	for ref, want := range map[string]string{
+		"https://www.google.com/":                                "Google",
+		"https://google.de/":                                     "Google",
+		"https://www.google.com.au/search":                       "Google",
+		"https://yandex.ru/search":                               "Yandex",
+		"android-app://com.google.android.googlequicksearchbox/": "Google",
+		"https://mail.google.com/mail/u/0/":                      "mail.google.com",
+		"https://docs.google.com/document/d/x":                   "docs.google.com",
+		"https://google.example.com/":                            "google.example.com",
+		"https://gemini.google.com/app":                          "Gemini",
+		"android-app://com.google.android.gm/":                   "com.google.android.gm",
+	} {
+		if s, _ := Referrer(ref, "a.com", nil); s != want {
+			t.Errorf("%s → %q, want %q", ref, s, want)
+		}
 	}
 	if s, _ := Referrer("", "a.com", map[string]string{"utm_source": "launch"}); s != "launch" {
 		t.Fatal(s)

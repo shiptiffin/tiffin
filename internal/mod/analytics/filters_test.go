@@ -239,9 +239,9 @@ func TestPrivacyGuards(t *testing.T) {
 	if m.pipe.Stats().OptedOut != 1 {
 		t.Fatalf("stats %+v", m.pipe.Stats())
 	}
-	m.pipe.Add(ctx, Hit{Project: "shop", App: "web", Kind: "event", Name: "Outbound Link: Click", URL: "https://shop.box.test/a", IP: "8.8.4.4", UA: ua, Src: "script",
+	m.pipe.Add(ctx, Hit{Project: "shop", App: "web", Kind: "event", Name: "Outbound Link: Click", URL: "https://shop.box.test/a", IP: "8.8.4.4", UA: ua, Src: "script", Lang: true,
 		Props: map[string]any{"url": "https://partner.example/welcome?invite=s3cret#token"}})
-	m.pipe.Add(ctx, Hit{Project: "shop", App: "web", Kind: "pageview", URL: "https://shop.box.test/confirm/ada%40example.com/done", IP: "8.8.4.4", UA: ua, Src: "edge"})
+	m.pipe.Add(ctx, Hit{Project: "shop", App: "web", Kind: "pageview", URL: "https://shop.box.test/confirm/ada%40example.com/done", IP: "8.8.4.4", UA: ua, Src: "edge", Lang: true})
 	if err := m.pipe.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -448,7 +448,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 				Browser: `tiffin.track("Signup", { plan: "pro" })`,
 				Vitals:  `import { WebVitals } from "@shiptiffin/sdk/next/vitals"; <WebVitals />`,
 				Env:     []string{"TIFFIN_ANALYTICS_URL", "TIFFIN_ANALYTICS_KEY", "TIFFIN_ANALYTICS_SCRIPT"},
-				Privacy: "No cookies or storage on the visitor's device. Visitors are a daily-salted hash of app, IP address and browser; the IP address and browser string are never stored, and each day's salt is deleted after 48 hours. " +
+				Privacy: "No cookies or storage on the visitor's device. Visitors are a daily-salted hash of project, IP address and browser; the IP address and browser string are never stored, and each day's salt is deleted after 48 hours. " +
 					"Query strings are dropped except utm_* and ref, email addresses in paths become [email], and referrers keep only the site. Countries, never cities. " +
 					"Browsers that send Global Privacy Control are not counted. Everything stays on this box."}
 			if !on {

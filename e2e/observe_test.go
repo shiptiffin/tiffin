@@ -149,8 +149,8 @@ export default defineConfig({
 	const chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.%d.0 Safari/537.36"
 	var sh strings.Builder
 	sh.WriteString(`set +e
-page() { curl -sk -o /dev/null --resolve shop.tiffin.localhost:8443:127.0.0.1 -A "$1" "${@:3}" "https://shop.tiffin.localhost:8443$2"; }
-beacon() { curl -sk -o /dev/null -w '%{http_code}\n' --resolve t.tiffin.localhost:8443:127.0.0.1 -A "$1" -H 'Content-Type: text/plain;charset=UTF-8' --data "$2" https://t.tiffin.localhost:8443/e; }
+page() { curl -sk -o /dev/null --resolve shop.tiffin.localhost:8443:127.0.0.1 -A "$1" -H 'Accept-Language: en-GB' "${@:3}" "https://shop.tiffin.localhost:8443$2"; }
+beacon() { curl -sk -o /dev/null -w '%{http_code}\n' --resolve t.tiffin.localhost:8443:127.0.0.1 -A "$1" -H 'Accept-Language: en-GB' -H 'Content-Type: text/plain;charset=UTF-8' --data "$2" https://t.tiffin.localhost:8443/e; }
 doc=(-H 'Sec-Fetch-Dest: document' -H 'Sec-Fetch-Mode: navigate')
 `)
 	load := func(ua, path, ref string) {

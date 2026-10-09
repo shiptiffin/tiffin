@@ -5,6 +5,10 @@
 //
 // Data sources and their licences:
 //   - bot list: isbot (Unlicense), isbot-patterns.json
+//   - cloud and hosting IP ranges: zgo.at/isbot (MIT), built from
+//     rezmoss/cloud-provider-ip-addresses (CC0)
+//   - referrer spam: matomo-org/referrer-spam-list (public domain),
+//     referrer-spam.txt; refresh it from spammers.txt in that repository
 //   - user agents: uap-go and its regexes (Apache-2.0)
 //   - countries: DB-IP Lite (CC-BY-4.0, attribution required:
 //     "IP Geolocation by DB-IP", https://db-ip.com)
@@ -22,10 +26,14 @@ import (
 	"github.com/oschwald/maxminddb-golang/v2"
 	"github.com/ua-parser/uap-go/uaparser"
 	"net/netip"
+	"zgo.at/isbot"
 )
 
 //go:embed isbot-patterns.json
 var isbotJSON []byte
+
+//go:embed referrer-spam.txt
+var spamList string
 
 // Bots detects crawlers, monitors, previews and scripts by user agent.
 type Bots struct {
@@ -59,7 +67,8 @@ func (b *Bots) IsBot(ua string) bool {
 	m, err := b.re.MatchString(ua)
 	v = err == nil && m
 	lower := strings.ToLower(ua)
-	if strings.Contains(lower, "headless") || strings.Contains(lower, "lighthouse") || strings.Contains(lower, "pingdom") {
+	// Browsers never put a link in their user agent; crawlers do.
+	if strings.Contains(lower, "headless") || strings.Contains(lower, "lighthouse") || strings.Contains(lower, "pingdom") || strings.Contains(ua, "://") {
 		v = true
 	}
 	b.mu.Lock()
@@ -69,6 +78,48 @@ func (b *Bots) IsBot(ua string) bool {
 	b.cache[ua] = v
 	b.mu.Unlock()
 	return v
+}
+
+// Datacenter reports whether ip belongs to a cloud or hosting provider
+// (AWS, Google Cloud, Azure, DigitalOcean, Hetzner, Linode, Oracle, OVH,
+// Alibaba). People browse from homes, offices and phones; crawlers, AI
+// agents and headless scrapers run from these. Loopback and private
+// addresses are not datacenters: a box on a laptop or a LAN counts.
+func Datacenter(ip string) bool {
+	a, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	if a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsUnspecified() {
+		return false
+	}
+	return isbot.Is(isbot.IPRange(a.String()))
+}
+
+var spamHosts = sync.OnceValue(func() map[string]bool {
+	m := map[string]bool{}
+	for _, h := range strings.Fields(spamList) {
+		m[strings.ToLower(h)] = true
+	}
+	return m
+})
+
+// SpamReferrer reports whether the referrer URL's host, or a domain it is
+// under, is on Matomo's referrer spam list: sites that fake visits to get
+// their name into analytics dashboards.
+func SpamReferrer(ref string) bool {
+	u, err := url.Parse(strings.TrimSpace(ref))
+	if err != nil {
+		return false
+	}
+	spam := spamHosts()
+	for h := StripPort(strings.ToLower(u.Host)); h != ""; _, h, _ = strings.Cut(h, ".") {
+		if spam[h] {
+			return true
+		}
+	}
+	return false
 }
 
 // Agent is what we keep from a user agent.
@@ -269,11 +320,9 @@ func StripPort(h string) string {
 
 // knownSources maps referrer hosts (without www.) to friendly names.
 var knownSources = map[string]string{
-	"google":               "Google",
 	"bing.com":             "Bing",
 	"duckduckgo.com":       "DuckDuckGo",
 	"search.yahoo.com":     "Yahoo",
-	"yandex":               "Yandex",
 	"baidu.com":            "Baidu",
 	"ecosia.org":           "Ecosia",
 	"search.brave.com":     "Brave Search",
@@ -303,7 +352,13 @@ var knownSources = map[string]string{
 	"claude.ai":            "Claude",
 	"perplexity.ai":        "Perplexity",
 	"gemini.google.com":    "Gemini",
+
+	"com.google.android.googlequicksearchbox": "Google", // the Google app (android-app:// referrer)
 }
+
+// searchEngines are named by their search hosts: google.com, google.de,
+// google.co.uk, google.com.au, yandex.ru.
+var searchEngines = map[string]string{"google": "Google", "yandex": "Yandex"}
 
 // Referrer normalises a referrer URL relative to the page host. It returns
 // the source name ("Google", "news.example.com") and the referrer host, or
@@ -333,11 +388,12 @@ func sourceName(host string) string {
 	if n, ok := knownSources[host]; ok {
 		return n
 	}
-	// google.com, google.co.uk, www.google.de → Google; yandex.ru → Yandex.
-	labels := strings.Split(host, ".")
-	for _, l := range labels {
-		if n, ok := knownSources[l]; ok && (l == "google" || l == "yandex") {
-			return n
+	// Only the search hosts themselves: mail.google.com, docs.google.com and
+	// the like show as their host.
+	if name, tld, ok := strings.Cut(host, "."); ok && searchEngines[name] != "" {
+		sld, cc, two := strings.Cut(tld, ".")
+		if !strings.Contains(tld, ".") || two && (sld == "co" || sld == "com") && len(cc) == 2 {
+			return searchEngines[name]
 		}
 	}
 	return host

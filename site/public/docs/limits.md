@@ -587,6 +587,15 @@ automatic events from sign-ups and deploys.
   (64 MiB) and then drops new ones, counted as lost in `tiffin status`. There is no
   per-project share yet: one app flooding the collector can crowd out other projects'
   events while the store catches up.
+- Your own visits are counted, like anyone's.
+- Bots that drive a real browser from a home or mobile IP address (residential
+  proxies) with a normal user agent count as people. The other way round, people
+  behind a VPN or proxy hosted at a cloud provider are not counted: their address
+  looks like a server's.
+- Browsers that send no `Sec-Fetch-*` headers (Safari before 16.4, older browsers)
+  are not counted at the edge.
+- A page the browser prerendered and the visitor then opened is not counted at the
+  edge: the box only sees the prerender, which is not a page view.
 
 ## Managed boxes (ShipTiffin)
 

@@ -31,7 +31,7 @@ const maxBeacon = 8 << 10
 // loaded: a GET with a 2xx or 304 response for a top-level document that
 // is not a prefetch or prerender, and not a file like a script or an
 // image (scanners and people opening one in a tab send the same headers).
-// Bots are filtered later by user agent.
+// Bots are filtered later (user agent, Accept-Language, cloud IPs).
 func EdgePageview(e *edgelog.Entry) bool {
 	p, _, _ := strings.Cut(e.URI, "?")
 	if assetExt[strings.ToLower(path.Ext(p))] || strings.HasPrefix(p, "/_next/") {
@@ -74,7 +74,18 @@ func (m *Module) handleEdge(ctx context.Context, line []byte) {
 		return
 	}
 	m.pipe.Add(ctx, Hit{At: e.Time, Project: site.Project, App: site.App, Kind: "pageview", URL: e.URI, Host: e.Host,
-		Referrer: e.Header("Referer"), IP: e.ClientIP, UA: e.Header("User-Agent"), Src: "edge", GPC: e.Header("Sec-GPC") == "1"})
+		Referrer: e.Header("Referer"), IP: e.ClientIP, UA: e.Header("User-Agent"), Src: "edge", GPC: e.Header("Sec-GPC") == "1",
+		Lang: e.Header("Accept-Language") != ""})
+}
+
+// ownPage reports whether ref is a page served by one of project's apps.
+func (m *Module) ownPage(ctx context.Context, project, ref string) bool {
+	u, err := url.Parse(ref)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	site, ok := m.sites.Lookup(ctx, u.Host, u.EscapedPath())
+	return ok && site.Project == project
 }
 
 func (m *Module) collectorHandler() http.Handler {
@@ -143,6 +154,14 @@ func (m *Module) beacon(w http.ResponseWriter, r *http.Request) {
 		reply(w, http.StatusBadRequest, map[string]string{"error": "u must be the page URL"})
 		return
 	}
+	// A browser sends the page's origin; a beacon claiming another site's
+	// page was not sent from it.
+	if o := r.Header.Get("Origin"); o != "" {
+		if ou, err := url.Parse(o); err != nil || !strings.EqualFold(ou.Host, u.Host) {
+			reply(w, http.StatusAccepted, map[string]string{"dropped": "origin does not match the page"})
+			return
+		}
+	}
 	name := strings.TrimSpace(b.N)
 	if name == "" || len(name) > 120 {
 		reply(w, http.StatusBadRequest, map[string]string{"error": "n must be pageview or an event name (1-120 chars)"})
@@ -154,7 +173,8 @@ func (m *Module) beacon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h := Hit{Project: site.Project, App: site.App, Kind: "event", Name: name, URL: b.U, Referrer: b.R,
-		IP: clientIP(r), UA: r.Header.Get("User-Agent"), Props: b.P, Src: "script", GPC: r.Header.Get("Sec-GPC") == "1"}
+		IP: clientIP(r), UA: r.Header.Get("User-Agent"), Props: b.P, Src: "script", GPC: r.Header.Get("Sec-GPC") == "1",
+		Lang: r.Header.Get("Accept-Language") != ""}
 	if name == "pageview" {
 		h.Kind = "pageview"
 	}

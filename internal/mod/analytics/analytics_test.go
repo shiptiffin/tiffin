@@ -61,7 +61,7 @@ func access(host, uri, ua string, status int, hdr map[string]string) []byte {
 	return b
 }
 
-var doc = map[string]string{"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate"}
+var doc = map[string]string{"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Accept-Language": "en-GB,en;q=0.9"}
 
 func with(m map[string]string, kv ...string) map[string]string {
 	out := map[string]string{}
@@ -135,6 +135,7 @@ func TestFixtureTrafficExactCounts(t *testing.T) {
 		req.Header.Set("User-Agent", ua)
 		req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
 		req.Header.Set("X-Forwarded-For", "8.8.8.8")
+		req.Header.Set("Accept-Language", "en-GB")
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)

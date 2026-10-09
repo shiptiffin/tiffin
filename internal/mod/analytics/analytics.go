@@ -2,11 +2,11 @@
 // cookieless web analytics for every app on the box.
 //
 // Pageviews come from the edge's access log, so they need no JavaScript and
-// cannot be blocked. The ~1.3 KB tracker (t.<domain>/script.js) adds
+// cannot be blocked. The ~1.6 KB tracker (t.<domain>/script.js) adds
 // single-page navigations, custom events, outbound clicks and downloads;
 // server code adds events with @shiptiffin/sdk/analytics track(). Visitors are a
-// daily-salted hash of app, IP and user agent: no cookies, no storage, and
-// raw IPs and user agents are never stored.
+// daily-salted hash of project, IP and user agent: no cookies, no storage,
+// and raw IPs and user agents are never stored.
 //
 // Storage today: one SQLite file (/var/lib/tiffin/analytics/analytics.db)
 // with raw events and daily rollups, behind the Store interface; realtime
@@ -154,7 +154,7 @@ func (m *Module) setup(p *platform.Platform, st Store, geo *enrich.Geo) {
 	m.p, m.store, m.geo = p, st, geo
 	m.rt = &Realtime{}
 	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
-	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt}
+	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt, Own: m.ownPage}
 	m.vit = &Vitals{Store: st}
 }
 

@@ -18,14 +18,27 @@ services: { analytics: { retentionDays: 365 } },  // how long visits are kept (d
   code, and ad blockers cannot hide them.
 - **Bots are dropped**: crawlers, link previews, monitors, headless browsers and
   scripts, matched by user agent with the [isbot](https://github.com/omrilotan/isbot)
-  list plus a few heuristics. `tiffin status` shows how many were dropped.
-- **Visitors** are a hash of the app, the IP address and the user agent with a
-  salt that changes every day and is deleted after 48 hours. The IP and user agent
-  are never stored. A visitor on two different days counts as two visitors, by
-  design: days cannot be linked.
-- **Sessions** end after 30 minutes without a page view. Bounce rate is the share
-  of sessions with one page view; visit duration is the time from a session's
-  first to its last page view.
+  list plus a few heuristics (a link in the user agent, no `Accept-Language`
+  header, which every browser sends). So are requests from the IP ranges of cloud
+  and hosting providers (AWS, Google Cloud, Azure, DigitalOcean, Hetzner, Linode,
+  Oracle, OVH, Alibaba), where crawlers, AI agents and scrapers run and people
+  rarely browse from; loopback and private addresses still count. Visits sent by
+  sites on [Matomo's referrer spam list](https://github.com/matomo-org/referrer-spam-list)
+  are dropped too. The script sends nothing from browsers driven by test tools
+  (WebDriver, Selenium, Cypress). `tiffin status` shows how many were dropped.
+- **Visitors** are a hash of the project, the IP address and the user agent with
+  a salt that changes every day and is deleted after 48 hours, so a person on two
+  apps of a project is one visitor of the project. The IP and user agent are
+  never stored. A visitor on two different days counts as two visitors, by
+  design: days cannot be linked, and a period's visitors are the sum of each
+  day's.
+- **Sessions** end after 30 minutes without a page view; one going on at
+  midnight UTC carries on into the new day. Bounce rate is the share of sessions
+  with one page view; visit duration is the time from a session's first to its
+  last page view.
+- **Sources**: a visit from another of the project's own apps or hosts is not a
+  referral. Google and Yandex mean their search pages; `mail.google.com` or
+  `docs.google.com` show as themselves.
 - Browsers that send [Global Privacy Control](https://globalprivacycontrol.org)
   are not counted at all (page views, script events and `track()` with a
   request). Do Not Track is not read: browsers have dropped it.
@@ -37,7 +50,7 @@ services: { analytics: { retentionDays: 365 } },  // how long visits are kept (d
 ## The script (optional)
 
 For single-page apps, custom events, outbound link clicks and file downloads, add
-the 1.3 KB script to your pages. `tiffin analytics setup --project shop` prints
+the 1.6 KB script to your pages. `tiffin analytics setup --project shop` prints
 the exact tag:
 
 ```html
@@ -49,9 +62,11 @@ tiffin.track("Signup", { plan: "pro" })
 ```
 
 The script reports client-side navigations only; the first load of each page is
-already counted at the edge. If a page is *not* served by the box (a static site
-elsewhere), add `data-initial` to the tag so the script counts the first load too.
-It uses no cookies and no storage.
+already counted at the edge. A navigation is a change of path: a change to the
+query string alone (filters, search) is not a page view. If a page is *not*
+served by the box (a static site elsewhere), add `data-initial` to the tag so the
+script counts the first load too; a page the browser prerenders counts once the
+visitor opens it. It uses no cookies and no storage.
 
 ## Server events
 
@@ -66,7 +81,8 @@ await track("Invoice paid", { amount: 49 });        // an event without a visito
 ```
 
 `track()` never throws and does nothing when analytics is off, so the same code
-runs in development.
+runs in development. An event sent without a request (no IP address or user
+agent) counts as a visitor and a visit of its own.
 
 ## Web Vitals
 

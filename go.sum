@@ -819,3 +819,5 @@ howett.net/plist v1.0.1 h1:37GdZ8tP09Q35o9ych3ehygcsL+HqKSwzctveSlarvM=
 howett.net/plist v1.0.1/go.mod h1:lqaXoTrLY4hg8tnEzNru53gicrbv7rrk+2xJA/7hw9g=
 rsc.io/binaryregexp v0.2.0 h1:HfqmD5MEmC0zvwBuF187nq9mdnXjXsSivRiXN7SmRkE=
 rsc.io/binaryregexp v0.2.0/go.mod h1:qTv7/COck+e2FymRvadv62gMdZztPaShugOCi3I+8D8=
+zgo.at/isbot v1.1.0 h1:RJwUKVWDDP7QxLsE6QgdsLnoHIvqzm9bXkDERivwSjI=
+zgo.at/isbot v1.1.0/go.mod h1:H9/cLQKJ5ONyy7r1n3ZL6HgCAUlLZF4tTxchX+m9zMM=

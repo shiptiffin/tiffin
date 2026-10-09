@@ -12,11 +12,15 @@
   var s = d.currentScript
   if (!s) return
   var endpoint = s.getAttribute('data-api') || new URL(s.src).origin + '/e'
-  var last = location.pathname + location.search
+  var last = location.pathname
+  // Browsers driven by test and scraping tools (WebDriver, Selenium,
+  // Phantom, Nightmare, Cypress) are not visitors.
+  var bot = navigator.webdriver || w._phantom || w.callPhantom || w.__nightmare || w.Cypress ||
+    d.__selenium_unwrapped || d.__webdriver_evaluate || d.__driver_evaluate
 
   var ref = d.referrer || null
   function send(name, props) {
-    if (navigator.globalPrivacyControl) return // the visitor asked not to be counted
+    if (bot || navigator.globalPrivacyControl) return // a test browser, or the visitor asked not to be counted
     var body = JSON.stringify({ n: name, u: location.href, r: ref, p: props || undefined })
     if (navigator.sendBeacon && navigator.sendBeacon(endpoint, body)) return
     try {
@@ -24,16 +28,20 @@
     } catch (e) {}
   }
 
+  function pageview() { send('pageview') }
+
+  // A navigation is a new path: a change to the query string alone
+  // (filters, search, pagination state) is not a page view.
   function nav() {
-    var cur = location.pathname + location.search
+    var cur = location.pathname
     if (cur === last) return
     last = cur
     ref = null // the external referrer belongs to the first page only
-    send('pageview')
+    pageview()
   }
 
-  // Routers navigate with pushState and also with replaceState (redirects,
-  // search params); nav() ignores calls that keep the same address.
+  // Routers navigate with pushState and also with replaceState (redirects);
+  // nav() ignores calls that keep the same path.
   function wrap(name) {
     var orig = history[name]
     history[name] = function () {
@@ -63,8 +71,12 @@
   var q = (w.tiffin && w.tiffin.q) || []
   w.tiffin = {
     track: function (name, props) { send(String(name), props) },
-    pageview: function () { send('pageview') }
+    pageview: pageview
   }
   for (var i = 0; i < q.length; i++) w.tiffin.track.apply(null, q[i])
-  if (s.hasAttribute('data-initial')) send('pageview')
+  // A prerendered page counts when the visitor opens it, if ever.
+  if (s.hasAttribute('data-initial')) {
+    if (d.prerendering) d.addEventListener('prerenderingchange', pageview)
+    else pageview()
+  }
 })(window, document)

@@ -84,7 +84,7 @@ export function SetupGuide({ setup, className }: { setup: AnalyticsSetup; classN
         </Step>
         {kind === "next" ? (
           <Step n={2} title="Add the script and Web Vitals to the root layout">
-            <p>Next.js moves between pages in the browser, so the edge only sees the first page of a visit. The 1.3 KB script counts the rest, plus outbound links, downloads and your events. {"<WebVitals />"} reports page speed.</p>
+            <p>Next.js moves between pages in the browser, so the edge only sees the first page of a visit. The 1.6 KB script counts the rest, plus outbound links, downloads and your events. {"<WebVitals />"} reports page speed.</p>
             <CodeBox className="mt-3" name="app/layout.tsx" code={nextLayout(setup)} />
           </Step>
         ) : (

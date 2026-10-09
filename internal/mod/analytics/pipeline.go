@@ -32,6 +32,9 @@ type Hit struct {
 	Props    map[string]any
 	Src      string // edge | script | server
 	GPC      bool   // the browser sent Global Privacy Control: not counted
+	// Lang is whether the request carried Accept-Language, as every
+	// browser's requests do. Edge and script hits without it are bots.
+	Lang bool
 }
 
 // SessionIdle ends a session after this much inactivity.
@@ -50,7 +53,7 @@ type sess struct {
 // Stats count what the pipeline did since start.
 type Stats struct {
 	Accepted int64 `json:"accepted"`
-	Bots     int64 `json:"bots" doc:"Hits dropped as bots, crawlers, monitors or scripts"`
+	Bots     int64 `json:"bots" doc:"Hits dropped as bots, crawlers, monitors, scripts, cloud servers or referrer spam"`
 	OptedOut int64 `json:"optedOut" doc:"Hits not counted because the browser sent Global Privacy Control"`
 	Invalid  int64 `json:"invalid"`
 	Buffered int   `json:"buffered"`
@@ -80,6 +83,9 @@ type Pipeline struct {
 	Geo    *enrich.Geo
 	RT     *Realtime
 	Now    func() time.Time
+	// Own reports whether a referrer URL is a page of project: moving
+	// between a project's apps and hosts is not a referral. Optional.
+	Own func(ctx context.Context, project, ref string) bool
 
 	mu       sync.Mutex
 	buf      []Event
@@ -109,7 +115,9 @@ func (pl *Pipeline) Stats() Stats {
 	return s
 }
 
-func (pl *Pipeline) visitor(ctx context.Context, day, project, app, ip, ua string) int64 {
+// visitor is the visitor's hash for day: one per person and project, so a
+// person on two apps of a project is one visitor of the project.
+func (pl *Pipeline) visitor(ctx context.Context, day, project, ip, ua string) int64 {
 	if ip == "" && ua == "" {
 		return 0
 	}
@@ -118,7 +126,7 @@ func (pl *Pipeline) visitor(ctx context.Context, day, project, app, ip, ua strin
 		return 0
 	}
 	m := hmac.New(sha256.New, salt)
-	m.Write([]byte(project + "\x00" + app + "\x00" + ip + "\x00" + ua))
+	m.Write([]byte(project + "\x00" + ip + "\x00" + ua))
 	v := int64(binary.BigEndian.Uint64(m.Sum(nil)[:8]) >> 1)
 	if v == 0 {
 		v = 1
@@ -171,13 +179,11 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		pl.mu.Unlock()
 		return false, "global privacy control"
 	}
-	if h.Src != "server" || h.UA != "" {
-		if pl.Bots.IsBot(h.UA) {
-			pl.mu.Lock()
-			pl.stats.Bots++
-			pl.mu.Unlock()
-			return false, "bot"
-		}
+	if why := pl.bot(h); why != "" {
+		pl.mu.Lock()
+		pl.stats.Bots++
+		pl.mu.Unlock()
+		return false, why
 	}
 	page := enrich.ParsePage(h.URL, h.Host)
 	if !page.Valid && h.Kind == "pageview" {
@@ -187,7 +193,14 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		return false, "invalid url"
 	}
 	day := dayOf(h.At)
-	vis := pl.visitor(ctx, day, h.Project, h.App, h.IP, h.UA)
+	vis := pl.visitor(ctx, day, h.Project, h.IP, h.UA)
+	var before int64 // the visitor's hash yesterday, in the first half hour of a day
+	if vis != 0 && h.At.Sub(h.At.Truncate(24*time.Hour)) < SessionIdle {
+		before = pl.visitor(ctx, dayOf(h.At.AddDate(0, 0, -1)), h.Project, h.IP, h.UA)
+	}
+	if pl.Own != nil && h.Referrer != "" && pl.Own(ctx, h.Project, h.Referrer) {
+		h.Referrer = ""
+	}
 	src, refHost := enrich.Referrer(h.Referrer, page.Host, page.UTM)
 	ag := enrich.Agent{}
 	if h.UA != "" {
@@ -233,12 +246,26 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		pl.mu.Unlock()
 		return false, "the store is behind; try again shortly"
 	}
-	if vis != 0 {
+	if vis == 0 {
+		// No IP and no user agent (a server event): nothing links it to
+		// other hits, so it is a visitor and a visit of its own.
+		ev.Visitor, ev.Session = randID(), randID()
+	} else {
 		if pl.sessions == nil {
 			pl.sessions = map[sessKey]*sess{}
 		}
 		k := sessKey{h.Project, h.App, vis}
 		s := pl.sessions[k]
+		if (s == nil || h.At.Sub(s.last) > SessionIdle) && before != 0 {
+			// Hashes change at midnight UTC; a visit going on then
+			// continues under the new day's hash.
+			bk := sessKey{h.Project, h.App, before}
+			if b := pl.sessions[bk]; b != nil && h.At.Sub(b.last) <= SessionIdle {
+				s = b
+				pl.sessions[k] = b
+				delete(pl.sessions, bk)
+			}
+		}
 		if s == nil || h.At.Sub(s.last) > SessionIdle {
 			s = &sess{id: randID()}
 			pl.sessions[k] = s
@@ -265,6 +292,21 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		}()
 	}
 	return true, ""
+}
+
+// bot returns why a hit is not a person, or "".
+func (pl *Pipeline) bot(h Hit) string {
+	switch {
+	case (h.Src != "server" || h.UA != "") && pl.Bots.IsBot(h.UA):
+		return "bot"
+	case h.Src != "server" && !h.Lang:
+		return "bot: no Accept-Language"
+	case h.IP != "" && enrich.Datacenter(h.IP):
+		return "bot: cloud server IP"
+	case h.Referrer != "" && enrich.SpamReferrer(h.Referrer):
+		return "referrer spam"
+	}
+	return ""
 }
 
 // Flush writes buffered events. On failure they stay buffered (capped).

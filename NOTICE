@@ -12,6 +12,7 @@ list with license texts):
 - Valkey (BSD-3-Clause); versitygw (Apache-2.0); River (MPL-2.0, used unmodified)
 - Better Auth (MIT); go-webauthn (BSD-3-Clause); age (BSD-3-Clause)
 - VictoriaMetrics and VictoriaLogs (Apache-2.0); CrowdSec (MIT); pgBackRest (MIT)
-- uap-core regexes (Apache-2.0) via uap-go; isbot patterns (Unlicense)
+- uap-core regexes (Apache-2.0) via uap-go; isbot patterns (Unlicense); zgo.at/isbot cloud IP ranges (MIT);
+  Matomo referrer spam list (public domain)
 - IP Geolocation by DB-IP (https://db-ip.com), DB-IP Lite, licensed under CC BY 4.0
 - Instrument Sans, Newsreader and Commit Mono fonts in the dashboard (SIL Open Font License 1.1)
