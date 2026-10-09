@@ -355,6 +355,13 @@ The box adds nothing for LLMs:
 - **`down` on an SSH server stops Tiffin, its edge and its app containers only.** Postgres,
   Valkey and the other system services stay installed and running (reachable only from the
   server), and the firewall and hardening stay on.
+- **The box domain itself redirects to the dashboard's root.** While no app uses
+  `example.com` itself (or a separate apps domain itself), it answers with a 302 to
+  `https://dashboard.example.com/` and drops the path; there is no setting to turn it off
+  short of giving the name to an app (which can redirect anywhere). Earlier domains still
+  served after a switch get no redirect. A wildcard certificate does not cover the domain
+  itself, so it gets its own over HTTP-01 on its first visit; a box whose port 80 is closed
+  to the internet cannot get it.
 - **`tiffin.config.ts` sees no environment** on your computer or the box (`process.env` is
   empty) and imports only files of its repository. Values that differ per environment
   belong in secrets or `env`.
