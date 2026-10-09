@@ -143,8 +143,20 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "Is there a free plan or a trial?",
     a: (
       <p>
-        No. Instead there&rsquo;s a 14-day money-back guarantee on what you pay us. Your server is yours either way:
-        if you change your mind, delete it in Hetzner and Hetzner stops billing.
+        Not for the managed service. Instead there&rsquo;s a 14-day money-back guarantee on what you pay us. Your
+        server is yours either way: if you change your mind, delete it in Hetzner and Hetzner stops billing. Or run
+        it yourself for free: it&rsquo;s open source.
+      </p>
+    ),
+  },
+  {
+    q: "Is it open source?",
+    a: (
+      <p>
+        Yes. The software on every box is on{" "}
+        <a href="https://github.com/shiptiffin/tiffin">GitHub</a> under the AGPL-3.0 licence, and the SDK your apps
+        use is Apache-2.0. You can run it yourself on Hetzner or any Ubuntu server for free; paying us gets you a box
+        we set up, update, monitor and back up for you.
       </p>
     ),
   },

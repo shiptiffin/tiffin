@@ -70,6 +70,7 @@ export function Footer() {
             Privacy policy
           </Link>
           <Link href="/terms">Terms of service</Link>
+          <a href="https://github.com/shiptiffin/tiffin">GitHub</a>
           <a href="/account">Sign in</a>
         </nav>
       </div>

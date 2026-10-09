@@ -3,8 +3,7 @@
 ## Reporting a problem
 
 Please don't open a public issue for a security problem. Email **hello@shiptiffin.com**
-with "Security" in the subject, or use **Report a vulnerability** on this repository's
-Security tab.
+with "Security" in the subject.
 
 Tell us what you found, how to reproduce it, which version (`tiffin version`) and what
 someone could do with it. We aim to reply within a few working days, keep you posted while
