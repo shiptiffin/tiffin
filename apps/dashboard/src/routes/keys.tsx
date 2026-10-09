@@ -15,6 +15,7 @@ import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { actorName } from "@/lib/actors";
 import { cn } from "@/lib/cn";
+import { mcpCommand, onThisComputer } from "@/lib/mcp";
 import { relative } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
 
@@ -71,7 +72,7 @@ export function KeysPage({ create }: { create?: boolean }) {
       <section className="mt-10" aria-label="Connect Claude Code">
         <h2 className="text-[0.9375rem] font-[550] text-ink">Connect Claude Code</h2>
         <p className="mt-1 mb-3 text-sm text-ink-2">Run this once in a terminal with your key. Creating a key gives you the line ready to paste.</p>
-        <Command cmd="claude mcp add tiffin -e TIFFIN_TOKEN=<key> -- tiffin mcp" />
+        <Command cmd={mcpCommand("<key>")} />
       </section>
 
 
@@ -306,7 +307,7 @@ function Pick({ value, title, note, children }: { value: string; title: string; 
 }
 
 function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => void }) {
-  const mcp = `claude mcp add tiffin -e TIFFIN_TOKEN=${created.secret} -- tiffin mcp`;
+  const mcp = mcpCommand(created.secret);
   return (
     <>
       <DialogHeader>
@@ -322,7 +323,14 @@ function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => 
         </div>
         <div>
           <p className="mb-2 text-sm text-ink-2">
-            Use it as <span className="ident text-ink">TIFFIN_TOKEN</span>, or connect Claude Code:
+            Use it as <span className="ident text-ink">TIFFIN_TOKEN</span>
+            {!onThisComputer(location.hostname) && (
+              <>
+                {" "}
+                with <span className="ident text-ink">TIFFIN_URL={location.origin}</span>
+              </>
+            )}
+            , or connect Claude Code:
           </p>
           <Command cmd={mcp} />
         </div>

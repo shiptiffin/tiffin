@@ -1,4 +1,14 @@
-/** The one line that connects Claude Code to this box, with an API key from Settings › API keys. */
-export function mcpCommand(key = "<your key>") {
-  return `claude mcp add tiffin -e TIFFIN_TOKEN=${key} -- tiffin mcp`;
+/** A dashboard served from this computer: a box from `tiffin up` on a Mac. */
+export function onThisComputer(host: string) {
+  return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "[::1]";
+}
+
+/**
+ * The one line that connects Claude Code to this box, with an API key from Settings › API keys.
+ * A box on a server (a ShipTiffin box, say) is reached over HTTP at its own /mcp, so nothing needs
+ * installing first; a box on this computer runs `tiffin mcp`, which finds it by itself.
+ */
+export function mcpCommand(key = "<your key>", origin = typeof location === "undefined" ? "" : location.origin) {
+  if (!origin || onThisComputer(new URL(origin).hostname)) return `claude mcp add tiffin -e TIFFIN_TOKEN=${key} -- tiffin mcp`;
+  return `claude mcp add --transport http tiffin ${origin}/mcp --header "Authorization: Bearer ${key}"`;
 }
