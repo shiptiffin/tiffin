@@ -90,6 +90,7 @@ type OffsiteConfig struct {
 // offsiteSecrets are sealed in OffsiteConfig.Sealed.
 type offsiteSecrets struct {
 	SecretAccessKey string       `json:"secretAccessKey"`
+	SessionToken    string       `json:"sessionToken,omitempty"` // temporary credentials (a managed box's)
 	Passphrase      string       `json:"passphrase"`
 	Keys            *offsiteKeys `json:"keys"`
 }
