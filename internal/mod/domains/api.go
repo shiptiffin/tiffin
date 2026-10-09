@@ -44,6 +44,14 @@ type Wildcard struct {
 	Certificate edge.CertInfo `json:"certificate"`
 }
 
+// BareDomain is the box domain itself (example.com, not a name under it),
+// or a separate apps domain itself.
+type BareDomain struct {
+	Host        string `json:"host"`
+	Project     string `json:"project,omitempty" doc:"The project whose app serves it (tiffin domains add <project> --domain <host>)."`
+	RedirectsTo string `json:"redirectsTo,omitempty" doc:"While no app serves it: where it sends visitors (a temporary redirect), the dashboard, or for a separate apps domain the box domain when an app serves that."`
+}
+
 // BoxDomain is the box domain's status.
 type BoxDomain struct {
 	Domain       string `json:"domain" doc:"The box's domain: the dashboard, API and webhooks are under it, and apps too unless appsDomain is another domain."`
@@ -61,6 +69,7 @@ type BoxDomain struct {
 	DashboardCertificate edge.CertInfo `json:"dashboardCertificate"`
 	Wildcard             *Wildcard     `json:"wildcard,omitempty" doc:"Present when a connected DNS provider holds the apps domain's zone: one *.<appsDomain> certificate covers every app and preview."`
 	Records              []RecordCheck `json:"records,omitempty" doc:"For a set domain: the records it needs and whether DNS answers them."`
+	Bare                 []BareDomain  `json:"bare" doc:"The box domain itself (and a separate apps domain itself): served by an app that claims it, else a redirect."`
 	Previous             *Previous     `json:"previous,omitempty" doc:"The domains before the last switch, still served for a while."`
 	Restarting           bool          `json:"restarting,omitempty" doc:"The service restarts (a few seconds) to switch domains; apps keep running."`
 	Summary              string        `json:"summary"`
@@ -139,6 +148,7 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 			b.Previous.Until = &u
 		}
 	}
+	b.Bare = m.bareDomains(ctx, p, b.DashboardURL)
 	if !r.ACME {
 		b.Certificates, b.State = "internal", "internal"
 		b.Summary = fmt.Sprintf("A local box: %s and <project>.%s use the box's own certificate authority (trusted by your computer after tiffin up). Real domains and public certificates need a server.", p.DashboardHost(), apps)
@@ -179,6 +189,16 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 	} else {
 		s = append(s, fmt.Sprintf("Apps are at <project>.%s and get their certificate on their first visit.", apps))
 	}
+	for _, d := range b.Bare {
+		switch {
+		case d.Project != "":
+			s = append(s, fmt.Sprintf("%s itself is served by project %s.", d.Host, d.Project))
+		case d.RedirectsTo == b.DashboardURL+"/":
+			s = append(s, fmt.Sprintf("%s itself sends visitors to the dashboard until an app uses it.", d.Host))
+		default:
+			s = append(s, fmt.Sprintf("%s itself sends visitors to %s until an app uses it.", d.Host, d.RedirectsTo))
+		}
+	}
 	if b.Source == "sslip" {
 		s = append(s, "Use your own domain with `tiffin domain set example.com` (two DNS records).")
 	}
@@ -195,6 +215,38 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 	}
 	b.Summary = strings.Join(s, " ")
 	return b
+}
+
+// bareDomains: who serves the box domain itself (and a separate apps
+// domain itself), or where the edge redirects it (edge.BareRedirects).
+func (m *Module) bareDomains(ctx context.Context, p *platform.Platform, dashboardURL string) []BareDomain {
+	served := map[string]string{} // host → project
+	if p.DB != nil {
+		for _, w := range m.scan(ctx, p) {
+			if len(w.Routes) > 0 {
+				served[w.Host] = w.Project
+			}
+		}
+	}
+	apps := ""
+	if p.AppsDomain() != p.Domain {
+		apps = p.AppsDomain()
+	}
+	redirects := map[string]string{}
+	for _, r := range edge.BareRedirects(p.Domain, apps, func(h string) bool { return served[h] != "" }) {
+		redirects[r.Host] = dashboardURL + "/"
+		if r.To != "" {
+			redirects[r.Host] = p.URL(r.To) + "/"
+		}
+	}
+	out := []BareDomain{}
+	for _, h := range []string{p.Domain, apps} {
+		if h == "" {
+			continue
+		}
+		out = append(out, BareDomain{Host: h, Project: served[h], RedirectsTo: redirects[h]})
+	}
+	return out
 }
 
 func orDefault(s, d string) string {
@@ -412,7 +464,9 @@ func (m *Module) domainStatus(ctx context.Context, p *platform.Platform, w want)
 		if p.AppsDomain() != p.Domain {
 			target = p.DashboardHost()
 		}
-		d.Alternative = []dnskit.Record{dnskit.CNAMERecord(w.Host, target)}
+		if w.Host != target {
+			d.Alternative = []dnskit.Record{dnskit.CNAMERecord(w.Host, target)}
+		}
 	}
 	if st, _ := m.providerFor(w.Host); st != nil {
 		d.ManagedBy = st.rec.Name
@@ -809,7 +863,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, err
 		}
-		if p.IsBoxHost(d) || d == p.Domain || d == p.AppsDomain() || d == p.DashboardHost() {
+		// The box domain itself (and a separate apps domain itself) may be
+		// an app's: until one claims it, it redirects to the dashboard.
+		if p.IsBoxHost(d) || d == p.DashboardHost() {
 			pr := api.NewProblem(422, "validation", d+" is one of the box's own names, which already point here")
 			pr.Hint = "use the app's routes for first-level names (\"shop\" is " + p.Host("shop") + "), or pick a domain of your own"
 			return nil, pr

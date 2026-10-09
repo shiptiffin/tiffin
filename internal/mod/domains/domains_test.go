@@ -367,6 +367,44 @@ func TestBoxDomainSwitch(t *testing.T) {
 	}
 }
 
+// TestBareBoxDomain: the box domain itself redirects to the dashboard until
+// a project claims it (tiffin domains add), which the API allows.
+func TestBareBoxDomain(t *testing.T) {
+	h := newHarness(t)
+	_, st := h.call("GET", "/v1/domain", nil)
+	if b, _ := json.Marshal(st["bare"]); string(b) != `[{"host":"box.test","redirectsTo":"https://dashboard.box.test/"}]` {
+		t.Errorf("bare: %s", b)
+	}
+	if !strings.Contains(st["summary"].(string), "box.test itself sends visitors to the dashboard until an app uses it.") {
+		t.Errorf("summary: %s", st["summary"])
+	}
+	h.project("shop")
+	out := h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "box.test", "app": "web"})
+	if d := out["domain"].(map[string]any); d["domain"] != "box.test" || d["alternative"] != nil {
+		t.Errorf("added: %v", d)
+	}
+	_, st = h.call("GET", "/v1/domain", nil)
+	if b, _ := json.Marshal(st["bare"]); string(b) != `[{"host":"box.test","project":"shop"}]` {
+		t.Errorf("bare once claimed: %s", b)
+	}
+	if !strings.Contains(st["summary"].(string), "box.test itself is served by project shop.") {
+		t.Errorf("summary: %s", st["summary"])
+	}
+	// A managed name (not an apex) gets no CNAME to itself.
+	h.p.Domain = "acme.box.test"
+	h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "acme.box.test", "app": "api"})
+	if d := h.domain("shop", "acme.box.test"); d == nil || d["alternative"] != nil {
+		t.Errorf("managed name: %v", d)
+	}
+	// Removing the claim brings the redirect back.
+	h.p.Domain = "box.test"
+	h.confirmed("POST", "/v1/projects/shop/domains/box.test/remove", map[string]any{})
+	_, st = h.call("GET", "/v1/domain", nil)
+	if b, _ := json.Marshal(st["bare"]); string(b) != `[{"host":"box.test","redirectsTo":"https://dashboard.box.test/"}]` {
+		t.Errorf("bare after remove: %s", b)
+	}
+}
+
 func recordNamesOf(v any) []string {
 	var out []string
 	for _, r := range v.([]any) {
@@ -411,6 +449,7 @@ func TestAppsDomain(t *testing.T) {
 	// After the restart: apps under apps.test, the dashboard under example.test.
 	d, src, _ := platform.ChooseDomain("box.test", saved, h.p.Reach.PublicIPs)
 	h.p.Domain, h.p.Reach.DomainSource, h.p.Reach.AppsDomain = d, src, saved.Apps
+	h.p.PublicURL = "https://dashboard.example.test"
 	if h.p.Host("web") != "web.apps.test" || h.p.DashboardHost() != "dashboard.example.test" {
 		t.Fatalf("hosts: %s %s", h.p.Host("web"), h.p.DashboardHost())
 	}
@@ -428,10 +467,24 @@ func TestAppsDomain(t *testing.T) {
 	// Project domains: the box's own names are refused, and a subdomain's
 	// CNAME alternative targets the dashboard's host (the apex need not exist).
 	h.project("shop")
-	for _, own := range []string{"apps.test", "web.apps.test", "dashboard.example.test"} {
+	for _, own := range []string{"web.apps.test", "dashboard.example.test"} {
 		if code, _ := h.call("POST", "/v1/projects/shop/domains", map[string]any{"domain": own, "app": "web"}); code != 422 {
 			t.Errorf("project domain %s: %d", own, code)
 		}
+	}
+	// The bare domains redirect to the dashboard; once the website claims
+	// example.test, apps.test goes there instead.
+	_, st = h.call("GET", "/v1/domain", nil)
+	if b, _ := json.Marshal(st["bare"]); string(b) != `[{"host":"example.test","redirectsTo":"https://dashboard.example.test/"},{"host":"apps.test","redirectsTo":"https://dashboard.example.test/"}]` {
+		t.Errorf("bare: %s", b)
+	}
+	h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "example.test", "app": "web"})
+	_, st = h.call("GET", "/v1/domain", nil)
+	if b, _ := json.Marshal(st["bare"]); string(b) != `[{"host":"example.test","project":"shop"},{"host":"apps.test","redirectsTo":"https://example.test/"}]` {
+		t.Errorf("bare with example.test served: %s", b)
+	}
+	if !strings.Contains(st["summary"].(string), "apps.test itself sends visitors to https://example.test/ until an app uses it.") {
+		t.Errorf("summary: %s", st["summary"])
 	}
 	out = h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "www.shop.test", "app": "web"})
 	if alt, _ := json.Marshal(out["domain"].(map[string]any)["alternative"]); !strings.Contains(string(alt), "dashboard.example.test") {
