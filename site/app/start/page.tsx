@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 // /start: sign up, pay, connect Hetzner, pick a name, size and place, watch
 // the box being made, open it. Until sign-up opens (secrets set, the
 // provisioner's tables made) it shows the sign-up list instead.
@@ -76,9 +77,13 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
     );
   }
 
+  // Someone who already has a box and clicked Get started wants their account, not
+  // a second payment; adding a box goes through the account's /start?new=1.
+  const active = boxes.filter((b) => b.status === "active").length;
+  if (active > 0 && !sp.new && !sp.canceled) redirect("/account");
+
   const coupon = foundingCoupon();
   const founding = coupon != null && (await foundingCount()) < FOUNDING_LIMIT;
-  const active = boxes.filter((b) => b.status === "active").length;
   return (
     <Shell
       step={1}

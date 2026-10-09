@@ -197,7 +197,8 @@ const SIGNIN_WAIT_MS = 15 * 60_000;
  * confirms it was used, so a first click that didn't get through can be
  * tried again. Without a valid link we ask the box for a new one (it makes
  * it at its next check-in, within minutes) and say so on the account page.
- * After the hand-off, the box's own sign-in page.
+ * After the hand-off, the dashboard itself: it opens straight in when the
+ * browser is signed in to the box, and shows the box's sign-in page when not.
  */
 export async function openDashboard(acct: Account, boxId: string, now = new Date()): Promise<string> {
   const box = await ownBox(acct, boxId);
@@ -209,7 +210,7 @@ export async function openDashboard(acct: Account, boxId: string, now = new Date
     if (!box.signin_requested_at) await q.db()`update cloud_boxes set signin_requested_at = now() where id = ${box.id} and handoff_closed_at is null`;
     return `/account?signin=asked#${box.id}`;
   }
-  return `${url}/login`;
+  return `${url}/`;
 }
 
 /** Check-ins this often while the hand-off waits on the box (a link to make, a certificate to come). */
