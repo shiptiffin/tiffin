@@ -234,7 +234,7 @@ func (h *harness) provisioned(id, name string, args ProvisionArgs) *Box {
 func TestProvisionEndToEnd(t *testing.T) {
 	h := newHarness(t)
 	h.addBox("box_1", "shop")
-	id := h.enqueue("box_1", "provision", hetznertest.Token, ProvisionArgs{Name: "shop", ServerType: "cax11", Location: "fsn1"})
+	id := h.enqueue("box_1", "provision", hetznertest.Token, ProvisionArgs{Name: "shop", ServerType: "cax11", Location: "fsn1", OwnerName: " Ann\n Lee "})
 	h.runNext()
 
 	j := h.job(id)
@@ -314,6 +314,9 @@ func TestProvisionEndToEnd(t *testing.T) {
 	o := h.opts[0]
 	if o.Domain != "shop.shiptiffin.app" || o.Managed == nil || o.Managed.ControlPlane != "https://shiptiffin.com" || o.Managed.BoxID != "box_1" {
 		t.Fatalf("install options: %+v %+v", o, o.Managed)
+	}
+	if o.Managed.OwnerName != "Ann Lee" {
+		t.Fatalf("the owner's name reaches the box tidied: %q", o.Managed.OwnerName)
 	}
 	if o.Server.RebootWindow != MaintenanceWindow || len(o.Server.OwnerIPs) != 0 {
 		t.Fatalf("server config: %+v", o.Server)

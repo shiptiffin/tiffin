@@ -43,3 +43,20 @@ export const dashboardUrl = (name: string) => `https://dashboard.${name}.${ZONE}
 export function safeNext(next: string | undefined): string {
   return next && /^\/(?!\/)[\w\-/?=&%.]*$/.test(next) ? next : "/account";
 }
+
+/**
+ * The name a new box's owner starts with: the account's name, tidied, or
+ * null when it isn't a real one (none, too long, or just the email address
+ * or the part before its @, as a sign-in by email link may leave it). The
+ * box then asks for one. The worker and the box tidy it the same way again
+ * (tokens.CleanName); 64 bytes is the most a person's name may be there.
+ */
+export function ownerName(name: unknown, email: string): string | null {
+  if (typeof name !== "string") return null;
+  const s = name.replace(/\p{Cf}/gu, "").replace(/[\s\p{Cc}]+/gu, " ").trim();
+  if (!s || /\p{Cs}/u.test(s) || new TextEncoder().encode(s).length > 64) return null;
+  const lower = s.toLowerCase();
+  const addr = email.trim().toLowerCase();
+  if (lower === addr || lower === addr.split("@")[0] || lower === "owner") return null;
+  return s;
+}

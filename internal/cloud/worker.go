@@ -22,6 +22,7 @@ import (
 	"github.com/btahir/tiffin/internal/provider"
 	"github.com/btahir/tiffin/internal/provider/hetzner"
 	"github.com/btahir/tiffin/internal/provider/remote"
+	"github.com/btahir/tiffin/internal/tokens"
 )
 
 // Machine is a server the worker installs on.
@@ -340,6 +341,9 @@ type ProvisionArgs struct {
 	ServerType string `json:"serverType"`
 	Location   string `json:"location"`
 	VolumeGB   int    `json:"volumeGB"`
+	// OwnerName is the name on the customer's ShipTiffin account, if it has
+	// a real one: the box's owner starts with it instead of "Owner".
+	OwnerName string `json:"ownerName,omitempty"`
 }
 
 // ResizeArgs changes the server type.
@@ -597,7 +601,7 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	opts := install.Options{Domain: domain, HTTPSPort: 443, HTTPPort: 80, PublicIP: ip4, PublicIPv6: ip6, NoOwnerToken: true,
 		Server: &platform.ServerConfig{Provider: "hetzner", Name: a.Name, PublicIP: ip4, PublicIPv6: ip6, Machine: machine, RebootWindow: MaintenanceWindow},
 		Managed: &platform.ManagedConfig{ControlPlane: w.ControlURL, BoxID: box.ID, Licence: tok,
-			PublicKey: licence.PublicKeyText(w.Licence.Public().(ed25519.PublicKey))}}
+			PublicKey: licence.PublicKeyText(w.Licence.Public().(ed25519.PublicKey)), OwnerName: tokens.CleanName(a.OwnerName)}}
 	if _, err := w.Install(ctx, m, bin, opts, progress); err != nil {
 		return err
 	}

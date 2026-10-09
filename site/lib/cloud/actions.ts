@@ -7,7 +7,7 @@ import { abuseMail, deliver, SITE } from "./emails";
 import { checkToken, EU_LOCATIONS, EU_TYPES, family, RESIZE_TYPES, US_LOCATIONS, US_TYPES } from "./hetzner";
 import type { Licence } from "./licence";
 import { checkoutUrl } from "./checkout";
-import { boxDomain, dashboardUrl, nameProblem } from "./names";
+import { boxDomain, dashboardUrl, nameProblem, ownerName } from "./names";
 import { decide, fromBox, probe, type MonitorBox } from "./monitor";
 import { drain, RUNNING_ONLY } from "./outbox";
 import { fingerprint, seal, tokenAAD } from "./seal";
@@ -177,7 +177,9 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
         token_fingerprint = ${fingerprint(token)}, status = 'provisioning', updated_at = now()
         where id = ${box.id} and status in ('paid', 'failed') returning id`;
       if (rows.length === 0) throw new ActionError("This box changed meanwhile; reload the page.", 409);
-      await q.enqueue(box.id, "provision", { name, serverType: input.serverType, location: input.location }, sealed, tx);
+      // The box's owner starts with the account's name when it has a real one (the box asks otherwise).
+      const owner = ownerName(acct.name, acct.email);
+      await q.enqueue(box.id, "provision", { name, serverType: input.serverType, location: input.location, ...(owner ? { ownerName: owner } : {}) }, sealed, tx);
     });
   } catch (e: any) {
     if (e?.code === "23505") throw new ActionError(`${boxDomain(name)} is taken. Try another name.`, 409);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { buildOptions, checkToken, suggest, type Call } from "./hetzner";
 import { decide, fromBox, type MonitorBox, type Warning } from "./monitor";
-import { nameProblem, safeNext } from "./names";
+import { nameProblem, ownerName, safeNext } from "./names";
 import { isAdmin, missingSecrets } from "./config";
 import { handoffAsk, HANDOFF_PENDING_SECONDS, HANDOFF_SOON_SECONDS, heartbeatDecision, offsiteAnswer, parseBackupKey, parseSignin, reusableCheckout } from "./actions";
 import { backoff, drain, MAX_ATTEMPTS, type OutboxRow, type OutboxStore } from "./outbox";
@@ -122,6 +122,14 @@ describe("names", () => {
     expect(safeNext("//evil.example")).toBe("/account");
     expect(safeNext("https://evil.example")).toBe("/account");
     expect(safeNext(undefined)).toBe("/account");
+  });
+  test("the owner's name comes from the account only when it is a real one", () => {
+    const email = "bilal.t@example.com";
+    expect(ownerName("  Bilal\n\tTahir ", email)).toBe("Bilal Tahir");
+    expect(ownerName("Zoë\u202e Ångström\u0007", email)).toBe("Zoë Ångström");
+    expect(ownerName("a".repeat(64), email)).toBe("a".repeat(64));
+    for (const unknown of [undefined, null, "", "  \n ", "bilal.t@example.com", "Bilal.T@Example.com", "bilal.t", "BILAL.T", "Owner", "a".repeat(65), "é".repeat(33), "bad\ud800"])
+      expect(ownerName(unknown, email)).toBeNull();
   });
 });
 
