@@ -847,9 +847,9 @@ parked (you get an email): if its server was deleted, Hetzner may give the IP to
 else, who must not get your name with it. Start the server and the address comes back at
 its next check-in.
 
-**Release from ShipTiffin** (in your account) ends the subscription at once, removes the
-address and any key we hold, and leaves the server exactly as it is: an ordinary Tiffin box
-of yours, which goes on installing updates by itself.
+**Stop managed service** (in your account, under *Stop or delete this box*) ends the
+subscription at once, removes the address and any key we hold, and leaves the server exactly
+as it is: an ordinary Tiffin box of yours, which goes on installing updates by itself.
 
 ## Abuse
 
