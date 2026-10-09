@@ -709,7 +709,7 @@ managed extras:
 - Tiffin installed, then kept up to date (the box installs signed releases itself);
 - monitoring from outside, with an email when the box stops answering;
 - a free `<name>.shiptiffin.app` address with HTTPS;
-- one-click resize;
+- resizing from your account;
 - support by email.
 
 A box made with `tiffin up` is not managed and none of this runs on it.
@@ -748,16 +748,15 @@ A box made with `tiffin up` is not managed and none of this runs on it.
 
 ## Your Hetzner key
 
-- **Used for setup, then forgotten.** The key stays in your browser until you click
+- **Used for one job, then forgotten.** The key stays in your browser until you click
   Create. The website then seals it to the setup worker's public key (X25519 with a fresh
   key per value, AES-256-GCM, bound to your box so it opens nowhere else): the website
   itself can't open it. Only the worker can, a separate service whose secrets the website
   never sees. The worker clears it when the job ends, whether setup worked or not;
   anything older than two hours is wiped regardless. What stays is a fingerprint: the
   first 12 hex characters of its SHA-256.
-- **Kept only if you ask.** Tick *Keep my key so I can resize in one click* and the sealed
-  key is stored with your box. **Remove** in your account deletes it at once.
-- **Resizing without a stored key** asks for a key, uses it for that resize and forgets it.
+- **Never stored.** Nothing keeps your key past its job. A resize, or deleting the server,
+  asks for a key again, uses it for that job and forgets it the same way.
 - **Every call is logged.** Each request ShipTiffin makes with your key (method, path,
   time, Hetzner's answer) is listed in your account, from the first check to the last
   resize. The key itself is never logged.
@@ -810,10 +809,10 @@ A box made with `tiffin up` is not managed and none of this runs on it.
   paste a key right then. The address goes first, then the server and what else carries
   your box's label; the data volume stays unless you tick that too.
 - **A resize always ends with the server running.** A resize that stops half way (our
-  worker restarting, say) is picked up and starts the server again, with that resize's key
-  or the key you kept, even if your subscription ended meanwhile. If we hold no key by then
-  (a resize key is forgotten after two hours), your account says so and we email you to
-  start the server in the Hetzner console.
+  worker restarting, say) is picked up and starts the server again with that resize's key,
+  even if your subscription ended meanwhile. If we hold no key by then (a resize key is
+  forgotten after two hours), your account says so and we email you to start the server in
+  the Hetzner console.
 
 ## The address
 

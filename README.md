@@ -135,11 +135,11 @@ per box ($12 for the first 100 customers, locked for 24 months) for:
 - setup in your Hetzner account, then updates;
 - monitoring from outside the box, with an email when it stops answering;
 - a free `name.shiptiffin.app` address with HTTPS;
-- one-click resize;
+- resizing from your account;
 - support by email.
 
-The key is forgotten after setup unless you ask us to keep it, and every call made with it is
-listed in your account. If you stop paying, the server and your apps keep running.
+The key is forgotten after setup (a resize asks for one again), and every call made with it
+is listed in your account. If you stop paying, the server and your apps keep running.
 [How managed boxes work](docs/guide/managed.md).
 
 ## How it works

@@ -661,15 +661,15 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   that is only the server, which the customer can delete in the console. A new setup of a
   box whose clean-up gave up removes the old address before it deletes anything the
   earlier attempt left, and stops (keeping it all) while the address can't be removed.
-- **No key rotation tool.** `CLOUD_SEAL_KEY` opens stored Hetzner keys; changing it makes
-  the stored ones unreadable (customers paste their key again). The sealed format carries
+- **No key rotation tool.** `CLOUD_SEAL_KEY` opens the Hetzner keys sealed to queued jobs;
+  changing it makes those unreadable (the job fails and the customer pastes the key again). The sealed format carries
   a version prefix (`v2.`) for a rotation later. `CLOUD_LICENCE_KEY` signs licences;
   changing it means every box needs a new licence (a re-setup).
 - **The website can still queue jobs.** It holds no secret of the worker's, but it
-  writes the job table: a compromised website could queue a resize with a stored key, or
-  undo the kill switch (an admin action). It can't open a Hetzner key, sign a licence,
-  or point an address anywhere the worker didn't record for that box (the worker's MAC
-  over the addresses).
+  writes the job table: a compromised website could queue jobs, or undo the kill switch (an
+  admin action). Only a key a customer pastes lets a job reach Hetzner. It can't open a
+  Hetzner key, sign a licence, or point an address anywhere the worker didn't record for
+  that box (the worker's MAC over the addresses).
 - **The worker holds the website's database password.** Projects can't share a database
   role, so the worker reaches the `cloud_*` tables with the website's `DATABASE_URL`
   (`CONTROL_DATABASE_URL`). The worker is the more trusted side; a scoped role would need
