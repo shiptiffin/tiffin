@@ -37,7 +37,7 @@ export type Option = {
 };
 
 export type CheckResult =
-  | { ok: true; readWrite: true; currency: string; vatRate: string; servers: number; options: Option[]; suggested: Option | null }
+  | { ok: true; readWrite: true; currency: string; usdRate: number | null; vatRate: string; servers: number; options: Option[]; suggested: Option | null }
   | { ok: false; message: string };
 
 type Price = { net: string; gross: string };
@@ -159,13 +159,35 @@ export async function checkToken(token: string, record: (c: Call) => Promise<voi
   }
   if (locs.status !== 200 || pricing.status !== 200) return { ok: false, message: "Hetzner didn't send prices just now. Try again in a minute." };
   const options = buildOptions(st.json?.server_types ?? [], locs.json?.locations ?? [], pricing.json?.pricing ?? {});
+  const currency: string = pricing.json?.pricing?.currency ?? "EUR";
   return {
     ok: true,
     readWrite: true,
-    currency: pricing.json?.pricing?.currency ?? "EUR",
+    currency,
+    usdRate: await usdRate(currency),
     vatRate: pricing.json?.pricing?.vat_rate ?? "",
     servers: Number(servers.json?.meta?.pagination?.total_entries ?? servers.json?.servers?.length ?? 0),
     options,
     suggested: suggest(options),
   };
+}
+
+// We show every price in dollars. Hetzner bills most accounts in euros, so
+// those prices are converted at the ECB's daily rate (via Frankfurter),
+// shown as approximate, and kept for 12 hours. Null when no rate came back.
+const rates = new Map<string, { rate: number; at: number }>();
+export async function usdRate(currency: string, fetcher: typeof fetch = fetch): Promise<number | null> {
+  const c = currency.toUpperCase();
+  if (c === "USD") return 1;
+  const hit = rates.get(c);
+  if (hit && Date.now() - hit.at < 12 * 3_600_000) return hit.rate;
+  try {
+    const res = await fetcher(`https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(c)}&symbols=USD`, { signal: AbortSignal.timeout(3000) });
+    const rate = Number(((await res.json()) as { rates?: { USD?: number } }).rates?.USD);
+    if (!res.ok || !(rate > 0)) return hit?.rate ?? null;
+    rates.set(c, { rate, at: Date.now() });
+    return rate;
+  } catch {
+    return hit?.rate ?? null;
+  }
 }

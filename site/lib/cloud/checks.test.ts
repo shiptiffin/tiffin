@@ -82,7 +82,7 @@ describe("checkToken", () => {
     if (!r.ok) return;
     expect(r.servers).toBe(2);
     expect(r.suggested?.serverType).toBe("cx23");
-    expect(seen).toHaveLength(5);
+    expect(seen.filter((k) => !k.startsWith("GET /latest"))).toHaveLength(5); // plus the exchange rate, not a Hetzner call
     expect(calls).toHaveLength(5);
     expect(calls.map((c) => c.path)).toContain("/v1/ssh_keys");
     expect(JSON.stringify(calls)).not.toContain(token);
@@ -396,4 +396,14 @@ test("sign-up stays closed until every secret is there, refuses live Stripe keys
   expect(missingSecrets({ ...all, STRIPE_SECRET_KEY: "sk_live_x" })[0]).toContain("live");
   expect(missingSecrets({ ...all, CLOUD_SEAL_PUBLIC: "short" })).toEqual(["CLOUD_SEAL_PUBLIC"]);
   expect(missingSecrets({ ...all, CLOUD_LICENCE_PUBLIC: undefined })).toEqual(["CLOUD_LICENCE_PUBLIC"]);
+});
+
+test("usdRate: 1 for dollars, the daily rate for euros, null when no rate comes back", async () => {
+  const { usdRate } = await import("./hetzner");
+  expect(await usdRate("USD")).toBe(1);
+  const ok = (async () => new Response(JSON.stringify({ rates: { USD: 1.12 } }))) as unknown as typeof fetch;
+  expect(await usdRate("EUR", ok)).toBe(1.12);
+  const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
+  expect(await usdRate("GBP", down)).toBeNull();
+  expect(await usdRate("EUR", down)).toBe(1.12); // kept from before
 });

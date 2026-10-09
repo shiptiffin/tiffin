@@ -93,6 +93,13 @@ export function HetznerGuide() {
   );
 }
 
+/** Dollars always: exact for a USD account, approximate (≈) when converted. */
+function dollars(n: number, currency: string, usdRate: number | null) {
+  if (usdRate == null) return money(n, currency);
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n * usdRate);
+  return currency.toUpperCase() === "USD" ? usd : `≈ ${usd}`;
+}
+
 function money(n: number, currency: string) {
   try {
     return new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
@@ -232,7 +239,7 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
                 <b>
                   {o.serverType} · {o.city}
                 </b>
-                <span className="cp-price">{money(o.monthlyNet, r.currency)}/mo</span>
+                <span className="cp-price">{dollars(o.monthlyNet, r.currency, r.usdRate)}/mo</span>
                 <small>
                   {o.cores} vCPU{o.arch === "arm64" ? " (ARM)" : ""}, {o.memoryGB} GB RAM, {o.diskGB} GB disk + 40 GB data volume
                   {o.available ? "" : " · sold out here right now"}
@@ -281,8 +288,12 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
       {group("United States", us)}
       {r.options.length === 0 && <p className="cp-err">Hetzner offers none of our sizes to this account right now. Try again later.</p>}
       <p className="cp-hint">
-        Prices are Hetzner&rsquo;s, from your account, before VAT ({r.currency}): the server, its IPv4 address and a 40 GB data volume.
-        Hetzner bills you directly.
+        Prices are Hetzner&rsquo;s, from your account, before VAT: the server, its IPv4 address and a 40 GB data volume. Hetzner bills
+        you directly
+        {r.currency.toUpperCase() !== "USD" && r.usdRate != null
+          ? `, in ${r.currency.toUpperCase()}; the dollar amounts are approximate, at today's exchange rate`
+          : ""}
+        .
       </p>
       <label className="cp-check">
         <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
