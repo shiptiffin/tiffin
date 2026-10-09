@@ -4,6 +4,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -100,6 +101,10 @@ func defaultOptions() Options {
 
 // rt is the running runtime.
 type rt struct {
+	// interrupted are the GitHub production deploys a restart cut short,
+	// newest per app: built again once the runtime is up.
+	interrupted []*Deploy
+
 	p     *platform.Platform
 	opt   Options
 	st    store
@@ -253,6 +258,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	go r.loop(ctx)
 	go r.resumeReports(ctx, true)
+	go r.retryInterrupted(ctx)
 	// Connect GitHub posts its form to the GitHub this box uses.
 	formOrigins := func() []string {
 		if u, err := url.Parse(r.ghEndpoints().Web); err == nil && u.Scheme == "https" && u.Host != "" {
@@ -314,18 +320,55 @@ func (r *rt) recover(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			var retry *Deploy
 			for _, d := range ds {
 				if !d.Terminal() {
 					d.Status, d.Error = StatusFailed, "interrupted: the box restarted during the deploy"
 					d.Hint = "Deploy again."
+					if d.Preview == "" && d.Repo != "" && d.Commit != "" {
+						d.Hint = "The box builds this commit again by itself."
+						if retry == nil || d.CreatedAt.After(retry.CreatedAt) {
+							retry = d
+						}
+					}
 					now := time.Now().UTC()
 					d.FinishedAt = &now
 					_ = r.st.putDeploy(ctx, d)
 				}
 			}
+			if retry != nil {
+				r.interrupted = append(r.interrupted, retry)
+			}
 		}
 	}
 	return nil
+}
+
+// retryInterrupted queues the commits of GitHub production deploys a
+// restart cut short (a box update mid-build, say), so a push still goes
+// live without anyone deploying again. An app no longer connected to that
+// repository is left as it is.
+func (r *rt) retryInterrupted(ctx context.Context) {
+	for _, d := range r.interrupted {
+		spec, perr := r.checkDeployable(ctx, d.Project, d.App, "", false)
+		if perr != nil || spec.Git == nil || spec.Git.Repo != d.Repo {
+			continue
+		}
+		c, err := r.github(ctx)
+		if err != nil {
+			r.p.Log.Warn("runtime: deploy again after a restart", "deploy", d.ID, "err", err)
+			return
+		}
+		inst, err := r.repoInstallation(ctx, c, d.Repo)
+		if err == nil {
+			_, err = r.enqueue(ctx, &ghJob{Project: d.Project, App: d.App, Repo: d.Repo, SHA: d.Commit, Branch: cmp.Or(d.Ref, spec.Git.Branch),
+				Message: d.Message, Author: d.Author, Installation: inst, Trigger: "redeploy", By: "box", Path: spec.Git.Path})
+		}
+		if err != nil {
+			r.p.Log.Warn("runtime: deploy again after a restart", "deploy", d.ID, "err", err)
+		}
+	}
+	r.interrupted = nil
 }
 
 // removeOrphans removes the app containers that are neither live, draining

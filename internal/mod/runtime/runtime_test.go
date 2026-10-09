@@ -1537,6 +1537,36 @@ func TestRecoverMarksInterruptedDeploysFailed(t *testing.T) {
 	if got.Status != StatusFailed || !strings.Contains(got.Error, "interrupted") {
 		t.Fatalf("%+v", got)
 	}
+	if len(h.r.interrupted) != 0 {
+		t.Fatalf("an upload is not built again: %+v", h.r.interrupted)
+	}
+}
+
+// A GitHub production deploy a restart cut short is built again, the
+// newest per app only; previews and uploads are not.
+func TestRecoverQueuesInterruptedGitHubDeploys(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	spec, _ := h.r.appSpec(ctx, "shop", "api")
+	add := func(preview, commit string) *Deploy {
+		d, _ := h.r.newDeploy(ctx, "shop", "api", preview, SourceGit, "tok", spec)
+		d.Status, d.Repo, d.Commit = StatusBuilding, "acme/shop", commit
+		h.r.st.putDeploy(ctx, d)
+		return d
+	}
+	add("", "1111111")
+	time.Sleep(2 * time.Millisecond)
+	newest := add("", "2222222")
+	add("pr-4", "3333333")
+	if err := h.r.recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.r.interrupted) != 1 || h.r.interrupted[0].ID != newest.ID {
+		t.Fatalf("queued %+v, want only %s", h.r.interrupted, newest.ID)
+	}
+	if got, _ := h.r.st.getDeploy(ctx, "shop", "api", newest.ID); got.Status != StatusFailed || !strings.Contains(got.Hint, "again by itself") {
+		t.Fatalf("%+v", got)
+	}
 }
 
 // A container a crash left outside the saved states (started before its
