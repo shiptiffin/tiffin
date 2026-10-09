@@ -27,3 +27,15 @@ func TestCSPAllowsTheGitHubForm(t *testing.T) {
 		t.Fatalf("CSP with GitHub Enterprise: %s", c)
 	}
 }
+
+// The licences are served as text for the /licenses page (AGPL-3.0 §13).
+func TestLicensesText(t *testing.T) {
+	w := httptest.NewRecorder()
+	Handler().ServeHTTP(w, httptest.NewRequest("GET", "/licenses.txt", nil))
+	body := w.Body.String()
+	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") ||
+		!strings.Contains(body, "AGPL-3.0-only") || !strings.Contains(body, "https://github.com/shiptiffin/tiffin") ||
+		!strings.Contains(body, "THIRD-PARTY SOFTWARE IN TIFFIN") {
+		t.Fatalf("GET /licenses.txt: %d %q %.200q", w.Code, w.Header().Get("Content-Type"), body)
+	}
+}

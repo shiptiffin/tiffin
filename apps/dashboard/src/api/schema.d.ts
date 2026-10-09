@@ -8413,6 +8413,15 @@ export interface components {
         Health: {
             /** @description SHA-256 of the running binary; self-update uses it to know the new build is the one answering */
             build?: string;
+            /** @description The commit the running binary was built from */
+            commit?: string;
+            /**
+             * @description The licence Tiffin is under (SPDX)
+             * @example AGPL-3.0-only
+             */
+            license: string;
+            /** @description Where the source code of the running version is: the repository at its commit */
+            source: string;
             /**
              * @example ok
              * @enum {string}
@@ -12547,6 +12556,8 @@ export interface components {
              * @description When the window next opens for an update
              */
             nextRun?: string;
+            /** @description Why updates are paused (a ShipTiffin managed box whose subscription is not active); empty when they are not */
+            paused?: string;
             /** @description It is a release build; a development build updates with tiffin up only */
             release: boolean;
             /** @description The update in progress */

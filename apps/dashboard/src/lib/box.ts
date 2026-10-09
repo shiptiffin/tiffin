@@ -1,4 +1,4 @@
-import type { StatusReport } from "@/api/client";
+import type { Health, StatusReport } from "@/api/client";
 import { duration } from "./format";
 import { relative } from "./time";
 
@@ -39,3 +39,17 @@ export function versionLabel(s: StatusReport | undefined): string | undefined {
   return `Tiffin ${s.version.replace(/^v/, "")}`;
 }
 
+
+/** The unauthenticated health report: the running build, its commit and where its source is. */
+export const healthQuery = {
+  queryKey: ["health"],
+  queryFn: () => fetch("/v1/health").then((r) => r.json() as Promise<Health>),
+  staleTime: 300_000,
+  retry: false,
+} as const;
+
+/** Tiffin's source code, at the commit this box runs when the build says which (AGPL-3.0 section 13). */
+export const SOURCE = "https://github.com/shiptiffin/tiffin";
+export function sourceURL(h: Health | undefined): string {
+  return h?.source || SOURCE;
+}

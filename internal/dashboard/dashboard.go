@@ -4,12 +4,17 @@ package dashboard
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
+
+	tiffin "github.com/btahir/tiffin"
+	"github.com/btahir/tiffin/internal/version"
 )
 
 //go:embed all:dist
@@ -41,6 +46,10 @@ func init() {
 	FormOrigins.Store(&gh)
 }
 
+// licenses is what /licenses.txt serves (and the /licenses page shows):
+// Tiffin's licence, where this build's source is and the third-party notices.
+var licenses = sync.OnceValue(func() string { return tiffin.Licenses(version.Version, version.SourceURL()) })
+
 // Handler serves the single-page app: real files when they exist, otherwise
 // index.html so client-side routes work. Hashed assets are cached forever.
 func Handler() http.Handler {
@@ -52,6 +61,12 @@ func Handler() http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if p == "licenses.txt" {
+			h.Set("Content-Type", "text/plain; charset=utf-8")
+			h.Set("Cache-Control", "no-cache")
+			_, _ = io.WriteString(w, licenses())
+			return
+		}
 		if p != "" {
 			if _, err := fs.Stat(root, p); err == nil {
 				if strings.HasPrefix(p, "assets/") {

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { boxSettingsQuery, memWords, setBoxSettings } from "@/lib/usage";
@@ -15,7 +16,7 @@ import { BoxEmailSection } from "@/components/email-relay";
 import { BoxSize } from "@/components/box-size";
 import { SignInProviders } from "@/components/signin-providers";
 import { boxDomainQuery } from "@/lib/domains";
-import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
+import { boxName, boxUp, healthQuery, sourceURL, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
 import { Breaker } from "@/components/breaker";
 import { cn } from "@/lib/cn";
@@ -37,12 +38,7 @@ export function SettingsPage() {
   const status = useQuery(q.status());
   const res = useQuery(q.resources);
   const projects = useQuery(q.projects);
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => fetch("/v1/health").then((r) => r.json() as Promise<{ version: string; build?: string }>),
-    staleTime: 300_000,
-    retry: false,
-  });
+  const health = useQuery(healthQuery);
   const names = (projects.data ?? []).map((p) => p.name);
   const boxDomain = useQuery(boxDomainQuery);
   const domain = boxDomain.data?.domain ?? location.hostname.replace(/^dashboard\./, "");
@@ -116,7 +112,7 @@ export function SettingsPage() {
         </FromTerminal>
       </Section>
 
-      <Updates admin={admin} version={versionLabel(status.data)} build={build} />
+      <Updates admin={admin} version={versionLabel(status.data)} build={build} source={sourceURL(health.data)} />
     </Page>
   );
 }
@@ -126,7 +122,7 @@ export function SettingsPage() {
  * switch. A box without the endpoint (older, or not an admin) shows how to
  * update by hand.
  */
-function Updates({ admin, version, build }: { admin: boolean; version?: string; build?: string }) {
+function Updates({ admin, version, build, source }: { admin: boolean; version?: string; build?: string; source: string }) {
   const qc = useQueryClient();
   const st = useQuery({ ...updateStatusQuery, enabled: admin });
   const save = useMutation({
@@ -141,6 +137,10 @@ function Updates({ admin, version, build }: { admin: boolean; version?: string; 
   const auto = s && (save.isPending ? save.variables : s.auto);
   const rows: Array<[string, ReactNode] | false | undefined> = [
     ["Version", <>{version ?? "…"}{build && <span className="ident ml-2 text-ink-3">build {build.slice(0, 12)}</span>}</>],
+    ["Source", <>
+      <a className="ident underline underline-offset-2" href={source} target="_blank" rel="noreferrer">{source.replace(/^https:\/\/github\.com\//, "").replace("/tree/", " at ")}</a>
+      <Link to="/licenses" className="ml-3 text-ink-3 underline underline-offset-2">Licenses</Link>
+    </>],
     s?.running && ["Now", <span className="text-ink">Updating to Tiffin {s.running.to}…</span>],
     s && s.release && ["Last update", last ? <span className={last.bad ? "text-warn-ink" : undefined}>{last.words}</span> : "None yet"],
     s?.available && ["Available", <>

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Sun } from "lucide-react";
+import { Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Scale, Sun } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
 import { roleCopy, useMe } from "@/lib/me";
@@ -64,6 +64,10 @@ export function WhoMenu() {
         <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })}>
           <Fingerprint />
           Sign in with {passkeyWords().name}
+        </MenuItem>
+        <MenuItem onSelect={() => navigate({ to: "/licenses" })}>
+          <Scale />
+          Licenses and source
         </MenuItem>
         <MenuSeparator />
         <MenuItem

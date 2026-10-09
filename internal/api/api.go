@@ -32,6 +32,7 @@ import (
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/btahir/tiffin/internal/version"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
@@ -412,12 +413,22 @@ type Health struct {
 	Status  string `json:"status" example:"ok" enum:"ok,starting"`
 	Version string `json:"version"`
 	Build   string `json:"build,omitempty" doc:"SHA-256 of the running binary; self-update uses it to know the new build is the one answering"`
+	Commit  string `json:"commit,omitempty" doc:"The commit the running binary was built from"`
+	License string `json:"license" example:"AGPL-3.0-only" doc:"The licence Tiffin is under (SPDX)"`
+	Source  string `json:"source" doc:"Where the source code of the running version is: the repository at its commit"`
 }
 
 var (
 	buildOnce sync.Once
 	buildSum  string
 )
+
+func commit() string {
+	if version.Commit == "none" {
+		return ""
+	}
+	return version.Commit
+}
 
 // selfBuild hashes the running executable once, on first use.
 func selfBuild() string {
@@ -464,7 +475,8 @@ func (a *API) register() {
 		if a.deps.Platform != nil && !a.deps.Platform.Started() {
 			status = "starting"
 		}
-		return &struct{ Body Health }{Health{Status: status, Version: orDefault(a.deps.Version, "dev"), Build: selfBuild()}}, nil
+		return &struct{ Body Health }{Health{Status: status, Version: orDefault(a.deps.Version, "dev"), Build: selfBuild(),
+			Commit: commit(), License: "AGPL-3.0-only", Source: version.SourceURL()}}, nil
 	})
 
 	s := op("schema-manifest", http.MethodGet, "/v1/schema/manifest", "schema manifest", RiskRead, "Get the manifest JSON Schema",

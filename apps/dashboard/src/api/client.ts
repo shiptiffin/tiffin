@@ -9,6 +9,7 @@ export type Problem = S["Problem"];
 export type Principal = S["Principal"];
 export type ProjectSummary = S["ProjectSummary"];
 export type StatusReport = S["StatusReport"];
+export type Health = S["Health"];
 export type Check = S["Check"];
 /** An API key (GET /v1/tokens): which projects, full or read access, when it expires. */
 export type Token = S["Key"];

@@ -57,6 +57,7 @@ const GitSettingsPage = lz<{ search: GitSearch }>(() => import("@/routes/git-set
 const KitPage = lz(() => import("@/routes/kit"), "KitPage");
 const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePage");
 const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
+const LicensesPage = lz(() => import("@/routes/licenses"), "LicensesPage");
 const KeysPage = lz<{ create?: boolean }>(() => import("@/routes/keys"), "KeysPage");
 const ProjectPage = lz<{ project: string }>(() => import("@/routes/project"), "ProjectPage");
 const DeploymentsPage = lz<{ project: string }>(() => import("@/routes/deployments"), "DeploymentsPage");
@@ -186,6 +187,8 @@ const change = createRoute({
 
 const status = createRoute({ getParentRoute: () => app, path: "/status", loader: () => void StatusPage.preload(),
   component: StatusPage });
+const licenses = createRoute({ getParentRoute: () => app, path: "/licenses", loader: () => void LicensesPage.preload(),
+  component: LicensesPage });
 const settings = createRoute({ getParentRoute: () => app, path: "/settings", loader: () => void SettingsPage.preload(),
   component: SettingsPage });
 const newProject = createRoute({
@@ -809,6 +812,7 @@ const tree = root.addChildren([
     boxUsage,
     activity,
     settings,
+    licenses,
     gitSettings,
     dnsSettings,
     newProject,
