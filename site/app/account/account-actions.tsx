@@ -1,7 +1,9 @@
 "use client";
-// The account page's buttons. Every change goes through
-// /api/cloud/boxes/:id/action, which checks the box is yours.
-import { useState } from "react";
+// The account page's buttons and dialogs. Every change goes through
+// /api/cloud/boxes/:id/action, which checks the box is yours. Changes
+// that need a second look open a native modal <dialog> (showModal: the page
+// behind is inert, focus stays inside, Esc closes it).
+import { useEffect, useId, useRef, useState } from "react";
 
 async function post(url: string, body?: unknown): Promise<{ ok: boolean; message?: string; url?: string }> {
   try {
@@ -11,31 +13,6 @@ async function post(url: string, body?: unknown): Promise<{ ok: boolean; message
   } catch {
     return { ok: false, message: "That didn't work. Try again in a minute." };
   }
-}
-
-export function BillingButton() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  return (
-    <>
-      <button
-        className="btn btn-quiet"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          const r = await post("/api/cloud/portal");
-          if (r.ok && r.url) window.location.href = r.url;
-          else {
-            setError(r.message ?? "Billing isn't available right now.");
-            setBusy(false);
-          }
-        }}
-      >
-        Billing and invoices
-      </button>
-      {error && <span className="cp-err">{error}</span>}
-    </>
-  );
 }
 
 export function SignOut() {
@@ -52,39 +29,154 @@ export function SignOut() {
   );
 }
 
-type Box = {
+/** What the card's buttons need to know about a box (the page works it out). */
+export type BoxView = {
   id: string;
   name: string | null;
   status: string;
+  domain: string | null;
+  /** The subscription's extras are on. */
   active: boolean;
-  cancelAtPeriodEnd: boolean;
-  hasSubscription: boolean;
-  signinLink: boolean;
-  handoffOpen: boolean;
   renewable: boolean;
+  cancelAtPeriodEnd: boolean;
+  periodEnd: string;
+  hasSubscription: boolean;
+  hasCustomer: boolean;
+  /** The first sign-in hand-off, while it lasts: a link we hold, one asked for, or none. */
+  signin: "held" | "asked" | "expired" | null;
+  signinUntil: string;
   serverType: string | null;
   sizes: string[];
 };
 
-export function BoxActions({ box }: { box: Box }) {
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState<"" | "resize" | "signin" | "release" | "delete">("");
+type Msg = { ok: boolean; text: string } | null;
+type Act = (body: Record<string, unknown>) => Promise<void>;
 
-  async function act(body: Record<string, unknown>, confirmText?: string) {
-    if (confirmText && !window.confirm(confirmText)) return;
+/** Sends a box action; on success the page reloads to show the new state. */
+function useAct(id: string) {
+  const [msg, setMsg] = useState<Msg>(null);
+  const [busy, setBusy] = useState(false);
+  const act: Act = async (body) => {
     setBusy(true);
     setMsg(null);
-    const r = await post(`/api/cloud/boxes/${box.id}/action`, body);
-    setBusy(false);
+    const r = await post(`/api/cloud/boxes/${id}/action`, body);
     setMsg({ ok: r.ok, text: r.message ?? (r.ok ? "Done." : "That didn't work.") });
     if (r.ok) setTimeout(() => window.location.reload(), 1200);
-  }
+    else setBusy(false);
+  };
+  return { msg, setMsg, busy, setBusy, act };
+}
+
+function Status({ msg }: { msg: Msg }) {
+  return msg ? (
+    <p className={msg.ok ? "cp-ok" : "cp-err"} role={msg.ok ? "status" : "alert"}>
+      {msg.text}
+    </p>
+  ) : null;
+}
+
+/**
+ * A modal dialog: native <dialog> opened with showModal(), titled by its
+ * heading, closed by Esc or its Go back button (not while a request runs).
+ * Its body mounts only while open, so typed text never outlives it. Focus
+ * starts on the first field or button inside and returns to the button
+ * that opened it.
+ */
+function Dialog({ open, onClose, title, busy, children }: { open: boolean; onClose: () => void; title: string; busy: boolean; children: React.ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      className="cp-dialog"
+      aria-labelledby={`${id}-title`}
+      onCancel={(e) => {
+        if (busy) e.preventDefault();
+      }}
+      onClose={onClose}
+    >
+      {open && (
+        <div className="cp-dialog-in">
+          <h2 id={`${id}-title`}>{title}</h2>
+          {children}
+        </div>
+      )}
+    </dialog>
+  );
+}
+
+function DialogButtons({ back = "Go back", busy, onBack, children }: { back?: string; busy: boolean; onBack: () => void; children: React.ReactNode }) {
+  return (
+    <div className="cp-dialog-buttons">
+      <button type="button" className="btn btn-quiet btn-sm" disabled={busy} onClick={onBack}>
+        {back}
+      </button>
+      {children}
+    </div>
+  );
+}
+
+function TokenInput({ id, value, onChange, hint }: { id: string; value: string; onChange: (v: string) => void; hint: string }) {
+  return (
+    <div className="cp-field">
+      <label htmlFor={id}>Hetzner API token (Read &amp; Write)</label>
+      <input
+        id={id}
+        type="password"
+        className="cp-mono"
+        autoComplete="off"
+        spellCheck={false}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={`${id}-hint`}
+      />
+      <p className="cp-hint" id={`${id}-hint`}>
+        {hint} Make one in the Hetzner console under your project, Security, API tokens.
+      </p>
+    </div>
+  );
+}
+
+const tokenOk = (t: string) => /^[A-Za-z0-9]{20,128}$/.test(t.trim());
+
+/** The main button, the everyday changes, and the first sign-in. */
+export function BoxActions({ box }: { box: BoxView }) {
+  const { msg, setMsg, busy, setBusy, act } = useAct(box.id);
+  const [open, setOpen] = useState<"" | "resize" | "cancel" | "forget">("");
+  const close = () => {
+    if (busy) return;
+    setOpen("");
+    setMsg(null);
+  };
 
   const running = box.status === "active";
+  const managed = box.status !== "released" && box.status !== "deleting";
+  const setup = box.status === "paid" || box.status === "failed" || box.status === "provisioning" || box.status === "cert_pending";
+  const canResize = running && box.active && box.sizes.length > 0;
+  const canCancel = box.hasSubscription && box.active && managed;
+
+  // Billing (Stripe's portal) and Renew (Checkout) leave the page.
+  async function leave(url: string, body: unknown, fallback: string) {
+    setBusy(true);
+    setMsg(null);
+    const r = await post(url, body);
+    if (r.ok && r.url) window.location.href = r.url;
+    else {
+      setBusy(false);
+      setMsg({ ok: false, text: r.message ?? fallback });
+    }
+  }
+
+  if (!(running || box.renewable || setup || canResize || box.hasCustomer || canCancel || box.signin)) return null;
   return (
-    <div>
-      <div className="cp-row">
+    <>
+      <div className="cp-box-actions">
         {running && (
           <a className="btn btn-primary btn-sm" href={`/api/cloud/boxes/${box.id}/open`}>
             Open dashboard
@@ -92,182 +184,262 @@ export function BoxActions({ box }: { box: Box }) {
         )}
         {box.renewable && (
           <button
-            className="btn btn-primary btn-sm"
+            className={`btn btn-sm ${running ? "btn-quiet" : "btn-primary"}`}
             disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              const r = await post("/api/cloud/checkout", { renew: box.id });
-              if (r.ok && r.url) window.location.href = r.url;
-              else {
-                setBusy(false);
-                setMsg({ ok: false, text: r.message ?? "Payment isn't available right now." });
-              }
-            }}
+            onClick={() => leave("/api/cloud/checkout", { renew: box.id }, "Payment isn't available right now.")}
           >
-            Renew the subscription
+            Renew subscription
           </button>
         )}
-        {(box.status === "paid" || box.status === "failed" || box.status === "provisioning" || box.status === "cert_pending") && (
+        {setup && !box.renewable && (
           <a className="btn btn-primary btn-sm" href="/start">
             {box.status === "provisioning" || box.status === "cert_pending" ? "See progress" : "Continue setup"}
           </a>
         )}
-        {running && box.active && box.sizes.length > 0 && (
-          <button className="btn btn-quiet btn-sm" onClick={() => setOpen(open === "resize" ? "" : "resize")}>
-            Resize
+        {canResize && (
+          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => setOpen("resize")}>
+            Resize server
           </button>
         )}
-        {box.handoffOpen && (
-          <button className="btn btn-quiet btn-sm" onClick={() => setOpen(open === "signin" ? "" : "signin")}>
-            Sign-in link
+        {box.hasCustomer && (
+          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => leave("/api/cloud/portal", undefined, "Billing isn't available right now.")}>
+            Billing and invoices
           </button>
         )}
-        {box.hasSubscription && box.active && box.status !== "released" && (
-          <button
-            className="btn btn-quiet btn-sm"
-            disabled={busy}
-            onClick={() =>
-              box.cancelAtPeriodEnd
-                ? act({ action: "resume" })
-                : act({ action: "cancel" }, "Cancel at the end of this period? Your server and apps keep running; updates and the extras stop, and the address stays 30 days.")
-            }
-          >
-            {box.cancelAtPeriodEnd ? "Keep subscription" : "Cancel subscription"}
-          </button>
-        )}
-        {box.status !== "released" && box.status !== "deleting" && box.status !== "awaiting_payment" && box.name && (
-          <>
-            <button className="cp-link" onClick={() => setOpen(open === "release" ? "" : "release")}>
-              Release from ShipTiffin
+        {canCancel &&
+          (box.cancelAtPeriodEnd ? (
+            <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "resume" })}>
+              Keep subscription
             </button>
-            {box.status === "active" || box.status === "cert_pending" || box.status === "failed" ? (
-              <button className="cp-link cp-danger" onClick={() => setOpen(open === "delete" ? "" : "delete")}>
-                Delete the server
-              </button>
-            ) : null}
-          </>
-        )}
+          ) : (
+            <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => setOpen("cancel")}>
+              Cancel subscription
+            </button>
+          ))}
       </div>
 
-      {open === "resize" && <Resize box={box} busy={busy} act={act} />}
-      {open === "signin" && <SigninPanel box={box} busy={busy} act={act} />}
-      {open === "release" && (
-        <Confirm
-          name={box.name!}
-          busy={busy}
-          button="Release"
-          text="We stop managing this box: the subscription ends now, its shiptiffin.app address goes, and we keep no key or sign-in link. The server and apps in your Hetzner project are untouched and keep running; it no longer gets updates from us."
-          onConfirm={(confirm) => act({ action: "release", confirm })}
-        />
+      {box.signin && (
+        <div className="cp-signin">
+          <p>
+            <strong>First sign-in.</strong>{" "}
+            {box.signin === "held" ? (
+              <>Open dashboard signs you in with a one-time link your box made. It works once, until {box.signinUntil}. We forget it once you&rsquo;ve signed in.</>
+            ) : box.signin === "asked" ? (
+              "We asked your box for a new one-time sign-in link. It arrives at its next check-in, within about ten minutes; then click Open dashboard again."
+            ) : (
+              "The one-time sign-in link your box made has expired. Ask for a new one, or sign in on the box itself."
+            )}
+          </p>
+          <div className="cp-row">
+            {box.signin === "expired" && (
+              <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "new-signin" })}>
+                Get a new sign-in link
+              </button>
+            )}
+            <button className="cp-link" disabled={busy} onClick={() => setOpen("forget")}>
+              {box.signin === "held" ? "Forget the sign-in link" : "I’ll sign in on the box"}
+            </button>
+          </div>
+        </div>
       )}
-      {open === "delete" && <DeleteServer box={box} busy={busy} act={act} />}
-      {msg && (
-        <p className={msg.ok ? "cp-ok" : "cp-err"} role="status">
-          {msg.text}
+
+      {!open && <Status msg={msg} />}
+
+      <Dialog open={open === "resize"} onClose={close} title={`Resize ${box.name ?? "this box"}`} busy={busy}>
+        <ResizeForm box={box} busy={busy} msg={msg} act={act} onBack={close} />
+      </Dialog>
+
+      <Dialog open={open === "cancel"} onClose={close} title="Cancel the subscription?" busy={busy}>
+        <p className="cp-dialog-text">
+          It ends on {box.periodEnd || "the last day you paid for"}; until then nothing changes. After that your server and apps keep running in your Hetzner
+          project, automatic updates and the extras stop, and {box.domain ?? "the address"} stays for 30 more days. You can keep the subscription any time before
+          it ends.
         </p>
-      )}
-    </div>
+        <Status msg={msg} />
+        <DialogButtons back="Keep subscription" busy={busy} onBack={close}>
+          <button className="btn btn-quiet btn-sm cp-danger-outline" disabled={busy} onClick={() => act({ action: "cancel" })}>
+            {busy ? "Cancelling…" : "Cancel subscription"}
+          </button>
+        </DialogButtons>
+      </Dialog>
+
+      <Dialog open={open === "forget"} onClose={close} title="Sign in on the box instead?" busy={busy}>
+        <p className="cp-dialog-text">
+          We drop the sign-in link we hold and never ask your box for another, so Open dashboard takes you to the box&rsquo;s own sign-in page. Sign in there
+          with your passkey, or run <code>tiffin login</code> on the server.
+        </p>
+        <Status msg={msg} />
+        <DialogButtons busy={busy} onBack={close}>
+          <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => act({ action: "forget-signin" })}>
+            Forget the sign-in link
+          </button>
+        </DialogButtons>
+      </Dialog>
+    </>
   );
 }
 
-type Act = (body: Record<string, unknown>, confirmText?: string) => Promise<void>;
-
-function TokenInput({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
-  return (
-    <div className="cp-field">
-      <label>{label}</label>
-      <input type="password" className="cp-mono" autoComplete="off" spellCheck={false} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Paste a Hetzner API token (Read & Write)" />
-    </div>
-  );
-}
-
-function Resize({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
+function ResizeForm({ box, busy, msg, act, onBack }: { box: BoxView; busy: boolean; msg: Msg; act: Act; onBack: () => void }) {
+  const id = useId();
   const [size, setSize] = useState(box.sizes[0] ?? "");
   const [token, setToken] = useState("");
+  const ready = Boolean(size) && tokenOk(token);
   return (
-    <div className="cp-card">
+    <form
+      className="cp-dialog-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) act({ action: "resize", serverType: size, token: token.trim() });
+      }}
+    >
       <div className="cp-field">
-        <label htmlFor={`size-${box.id}`}>New size (now {box.serverType})</label>
-        <select id={`size-${box.id}`} value={size} onChange={(e) => setSize(e.target.value)}>
+        <label htmlFor={`${id}-size`}>New size (now {box.serverType})</label>
+        <select id={`${id}-size`} value={size} onChange={(e) => setSize(e.target.value)}>
           {box.sizes.map((s) => (
             <option key={s}>{s}</option>
           ))}
         </select>
-        <p className="cp-hint">The server restarts: about 2 minutes offline. Hetzner bills the new size from then. A server&rsquo;s disk can&rsquo;t shrink, so smaller sizes may be refused.</p>
+        <p className="cp-hint">
+          The server restarts and is offline for about 2 minutes. Hetzner bills the new size from then. A server&rsquo;s disk can&rsquo;t shrink, so Hetzner may
+          refuse a smaller size.
+        </p>
       </div>
-      <TokenInput value={token} onChange={setToken} label="Hetzner key (used for this resize, then forgotten)" />
-      <button
-        className="btn btn-primary btn-sm"
-        disabled={busy || !size || token.trim().length < 20}
-        onClick={() => act({ action: "resize", serverType: size, token: token.trim() }, `Resize ${box.name} to ${size}? It is offline for about 2 minutes.`)}
-      >
-        Resize to {size}
-      </button>
-    </div>
-  );
-}
-
-function SigninPanel({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
-  return (
-    <div className="cp-card">
-      <p className="cp-sub">
-        {box.signinLink
-          ? "We hold a one-time sign-in link your box made (it works once, for 24 hours), so \u201cOpen dashboard\u201d signs you in. We forget it once your box tells us you signed in."
-          : "Your box's one-time sign-in link expired. Until you first sign in, your box makes a new one when you ask (no SSH: it sends it at its next check-in)."}
-      </p>
-      <div className="cp-row">
-        {!box.signinLink && (
-          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "new-signin" })}>
-            Get a new sign-in link
-          </button>
-        )}
-        <button
-          className="btn btn-quiet btn-sm"
-          disabled={busy}
-          onClick={() => act({ action: "forget-signin" }, "Forget the sign-in link, and never ask your box for another? You then sign in on the box itself.")}
-        >
-          {box.signinLink ? "Forget the sign-in link" : "I'll sign in on the box"}
+      <TokenInput id={`${id}-token`} value={token} onChange={setToken} hint="Used for this resize, then forgotten." />
+      <Status msg={msg} />
+      <DialogButtons busy={busy} onBack={onBack}>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !ready}>
+          {busy ? "Resizing…" : `Resize to ${size}`}
         </button>
-      </div>
-    </div>
+      </DialogButtons>
+    </form>
   );
 }
 
-function Confirm({ name, text, button, busy, onConfirm, children }: { name: string; text: string; button: string; busy: boolean; onConfirm: (confirm: string) => void; children?: React.ReactNode }) {
-  const [typed, setTyped] = useState("");
+/** The two ways out, folded away at the bottom of the card. */
+export function BoxExits({ box }: { box: BoxView }) {
+  const { msg, setMsg, busy, act } = useAct(box.id);
+  const [open, setOpen] = useState<"" | "release" | "delete">("");
+  const close = () => {
+    if (busy) return;
+    setOpen("");
+    setMsg(null);
+  };
+  if (!box.name || box.status === "released" || box.status === "deleting" || box.status === "awaiting_payment") return null;
+  const canDelete = box.status === "active" || box.status === "cert_pending" || box.status === "failed";
+  const name = box.name;
+  const addr = box.domain ?? "its address";
   return (
-    <div className="cp-card">
-      <p className="cp-sub">{text}</p>
-      {children}
-      <div className="cp-field">
-        <label>
-          Type <strong>{name}</strong> to confirm
-        </label>
-        <input type="text" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
-      </div>
-      <button className="btn btn-quiet btn-sm cp-danger" disabled={busy || typed.trim() !== name} onClick={() => onConfirm(typed.trim())}>
-        {button}
-      </button>
+    <>
+      <details className="cp-fold cp-exits">
+        <summary>Stop or delete this box</summary>
+        <div className="cp-exit">
+          <div>
+            <h3>Stop managed service, keep the server</h3>
+            <p>Ends the subscription now and removes {addr}. The server and your apps keep running in your Hetzner account as a self-hosted box.</p>
+          </div>
+          <button className="btn btn-quiet btn-sm" onClick={() => setOpen("release")}>
+            Stop managing…
+          </button>
+        </div>
+        {canDelete && (
+          <div className="cp-exit">
+            <div>
+              <h3>Delete the server</h3>
+              <p>Removes {addr}, then deletes the server and everything we made for it in your Hetzner project, and ends the subscription. Needs a Hetzner token.</p>
+            </div>
+            <button className="btn btn-quiet btn-sm cp-danger-outline" onClick={() => setOpen("delete")}>
+              Delete server…
+            </button>
+          </div>
+        )}
+      </details>
+      <Dialog open={open === "release"} onClose={close} title={`Stop managing ${name}`} busy={busy}>
+        <ReleaseForm name={name} addr={addr} busy={busy} msg={msg} act={act} onBack={close} />
+      </Dialog>
+      <Dialog open={open === "delete"} onClose={close} title={`Delete ${name}’s server`} busy={busy}>
+        <DeleteForm name={name} addr={addr} busy={busy} msg={msg} act={act} onBack={close} />
+      </Dialog>
+    </>
+  );
+}
+
+type FormProps = { name: string; addr: string; busy: boolean; msg: Msg; act: Act; onBack: () => void };
+
+function TypeName({ id, name, value, onChange }: { id: string; name: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="cp-field">
+      <label htmlFor={id}>
+        Type <span className="cp-mono">{name}</span> to confirm
+      </label>
+      <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} />
     </div>
   );
 }
 
-function DeleteServer({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
+function ReleaseForm({ name, addr, busy, msg, act, onBack }: FormProps) {
+  const id = useId();
+  const [typed, setTyped] = useState("");
+  const ready = typed.trim() === name;
+  return (
+    <form
+      className="cp-dialog-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) act({ action: "release", confirm: typed.trim() });
+      }}
+    >
+      <ul className="cp-dialog-list">
+        <li>The subscription ends now.</li>
+        <li>{addr} is removed, and we keep no sign-in link for the box.</li>
+        <li>The server, its data and your apps stay in your Hetzner account and keep running. The box goes on installing Tiffin updates by itself.</li>
+        <li>Hetzner goes on billing you for the server, as before.</li>
+      </ul>
+      <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
+      <Status msg={msg} />
+      <DialogButtons busy={busy} onBack={onBack}>
+        <button type="submit" className="btn btn-sm btn-danger" disabled={busy || !ready}>
+          {busy ? "Stopping…" : `Stop managing ${name}`}
+        </button>
+      </DialogButtons>
+    </form>
+  );
+}
+
+function DeleteForm({ name, addr, busy, msg, act, onBack }: FormProps) {
+  const id = useId();
+  const [typed, setTyped] = useState("");
   const [token, setToken] = useState("");
   const [data, setData] = useState(false);
+  const ready = typed.trim() === name && tokenOk(token);
   return (
-    <Confirm
-      name={box.name!}
-      busy={busy || token.trim().length < 20}
-      button="Delete the server"
-      text="This removes the box's shiptiffin.app address, then deletes the server, its firewall and anything else we made for this box in your Hetzner project (only what carries its shiptiffin-box label), and ends the subscription. We only do it with a key you paste now. The data volume stays unless you tick the box: it is your apps' data."
-      onConfirm={(confirm) => act({ action: "delete-server", confirm, token: token.trim(), deleteData: data })}
+    <form
+      className="cp-dialog-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) act({ action: "delete-server", confirm: typed.trim(), token: token.trim(), deleteData: data });
+      }}
     >
-      <TokenInput value={token} onChange={setToken} label="Hetzner key (used for this, then forgotten)" />
+      <ul className="cp-dialog-list">
+        <li>{addr} is removed first.</li>
+        <li>
+          Then the server, its firewall and anything else we made for this box in your Hetzner project are deleted: only what carries its{" "}
+          <span className="cp-mono">shiptiffin-box</span> label.
+        </li>
+        <li>The subscription ends now.</li>
+        <li>The data volume stays unless you tick the box below.</li>
+      </ul>
+      <TokenInput id={`${id}-token`} value={token} onChange={setToken} hint="We delete only with a token you paste now; it is used for this, then forgotten." />
       <label className="cp-check">
         <input type="checkbox" checked={data} onChange={(e) => setData(e.target.checked)} />
-        <span>Also delete the data volume (everything your apps stored). This can&rsquo;t be undone.</span>
+        <span>Also delete the data volume: everything your apps stored. This can&rsquo;t be undone.</span>
       </label>
-    </Confirm>
+      <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
+      <Status msg={msg} />
+      <DialogButtons busy={busy} onBack={onBack}>
+        <button type="submit" className="btn btn-sm btn-danger" disabled={busy || !ready}>
+          {busy ? "Deleting…" : data ? `Delete ${name}’s server and data` : `Delete ${name}’s server`}
+        </button>
+      </DialogButtons>
+    </form>
   );
 }
