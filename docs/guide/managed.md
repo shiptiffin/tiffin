@@ -174,7 +174,7 @@ Secrets, by name:
 | Project | Secret | |
 |---|---|---|
 | website | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | test mode until `STRIPE_LIVE=1` |
-| website | `STRIPE_COUPON_FOUNDING`, `STRIPE_PRICE_MONTHLY`, `STRIPE_CHECKOUT_LINK` | optional |
+| website | `STRIPE_COUPON_FOUNDING`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PAYMENT_METHODS` | optional |
 | website | `CLOUD_SEAL_PUBLIC`, `CLOUD_LICENCE_PUBLIC` | public keys only |
 | website | `CLOUD_ADMIN_USER_IDS` | account ids allowed into /admin (verified email) |
 | website | `CLOUD_ABUSE_NOTIFY`, `EARLY_ACCESS_NOTIFY`, `SITE_URL` | optional |

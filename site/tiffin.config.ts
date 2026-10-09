@@ -18,7 +18,7 @@ import { defineConfig } from "@shiptiffin/sdk";
 //
 // Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_COUPON_FOUNDING,
 // STRIPE_PRICE_MONTHLY (optional; else the price with lookup key box_monthly_v1),
-// STRIPE_CHECKOUT_LINK (optional, "1": offer Link in Checkout besides cards),
+// STRIPE_PAYMENT_METHODS (optional: the Stripe payment method configuration Checkout uses, pmc_…),
 // CLOUD_SEAL_PUBLIC and CLOUD_LICENCE_PUBLIC (public keys only),
 // CLOUD_ADMIN_USER_IDS (account ids allowed into /admin), CLOUD_ABUSE_NOTIFY
 // (optional), EARLY_ACCESS_NOTIFY (optional). Until the Stripe and CLOUD_ ones

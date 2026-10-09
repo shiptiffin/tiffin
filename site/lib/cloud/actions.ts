@@ -72,9 +72,10 @@ export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_pa
  * session per box: stored, and handed out again until it expires, so two
  * tabs pay for one subscription; the request is saved before Stripe is
  * called, so a retry after any failure sends the very same request
- * (checkout.ts). Cards only (plus Link when STRIPE_CHECKOUT_LINK=1): no
- * payment method that confirms days later, so a paid box is a box whose
- * first payment went through.
+ * (checkout.ts). Payment methods come from the Stripe payment method
+ * configuration in STRIPE_PAYMENT_METHODS (cards and wallets only: no method
+ * that confirms days later); without it, the account's default. Either way a
+ * box is set up only once its first invoice is paid (billing.ts).
  */
 export async function startCheckout(acct: Account, base = SITE, renew?: string): Promise<string> {
   let box: q.BoxRow;
@@ -94,7 +95,7 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
     const params: Record<string, unknown> = {
       mode: "subscription",
       line_items: [{ price, quantity: 1 }],
-      payment_method_types: process.env.STRIPE_CHECKOUT_LINK === "1" ? ["card", "link"] : ["card"],
+      ...(process.env.STRIPE_PAYMENT_METHODS ? { payment_method_configuration: process.env.STRIPE_PAYMENT_METHODS } : {}),
       success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: renew ? `${base}/account` : `${base}/start?canceled=1`,
       client_reference_id: b.id,
