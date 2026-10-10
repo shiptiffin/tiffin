@@ -66,7 +66,7 @@ func newCLIBoxFrom(t *testing.T, dir, project, cli, bin string) *cliBox {
 			_ = exec.Command("limactl", "disk", "delete", "-f", disk).Run()
 		}
 	})
-	b.ok("up", "--binary", bin)
+	b.ok("up", "--provider", "local", "--binary", bin)
 	return b
 }
 

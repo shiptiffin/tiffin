@@ -34,6 +34,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"syscall"
@@ -388,10 +389,19 @@ type unreachableError struct {
 func (e *unreachableError) Error() string { return fmt.Sprintf("cannot reach %s: %v", e.base, e.err) }
 func (e *unreachableError) Unwrap() error { return e.err }
 
+// codexSandboxHint says why a request from inside Codex got no answer: its
+// default sandbox blocks the network for shell commands (MCP is not blocked).
+const codexSandboxHint = "Codex's sandbox blocks network: approve this command, or set [sandbox_workspace_write] network_access = true in ~/.codex/config.toml"
+
 func (c *client) unreachable(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = ue.Err
+	}
+	// The client has no app to ask, and Codex sets this in the process's own
+	// environment.
+	if os.Getenv("CODEX_SANDBOX_NETWORK_DISABLED") == "1" {
+		err = fmt.Errorf("%w. %s", err, codexSandboxHint)
 	}
 	return &unreachableError{c.base, err}
 }

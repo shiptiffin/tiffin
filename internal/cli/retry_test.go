@@ -465,3 +465,17 @@ func TestDeploySourcePackedAgain(t *testing.T) {
 		t.Fatalf("upload: %+v %v, attempts %d, box got %v", d, err, attempts, got.Load())
 	}
 }
+
+// Inside Codex's sandbox a box that cannot be reached says how to let the
+// command through.
+func TestUnreachableInCodexSandbox(t *testing.T) {
+	c := &client{base: "https://dashboard.example.com"}
+	if err := c.unreachable(io.EOF); strings.Contains(err.Error(), "Codex") {
+		t.Fatalf("outside Codex: %v", err)
+	}
+	t.Setenv("CODEX_SANDBOX_NETWORK_DISABLED", "1")
+	err := c.unreachable(&url.Error{Op: "Get", URL: c.base, Err: io.EOF})
+	if !isUnreachable(err) || !errors.Is(err, io.EOF) || !strings.HasSuffix(err.Error(), "EOF. "+codexSandboxHint) {
+		t.Fatalf("in Codex: %v", err)
+	}
+}

@@ -54,17 +54,16 @@ func (a *app) upCmd() *cobra.Command {
 		Long: "Creates the box if it does not exist, installs or updates Tiffin on it, and checks it answers over HTTPS. " +
 			"Safe to run again: it converges. An unhealthy update rolls back automatically.\n\n" +
 			"Providers:\n" +
-			"  local    a Lima VM on this computer (the default)\n" +
 			"  hetzner  a Hetzner Cloud server (Ubuntu 26.04), a data volume and a firewall (token in HCLOUD_TOKEN);\n" +
 			"           --dry-run prints what it would create and the monthly price\n" +
-			"  ssh      any Ubuntu 26.04 (or 24.04) server you can SSH into with sudo (--host user@ip)\n\n" +
+			"  ssh      any Ubuntu 26.04 (or 24.04) server you can SSH into with sudo (--host user@ip)\n" +
+			"  local    a Lima VM on this computer, to try Tiffin or work on it (not for real apps)\n\n" +
 			"Update a server box later with: tiffin up --name <box>\n\n" +
 			"Upgrade a Hetzner box in place: --type <type> changes its server type (it restarts for about 2 minutes; ARM and x86\n" +
 			"cannot be swapped) and --volume-size <GB> grows its data volume (no downtime; volumes never shrink). Both show the\n" +
 			"plan and its monthly price and ask first; --yes skips the question, --dry-run only shows it. After any resize, and\n" +
 			"after you resize an ssh box at its host, up retunes Postgres, Valkey and the memory apps share to the machine.",
-		Example: "  tiffin up\n" +
-			"  tiffin up --provider hetzner --dry-run\n" +
+		Example: "  tiffin up --provider hetzner --name shop --dry-run\n" +
 			"  tiffin up --provider hetzner --name shop --location nbg1\n" +
 			"  tiffin up --name shop --type cax21 --volume-size 80\n" +
 			"  tiffin up --provider hetzner --adopt shiptiffin-server --ssh-key ~/.ssh/id_ed25519 --dry-run\n" +
@@ -73,17 +72,23 @@ func (a *app) upCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			prov := o.provider
 			if prov == "" {
-				prov = "local"
-				if o.name != "" && o.name != "local" {
-					f, err := a.loadBoxes()
-					if err != nil {
-						return err
-					}
-					if bx := f.Boxes[o.name]; bx != nil {
-						prov = bx.Provider
-					} else {
-						return &exitError{ExitInvalid, "there is no box named " + o.name + " yet: pass --provider hetzner or --provider ssh to create it"}
-					}
+				f, err := a.loadBoxes()
+				if err != nil {
+					return err
+				}
+				switch {
+				case o.name != "" && f.Boxes[o.name] != nil:
+					prov = f.Boxes[o.name].Provider
+				case o.name != "" && o.name != "local":
+					return &exitError{ExitInvalid, "there is no box named " + o.name + " yet: pass --provider hetzner or --provider ssh to create it"}
+				case f.Boxes["local"] != nil || o.name == "local":
+					prov = "local"
+				default:
+					// A new box needs a place to run: a server for real apps,
+					// or this computer only when asked for.
+					return &exitError{ExitInvalid, "say where the box runs: --provider hetzner --name <box> (a Hetzner Cloud server; token in HCLOUD_TOKEN) or " +
+						"--provider ssh --name <box> --host user@ip (any Ubuntu server). Or get one made for you at https://shiptiffin.com. " +
+						"To try Tiffin in a VM on this computer instead: --provider local (needs Lima)"}
 				}
 			}
 			switch prov {
@@ -102,7 +107,7 @@ func (a *app) upCmd() *cobra.Command {
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&o.provider, "provider", "", "where the box runs: local (default), hetzner or ssh")
+	fl.StringVar(&o.provider, "provider", "", "where the box runs: hetzner, ssh or local (a Lima VM on this computer)")
 	fl.StringVar(&o.binary, "binary", "", "linux tiffin binary to install (default: next to this one, or built from source)")
 	fl.StringVar(&o.name, "name", "", "the box's name (server boxes; default tiffin). Hetzner resources are named after it")
 	fl.BoolVar(&o.dryRun, "dry-run", false, "print what would be created and what it costs per month; change nothing")

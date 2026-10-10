@@ -5,7 +5,8 @@ import { api, isProblem, type CreatedToken, type Token } from "@/api/client";
 import { q } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
 import { ConfirmItsYou } from "@/components/confirm-its-you";
-import { Command, CopyButton } from "@/components/copy";
+import { AgentCommand } from "@/components/agent-command";
+import { CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
@@ -15,7 +16,7 @@ import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { actorName } from "@/lib/actors";
 import { cn } from "@/lib/cn";
-import { mcpCommand, onThisComputer } from "@/lib/mcp";
+import { onThisComputer } from "@/lib/mcp";
 import { relative } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
 
@@ -66,13 +67,13 @@ export function KeysPage({ create }: { create?: boolean }) {
       {tokens.isError && <ProblemNote className="mt-8" error={tokens.error} title="Couldn’t load the keys." />}
 
       <section className="mt-9" aria-label="Keys">
-        {tokens.isPending ? <Skeleton className="h-32" /> : <KeyList keys={keys} empty="No keys yet. Create one for Claude Code and paste the line it gives you." />}
+        {tokens.isPending ? <Skeleton className="h-32" /> : <KeyList keys={keys} empty="No keys yet. Create one for Claude Code or Codex and paste the line it gives you." />}
       </section>
 
-      <section className="mt-10" aria-label="Connect Claude Code">
-        <h2 className="text-[0.9375rem] font-[550] text-ink">Connect Claude Code</h2>
+      <section className="mt-10" aria-label="Connect your agent">
+        <h2 className="text-[0.9375rem] font-[550] text-ink">Connect your agent</h2>
         <p className="mt-1 mb-3 text-sm text-ink-2">Run this once in a terminal with your key. Creating a key gives you the line ready to paste.</p>
-        <Command cmd={mcpCommand("<key>")} />
+        <AgentCommand secret="<key>" />
       </section>
 
 
@@ -307,7 +308,6 @@ function Pick({ value, title, note, children }: { value: string; title: string; 
 }
 
 function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => void }) {
-  const mcp = mcpCommand(created.secret);
   return (
     <>
       <DialogHeader>
@@ -330,9 +330,9 @@ function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => 
                 with <span className="ident text-ink">TIFFIN_URL={location.origin}</span>
               </>
             )}
-            , or connect Claude Code:
+            , or connect your agent:
           </p>
-          <Command cmd={mcp} />
+          <AgentCommand secret={created.secret} />
         </div>
       </DialogBody>
       <DialogFooter>

@@ -124,7 +124,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    new one). These are not backups (`tiffin backups`).
    Backups: `tiffin backups offsite show` says whether they are copied off the box. Setting a
    destination (`tiffin backups offsite set`) returns a passphrase once: hand it to the human
-   to keep off the server, never store it in the repo. After losing a server: `tiffin up`,
+   to keep off the server, never store it in the repo. After losing a server: a new box (`tiffin up --provider hetzner --name <box>`),
    `offsite set ... --passphrase <it>`, then `tiffin restore latest --from offsite` (preview,
    then `--confirm`); apps need a redeploy after. To undo a mistake from a known time,
    `tiffin restore latest --time "2026-10-07 14:32"` (UTC) takes every project's database back to

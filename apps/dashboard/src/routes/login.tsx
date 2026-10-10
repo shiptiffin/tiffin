@@ -221,13 +221,13 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
                 <>
                   <p className={cn("text-md text-ink-2", canPasskey || byEmail || providers.length > 0 ? "mt-8 text-[0.875rem]" : "mt-2.5")}>
                     {state === "bad-link"
-                      ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
-                      : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
+                      ? "Sign-in links work once, for ten minutes. Get a fresh one on the computer that ran tiffin up:"
+                      : "Run this on the computer that ran tiffin up. It prints a link that signs you in once, within ten minutes."}
                   </p>
                   <Command cmd="tiffin login" className={canPasskey || byEmail || providers.length > 0 ? "mt-3" : "mt-5"} />
                   <p className="mt-4 text-sm text-ink-3">
-                    Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
-                    <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.
+                    On the box’s server instead, as root: <code className="ident text-ink-2">tiffin login --home /var/lib/tiffin/platform</code>. Not the owner? Ask
+                    an owner or admin to invite you.
                   </p>
                 </>
               )}

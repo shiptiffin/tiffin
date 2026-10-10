@@ -16,7 +16,7 @@ export const SITE = "https://shiptiffin.com";
 /** The guides published on the site, in reading order, with a line for the index. */
 export const PAGES: { name: string; title: string; note: string; section: Section }[] = [
   { name: "agent-onboarding", title: "Set up ShipTiffin with your coding agent", note: "the setup prompt, what only the person can do, connecting Claude Code, Codex, Cursor and VS Code", section: "Start here" },
-  { name: "quickstart", title: "Quickstart", note: "make a box with tiffin up (a Mac, Hetzner or any Ubuntu server), describe a project, plan, apply, deploy", section: "Start here" },
+  { name: "quickstart", title: "Quickstart", note: "get a box (managed, or self-hosted on Hetzner or any Ubuntu server), connect the CLI and your agent, ship a first project", section: "Start here" },
   { name: "concepts", title: "Concepts", note: "the box, projects and resources, sharing the box, changes, risk tiers, undo, people and API keys", section: "Start here" },
   { name: "agents", title: "Working with agents", note: "the MCP server, plan then apply, API keys, CLI conventions, untrusted data", section: "Start here" },
   { name: "managed", title: "Managed boxes", note: "how shiptiffin.com sets up a box in your Hetzner account, what it can and can't do, billing", section: "Start here" },

@@ -109,7 +109,7 @@ func TestEdgeMigration(t *testing.T) {
 
 	// ---- a build that cannot run: nothing changes ----
 	r := loads.run("dead build", func() {
-		if code, out := b.run("up", "--binary", dead); code == 0 {
+		if code, out := b.run("up", "--provider", "local", "--binary", dead); code == 0 {
 			t.Fatalf("a dead build updated the box: %s", out)
 		}
 		b.inBox(healthyScript)
@@ -121,7 +121,7 @@ func TestEdgeMigration(t *testing.T) {
 
 	// ---- a build that installs but fails its health check: rolled back to the old layout ----
 	loads.run("unhealthy build", func() {
-		code, out := b.run("up", "--binary", unhealthy)
+		code, out := b.run("up", "--provider", "local", "--binary", unhealthy)
 		if code == 0 || !strings.Contains(out, "rolled back") {
 			t.Fatalf("an unhealthy build must be rolled back: %d %s", code, out)
 		}
@@ -134,7 +134,7 @@ func TestEdgeMigration(t *testing.T) {
 
 	// ---- the good build: the edge gets its own service ----
 	r = loads.run("migration (tiffin up)", func() {
-		b.ok("up", "--binary", newBin)
+		b.ok("up", "--provider", "local", "--binary", newBin)
 		b.inBox(healthyScript)
 	})
 	unit := b.inBox("cat /etc/systemd/system/tiffin.service")

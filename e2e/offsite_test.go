@@ -289,7 +289,7 @@ func offsiteRoundTrip(t *testing.T, dir string, d *offsiteDest) {
 	p := time.Now()
 	a := portBox(t, "a", dir, cli, os.Getenv("TIFFIN_E2E_BOX_A"))
 	a.hide = d.hide
-	a.ok("up", "--binary", bin)
+	a.ok("up", "--provider", "local", "--binary", bin)
 	phase("A up", p)
 	if code := a.inBox(fmt.Sprintf("curl -sk -o /dev/null -w '%%{http_code}' %s/ || true", d.endpoint)); code == "000" || code == "" {
 		fatalf("the box cannot reach the S3 endpoint %s (got %q)", d.endpoint, code)
@@ -477,7 +477,7 @@ func offsiteRoundTrip(t *testing.T, dir string, d *offsiteDest) {
 	p = time.Now()
 	b := portBox(t, "b", dir, cli, os.Getenv("TIFFIN_E2E_BOX_B"))
 	b.hide = d.hide
-	b.ok("up", "--binary", bin)
+	b.ok("up", "--provider", "local", "--binary", bin)
 	phase("B up", p)
 
 	p = time.Now()

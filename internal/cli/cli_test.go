@@ -184,11 +184,61 @@ func TestInitWritesAWorkingConfig(t *testing.T) {
 	if code != ExitOK || decode(t, out)["project"] != "my-cool-app" {
 		t.Fatalf("init: %d %s", code, out)
 	}
+	// AGENTS.md and the skill for Claude Code (.claude) and Codex (.agents).
+	for _, f := range []string{"AGENTS.md", ".claude/skills/tiffin/SKILL.md", ".agents/skills/tiffin/SKILL.md"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Fatalf("init did not write %s: %v", f, err)
+		}
+	}
 	if code, out, _ := run(t, env, "init", dir); code != ExitInvalid {
 		t.Fatalf("second init must refuse: %d %s", code, out)
 	}
 	if code, out, _ := run(t, env, "plan", dir); code != ExitOK {
 		t.Fatalf("plan of init config: %d %s", code, out)
+	}
+}
+
+// A project with its own CLAUDE.md gets one line importing AGENTS.md, once;
+// its own files are never overwritten.
+func TestInitImportsAgentsIntoClaudeMD(t *testing.T) {
+	env := newEnv(t)
+	dir := t.TempDir()
+	write := func(name, s string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("CLAUDE.md", "# Rules\nBe kind.")
+	write(".claude/skills/tiffin/SKILL.md", "mine")
+	code, out, _ := run(t, env, "init", dir)
+	if code != ExitOK || decode(t, out)["claudeMd"] != filepath.Join(dir, "CLAUDE.md") {
+		t.Fatalf("init: %d %s", code, out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(b) != "# Rules\nBe kind.\n@AGENTS.md\n" {
+		t.Fatalf("CLAUDE.md: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".claude/skills/tiffin/SKILL.md")); string(b) != "mine" {
+		t.Fatalf("the project's own skill was overwritten: %q", b)
+	}
+	// Already imported: left alone. In .claude/CLAUDE.md the import is relative to it.
+	if path, err := importAgents(dir); err != nil || path != "" {
+		t.Fatalf("second import: %q %v", path, err)
+	}
+	other := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(other, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, ".claude", "CLAUDE.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := importAgents(other); err != nil || path != filepath.Join(other, ".claude", "CLAUDE.md") {
+		t.Fatalf(".claude/CLAUDE.md: %q %v", path, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(other, ".claude", "CLAUDE.md")); string(b) != "x\n\n@../AGENTS.md\n" {
+		t.Fatalf(".claude/CLAUDE.md: %q", b)
 	}
 }
 
@@ -516,8 +566,24 @@ func TestAgentShellUsesAgentKey(t *testing.T) {
 	if got := tokenFor(map[string]string{"CLAUDECODE": "1"}); got != "tfn_agent" {
 		t.Fatalf("Claude Code: %q", got)
 	}
+	if got := tokenFor(map[string]string{"CODEX_THREAD_ID": "0199c9a2-7f3e-7a51-9d2b-4c6e8f1a2b3c"}); got != "tfn_agent" {
+		t.Fatalf("Codex: %q", got)
+	}
 	if got := tokenFor(map[string]string{"TIFFIN_AGENT": "1", "TIFFIN_TOKEN": "tfn_mine"}); got != "tfn_mine" {
 		t.Fatalf("explicit token: %q", got)
+	}
+	// Each agent session is labelled in History.
+	for env, want := range map[string]string{"CLAUDECODE=1 CLAUDE_CODE_SESSION_ID=7f3a90bc-1111": "claude-code:7f3a90bc",
+		"CODEX_THREAD_ID=0199c9a2-7f3e-7a51-9d2b-4c6e8f1a2b3c": "codex:8f1a2b3c", "CODEX_SESSION_ID=0199c9a2-0000-7000-8000-00000000abcd": "codex:0000abcd"} {
+		vars := map[string]string{}
+		for _, kv := range strings.Fields(env) {
+			k, v, _ := strings.Cut(kv, "=")
+			vars[k] = v
+		}
+		a := &app{io: IO{Env: func(k string) string { return vars[k] }}}
+		if a.root(); a.session != want {
+			t.Errorf("%s: session %q, want %q", env, a.session, want)
+		}
 	}
 }
 

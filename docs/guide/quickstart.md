@@ -1,108 +1,178 @@
 # Quickstart
 
-You need a Mac with [Lima](https://lima-vm.io) (`brew install lima`) and the `tiffin` binary.
+Three steps: get a box, connect your computer and your agent to it, then ship a project.
+A box is one Linux server you own, with Tiffin and every service on it.
 
-## 1. Make a box
+## 1. Get a box
+
+Pick one way. All three give you the same box.
+
+### Managed (recommended)
+
+Go to [shiptiffin.com/start](https://shiptiffin.com/start). Sign in, pay, and paste a
+Hetzner Cloud API token (make a new project for ShipTiffin in the Hetzner Cloud console,
+then Security → API tokens → Generate API token, **Read & Write**). Pick a name, a size and
+a place. ShipTiffin builds the box in **your own** Hetzner account in about five minutes,
+at `<name>.shiptiffin.app`. You install nothing for this.
+
+It costs $19 a month per box ($12 for the first 100 customers, locked for 24 months), plus
+the server, which Hetzner bills you for: about $10 a month before VAT for the smallest.
+You get updates, monitoring, encrypted off-server backups and support.
+[How managed boxes work](managed.md).
+
+When it's ready, click **Open your dashboard**. It signs you in once. Add a passkey in the
+dashboard's Settings: after that you sign in on the box itself.
+
+### Self-host on Hetzner (free)
+
+Install the `tiffin` CLI (macOS or Linux; on Windows, inside
+[WSL](https://learn.microsoft.com/windows/wsl/install)). Make a **Read & Write** API token
+in the Hetzner Cloud console (your project → Security → API tokens). Then:
 
 ```bash
-tiffin up
+curl -fsSL https://shiptiffin.com/install.sh | sh
+export HCLOUD_TOKEN=...                               # the Hetzner token
+tiffin up --provider hetzner --name shop --dry-run    # what it makes, and the monthly price
+tiffin up --provider hetzner --name shop              # a few minutes
 ```
 
-This creates an Ubuntu 26.04 VM on your Mac, installs Tiffin and its services, and checks it
-answers over HTTPS. It takes about a minute the first time (it downloads the Ubuntu
-image) and seconds after that. Run it again any time: it updates Tiffin in place and
-rolls back by itself if an update is unhealthy.
+It makes the server, a 40 GB data volume, a firewall and an SSH key in your Hetzner
+project. At the end it prints the dashboard address and a one-time sign-in link. Open the
+link and add a passkey in Settings. On that computer, `tiffin login` prints a new link any
+time (`--open` opens it on a Mac).
+[More on Hetzner boxes](#hetzner).
 
-Trust the box's certificate once so your browser doesn't warn (macOS asks for your password):
+### Self-host on any Ubuntu server (free)
+
+Any Ubuntu 26.04 server (24.04 also works) you can reach over SSH, as root or a user with
+passwordless sudo:
 
 ```bash
-tiffin trust
+curl -fsSL https://shiptiffin.com/install.sh | sh
+tiffin up --provider ssh --name shop --host root@203.0.113.5
 ```
 
-## 2. Describe your project
+It prints the dashboard address and a one-time sign-in link, as above.
+[More on Ubuntu servers](#any-ubuntu-server).
+
+Until a box has a domain of its own, a self-hosted box answers at
+`https://dashboard.<server IPv4, dots as dashes>.sslip.io`, with a real certificate
+([domains](domains.md)).
+
+## 2. Connect your computer and your agent
+
+### A box you made with `tiffin up`
+
+Nothing to do. The computer that ran `tiffin up` remembers the box (in `~/.tiffin`) and
+every `tiffin` command talks to it. Check with `tiffin whoami`. Connect Claude Code:
 
 ```bash
-mkdir hello && cd hello
+claude mcp add -s user tiffin -- tiffin mcp
+```
+
+`tiffin mcp` uses the box's own agent key, so there is no key to paste. `-s user` makes
+it work in every folder; without it, Claude Code adds the server for the current folder
+only.
+
+### A managed box, or a box from another computer
+
+Make an API key in the dashboard: **Settings › API keys → Create key**. For your own use,
+pick All projects and Full access (or one project, to keep it narrower). The key is shown
+once. There is no saved login for a box you didn't make with `tiffin up`: the CLI reads
+the box's address and the key from two environment variables. Then install the CLI
+and point it at the box:
+
+```bash
+curl -fsSL https://shiptiffin.com/install.sh | sh
+export TIFFIN_URL=https://dashboard.<name>.shiptiffin.app   # the dashboard's address
+export TIFFIN_TOKEN=<key>
+tiffin whoami                                               # shows the key's name
+```
+
+Put the two `export` lines in your shell profile (`~/.zshrc` or `~/.bashrc`) to keep them.
+
+For your coding agent, make a second key named after it (for example `claude-code`). The
+dialog that shows a new key also shows the Claude Code line for your box:
+
+```bash
+claude mcp add -s user --transport http tiffin https://dashboard.<name>.shiptiffin.app/mcp \
+  --header "Authorization: Bearer <key>"
+```
+
+Codex, Cursor and VS Code: see [connecting an agent](agent-onboarding.md#connecting-an-agent).
+
+Each agent should have its own key, so History shows who did what. A key with full access
+to all projects can do what you can. Claude Code asks you before it runs anything
+destructive (deleting a database, say) unless you've allowed that tool, and most changes
+can be undone. For an agent that should only touch one project, or only read, make a
+narrower key: `tiffin tokens create --name ci --projects shop --access read`.
+
+## 3. Ship your first project
+
+The quickest way is the dashboard: **New project** starts one from a starter app, or
+imports a repository from GitHub (it asks you to connect GitHub the first time). After an
+import, every push deploys, and every pull request gets a preview.
+
+Or from your app's folder on your computer. No app yet? Make a Next.js one first:
+
+```bash
+npx create-next-app@latest hello --yes
+cd hello
 tiffin init
 ```
 
 `tiffin init` writes `tiffin.config.ts`, plus `AGENTS.md` and an agent skill so your
-coding agent knows how to work with the box. Apps use `@shiptiffin/sdk`: install it from npm
-(`bun add @shiptiffin/sdk`), or use the copy that ships inside `tiffin`: `tiffin init` (or
-`tiffin sdk add` once the app has a `package.json`) vendors it as
-`vendor/shiptiffin-sdk-<version>.tgz` with `"@shiptiffin/sdk": "file:./vendor/…"`, so no
-registry is needed. Commit `vendor/` and run `bun install`; builds on the box install it from
-there. An app that installs it from npm keeps that. Edit the config:
+coding agent knows how to work with the box. The project is named after the folder:
 
 ```ts
 import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "hello",
-  apps: { web: { framework: "next" } },
-  services: { auth: {} },  // Database, KV, Files, Email and Analytics are always there
+  apps: {
+    web: { framework: "next" },
+  },
+  services: {
+    postgres: {},
+  },
 });
 ```
 
-## 3. Plan, then apply
+Database, KV, Files, Email and Analytics are always there; list a service only to set its
+options, and add `auth: {}` for sign-in. Apps use `@shiptiffin/sdk`. In a folder with a
+`package.json`, `tiffin init` adds the copy that ships inside `tiffin` as
+`vendor/shiptiffin-sdk-<version>.tgz` (`tiffin sdk add` does it later), so no registry is
+needed: commit `vendor/` and run `npm install` or `bun install`. An app that installs it
+from npm (`bun add @shiptiffin/sdk`) keeps that.
+
+Then plan, apply and deploy:
 
 ```bash
 tiffin plan
 tiffin apply --confirm <hash> -m "Set up hello"
-```
-
-The plan lists every step, its risk and why. Nothing changes until you confirm with
-that exact plan's hash.
-
-## 4. Deploy
-
-```bash
 tiffin deploy
 ```
 
-Your app is live at `https://hello.tiffin.localhost:8443`: an app that sets no `routes` is
-served at its project's name ([concepts](concepts.md)).
+The plan lists every step, its risk and why. Nothing changes until you confirm with that
+exact plan's hash. `tiffin deploy` builds on the box. Your app is then live at
+`https://hello.<box domain>`: an app that sets no `routes` is served at its project's name
+([concepts](concepts.md)). `tiffin logs web` shows its logs.
 
-## 5. Open the dashboard
+Next: [apps and deploys](apps.md) for previews, env vars and GitHub, and
+[domains](domains.md) to use your own domain. Or let your agent carry on:
+[working with agents](agents.md).
 
-```bash
-tiffin login --open
-```
+## Running your own server
 
-## 6. Let your agent help
-
-```bash
-claude mcp add tiffin -- tiffin mcp
-```
-
-That works on this computer. For a box elsewhere, or another agent, see
-[connecting an agent](agent-onboarding.md#connecting-an-agent).
-
-Your agent gets its own API key with full access to all projects, so it can do what you
-can. Claude Code asks you before it runs anything destructive (deleting a database, say)
-unless you've allowed that tool, and every change lands in History under the agent's
-name; most can be undone. For an agent
-that should only touch one project, or only read, create a narrower key:
-`tiffin tokens create --name ci --projects shop --access read`.
-
-## Run it on a server
-
-The same box runs on a real server. Everything above works the same way; the dashboard
-is at `https://dashboard.<ip>.sslip.io` (your server's IP, with dashes) until you give
-it a domain.
+This part is for boxes you made with `tiffin up`. You resize or delete a managed box from
+your shiptiffin.com account instead.
 
 ### Hetzner
 
-Create a read & write API token in the Hetzner Cloud console (your project → Security →
-API tokens), then see what you'd get and what it costs, without creating anything:
-
-```bash
-export HCLOUD_TOKEN=...
-tiffin up --provider hetzner --name shop --dry-run
-```
-
-It prints the server, a 40 GB data volume, a firewall and an SSH key, and the monthly
-price from Hetzner's own price list. Drop `--dry-run` to create them. The defaults are
+`tiffin up --provider hetzner --name shop --dry-run` creates nothing: it prints the
+server, a 40 GB data volume, a firewall and an SSH key, and the monthly price from
+Hetzner's own price list. Drop `--dry-run` to create them. Instead of `HCLOUD_TOKEN`,
+`--token-file <path>` reads the token from a file. The defaults are
 a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 26.04; change them with `--type` and
 `--location`. To use your own SSH key instead of one Tiffin
 makes, pass `--ssh-key ~/.ssh/id_ed25519` (or set `HCLOUD_SSH_KEY`); only the public
@@ -156,7 +226,7 @@ never moved or formatted.
 
 ### Any Ubuntu server
 
-Any Ubuntu 26.04 server you can SSH into with passwordless sudo (24.04 also works, for a server you already run):
+To keep your data on a disk of its own:
 
 ```bash
 tiffin up --provider ssh --name shop --host root@203.0.113.5 --data-disk /dev/sdb
@@ -185,7 +255,9 @@ the clock in sync, adds a swap file and caps log size. A kernel update never reb
 server unless you choose a time: `tiffin up --name shop --reboot-window 04:00`.
 `tiffin status` shows all of it, including a reboot that is waiting.
 
-### Tiffin's own updates
+## Tiffin's own updates
+
+This applies to every box, managed ones too.
 
 A box running a Tiffin release keeps itself on the newest release of its channel
 (`stable`, or `edge` for pre-releases too). Once a day it reads the channel's release

@@ -103,7 +103,7 @@ func TestProtect(t *testing.T) {
 	if fresh {
 		p := time.Now()
 		linux := buildTiffin(t, dir, "linux", "0.0.11-protect")
-		if code, out := run("up", "--binary", linux); code != 0 {
+		if code, out := run("up", "--provider", "local", "--binary", linux); code != 0 {
 			t.Fatalf("up: exit %d\n%s", code, out)
 		}
 		phase("up", p)

@@ -83,4 +83,4 @@ case ":$PATH:" in
   *":$dir:"*) ;;
   *) say "Add it to your PATH: export PATH=\"$dir:\$PATH\" (in ~/.zshrc or ~/.bashrc)." ;;
 esac
-say "Next: tiffin version"
+say "Next: tiffin version, then https://shiptiffin.com/docs/quickstart.md to make a box or connect to yours."

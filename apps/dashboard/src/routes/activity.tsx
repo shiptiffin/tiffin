@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Change, Tier } from "@/api/client";
 import { q } from "@/api/queries";
+import { AgentCommand } from "@/components/agent-command";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { dayWords, splitIntent } from "@/components/ledger-parts";
@@ -17,7 +18,7 @@ import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTr
 import { asTier, intentWords, opCounts, tierCopy } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { countWords, words } from "@/lib/format";
-import { mcpCommand } from "@/lib/mcp";
+import { onThisComputer } from "@/lib/mcp";
 import { pagedRows } from "@/lib/paged";
 import { clock, dayKey, dayLabel } from "@/lib/time";
 import { actorShown, type Names } from "@/lib/who";
@@ -419,7 +420,15 @@ function NoChangesIn({ project }: { project: string }) {
 }
 
 function FirstRun() {
-  const steps = [
+  const connect = onThisComputer(location.hostname)
+    ? { t: "Connect your terminal", d: "Nothing to do on the computer that ran tiffin up: the CLI finds the box by itself." }
+    : {
+        t: "Connect your terminal",
+        d: "Make an API key in Settings › API keys and set these. Nothing to do on the computer that ran tiffin up.",
+        cmd: `export TIFFIN_URL=${location.origin} TIFFIN_TOKEN=<key>`,
+      };
+  const steps: { t: string; d: string; cmd?: string }[] = [
+    connect,
     { t: "Describe your app", d: "Writes a starter tiffin.config.ts in this folder.", cmd: "tiffin init" },
     { t: "See what would change", d: "A dry run. Nothing happens, and you get a plan hash.", cmd: "tiffin plan" },
     { t: "Apply exactly that plan", d: "Paste the hash. If anything moved since, Tiffin refuses.", cmd: 'tiffin apply --confirm <hash> -m "Set up my app"' },
@@ -440,7 +449,7 @@ function FirstRun() {
             <div className="min-w-0">
               <h2 className="text-[0.9375rem] font-[550] text-ink">{s.t}</h2>
               <p className="mt-0.5 text-sm text-ink-2">{s.d}</p>
-              <Command cmd={s.cmd} className="mt-2.5" />
+              {s.cmd && <Command cmd={s.cmd} className="mt-2.5" />}
             </div>
           </li>
         ))}
@@ -449,13 +458,13 @@ function FirstRun() {
           <div className="min-w-0">
             <h2 className="text-[0.9375rem] font-[550] text-ink">Let an agent do it</h2>
             <p className="mt-0.5 text-sm text-ink-2">
-              Give it its own token from{" "}
-              <Link to="/tokens" search={{ create: true }} className="text-brass-ink hover:underline hover:underline-offset-4">
-                Access
+              Give it its own key from{" "}
+              <Link to="/settings/keys" search={{ create: true }} className="text-brass-ink hover:underline hover:underline-offset-4">
+                API keys
               </Link>
               ; its entries are written in graphite, with its model and session.
             </p>
-            <Command cmd={mcpCommand()} className="mt-2.5" />
+            <AgentCommand className="mt-2.5" />
           </div>
         </li>
       </ol>

@@ -75,7 +75,9 @@ func Handler() http.Handler {
 				files.ServeHTTP(w, r)
 				return
 			}
-			if strings.HasPrefix(p, "assets/") || path.Ext(p) != "" {
+			// A missing file is a 404, not the app. So is /.well-known/: clients
+			// probe it (MCP for OAuth discovery) and must not get a page back.
+			if strings.HasPrefix(p, "assets/") || strings.HasPrefix(p, ".well-known/") || path.Ext(p) != "" {
 				http.NotFound(w, r)
 				return
 			}

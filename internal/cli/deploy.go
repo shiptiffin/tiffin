@@ -539,7 +539,7 @@ func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
 			if d.Hint != "" {
 				fmt.Fprintf(a.io.Out, "  hint: %s\n", d.Hint)
 			}
-			fmt.Fprintf(a.io.Out, "  The previous version keeps serving. Full log: tiffin deploys build-log %s %s %s\n", d.Project, d.App, d.ID)
+			fmt.Fprintf(a.io.Out, "  Nothing was released: whatever was live keeps serving. Full log: tiffin deploys build-log %s %s %s\n", d.Project, d.App, d.ID)
 		}
 	}
 }

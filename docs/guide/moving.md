@@ -175,7 +175,7 @@ plus the upload.
 
 - A box that already has projects is refused. `--replace --confirm <box name>` replaces
   everything on it, after taking a full backup of it.
-- Archives from a newer Tiffin are refused: update the box first (`tiffin up`).
+- Archives from a newer Tiffin are refused: update the box first (`tiffin up --name <box>`, or Settings › Updates).
 - The old box's tokens work on the new one, and so does the new box's own owner token.
 - The new box keeps its own domain, Tiffin build, backups and backup schedule.
 - The certificate authority becomes the old box's. The CLI updates its copy; run

@@ -69,7 +69,7 @@ func TestAuth(t *testing.T) {
 				_ = exec.Command("limactl", "disk", "delete", "-f", disk).Run()
 			}
 		})
-		up := exec.Command(cli, "up", "--binary", bin)
+		up := exec.Command(cli, "up", "--provider", "local", "--binary", bin)
 		up.Env, up.Dir = env, dir
 		if out, err := up.CombinedOutput(); err != nil {
 			t.Fatalf("tiffin up: %v\n%s", err, out)

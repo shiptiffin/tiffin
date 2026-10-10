@@ -166,6 +166,9 @@ func (a *app) root() *cobra.Command {
 	if a.session == "" && env("CLAUDECODE") == "1" && len(env("CLAUDE_CODE_SESSION_ID")) >= 8 {
 		a.session = "claude-code:" + env("CLAUDE_CODE_SESSION_ID")[:8] // tells one Claude Code session from another in History
 	}
+	if t := codexThread(env); a.session == "" && len(t) >= 8 {
+		a.session = "codex:" + t[len(t)-8:] // Codex thread IDs are UUIDv7: the start is the time, the end is random
+	}
 	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
 		a.started = true
 		a.homeExplicit = env("TIFFIN_HOME") != "" || cmd.Flags().Changed("home")

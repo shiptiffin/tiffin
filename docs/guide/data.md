@@ -408,7 +408,7 @@ works like a local restore (Postgres from the bucket's repository, WAL from ther
 After losing the server, on a new one:
 
 ```bash
-tiffin up                                         # a new box
+tiffin up --provider hetzner --name shop2         # a new box
 tiffin backups offsite set ... --passphrase <the passphrase>
 tiffin backups offsite list                       # the lost box's sets
 tiffin restore latest --from offsite              # the preview: every target, no safety backup

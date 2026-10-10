@@ -268,7 +268,7 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       return "Done. We no longer hold a sign-in link for your box and won't ask it for another; sign in on the box itself.";
     case "new-signin":
       if (box.status !== "active") throw new ActionError("The box isn't ready yet.");
-      if (box.handoff_closed_at) throw new ActionError("Your box says you signed in already, so it makes no more links for us: sign in on the box itself (your passkey, or tiffin login on the server).");
+      if (box.handoff_closed_at) throw new ActionError("Your box says you signed in already, so it makes no more links for us: sign in on the box itself with your passkey (without one, run tiffin login --home /var/lib/tiffin/platform in the server's console at Hetzner).");
       await s`update cloud_boxes set signin_requested_at = now() where id = ${box.id} and handoff_closed_at is null`;
       return "Asked your box for a new one-time sign-in link. It makes it at its next check-in (within about ten minutes); then click Open dashboard.";
     case "resize": {

@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { request } from "@/api/client";
 import { deploysApi, mod3, type Deploy } from "@/api/modules";
 import type { components } from "@/api/schema";
+import { AgentCommand } from "@/components/agent-command";
 import { Command } from "@/components/copy";
 import { GitHubMark } from "@/components/github-mark";
 import { PilotLight, type PilotState } from "@/components/pilot";
@@ -15,7 +16,6 @@ import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { dec, NNBSP, withUnit } from "@/lib/format";
 import { deployGitHub } from "@/lib/github";
-import { mcpCommand } from "@/lib/mcp";
 import { deployGit, deployTemplate, frameworkName } from "@/lib/starters";
 import { full, liveSince, relative } from "@/lib/time";
 
@@ -516,7 +516,7 @@ export function Terminal({ project, className }: { project: string; className?: 
           <Command className="mt-1.5" cmd="git push tiffin main" />
         </TermRow>
         <TermRow title="Let an agent do it" note="then ask it to deploy">
-          <Command cmd={mcpCommand()} wrap />
+          <AgentCommand wrap />
         </TermRow>
       </div>
     </details>

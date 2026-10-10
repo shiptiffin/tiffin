@@ -4,8 +4,8 @@ import { Check, GitBranch, X } from "lucide-react";
 import { Dialog as D, Tabs } from "radix-ui";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { mod3 } from "@/api/modules";
-import { mcpCommand } from "@/lib/mcp";
 import { checkGitUrl, deployGit, deployTemplate, frameworkName, kindOf, rememberNextDeploy, pickable, startersQuery, thumbOf, type NextDeploy } from "@/lib/starters";
+import { AgentCommand } from "./agent-command";
 import { Command } from "./copy";
 import { MorphLabel } from "./morph-label";
 import { ProblemNote } from "./problem";
@@ -211,7 +211,7 @@ function Body({
               <Command className="mt-1.5" cmd="git push tiffin main" />
             </Way>
             <Way title="Let an agent do it">
-              <Command cmd={mcpCommand()} wrap />
+              <AgentCommand wrap />
             </Way>
           </div>
         </details>

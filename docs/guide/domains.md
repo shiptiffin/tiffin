@@ -13,8 +13,9 @@ https://shop.203-0-113-7.sslip.io          an app called shop
 under it with that address, so there is nothing to set up. The certificates come from
 Let's Encrypt. `tiffin domain` shows where you are.
 
-(A box on your Mac uses `*.tiffin.localhost` and its own certificate authority,
-which your computer trusts after `tiffin up`. Real domains need a server.)
+(A local box in a VM, for trying Tiffin out, uses `*.tiffin.localhost` and its own
+certificate authority: the CLI trusts it after `tiffin up`, browsers after `tiffin trust`.
+Real domains need a server.)
 
 ## Your own domain, in two records
 

@@ -39,3 +39,21 @@ func TestLicensesText(t *testing.T) {
 		t.Fatalf("GET /licenses.txt: %d %q %.200q", w.Code, w.Header().Get("Content-Type"), body)
 	}
 }
+
+// Nothing is served under /.well-known: MCP clients probe it for OAuth and
+// must get a 404, not the app's index.html. Client-side routes still get the app.
+func TestWellKnownIsNotTheApp(t *testing.T) {
+	for _, p := range []string{"/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
+		"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration", "/.well-known/"} {
+		w := httptest.NewRecorder()
+		Handler().ServeHTTP(w, httptest.NewRequest("GET", p, nil))
+		if w.Code != 404 || strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("GET %s: %d %s", p, w.Code, w.Header().Get("Content-Type"))
+		}
+	}
+	w := httptest.NewRecorder()
+	Handler().ServeHTTP(w, httptest.NewRequest("GET", "/settings/keys", nil))
+	if w.Code != 200 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("GET /settings/keys: %d %s", w.Code, w.Header().Get("Content-Type"))
+	}
+}

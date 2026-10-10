@@ -51,6 +51,10 @@ A box made with `tiffin up` is not managed and none of this runs on it.
    one-time link your box made (below). Add a passkey on the box then: after that you sign
    in on the box itself, and the button just opens its sign-in page.
 
+Then make your first project in the dashboard (New project), or connect the `tiffin` CLI
+and your coding agent with an API key: see
+[the quickstart](https://shiptiffin.com/docs/quickstart.md#2-connect-your-computer-and-your-agent).
+
 ## Your Hetzner key
 
 - **Used for one job, then forgotten.** The key stays in your browser until you click

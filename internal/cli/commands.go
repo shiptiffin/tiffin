@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -298,10 +299,12 @@ func (a *app) initCmd() *cobra.Command {
 			if err := os.WriteFile(path, fmt.Appendf(nil, configTemplate, project), 0o644); err != nil {
 				return err
 			}
-			// Teach the agents that will work here how to work here.
+			// Teach the agents that will work here how to work here: Claude Code
+			// reads .claude/skills, Codex .agents/skills.
 			extra := map[string][]byte{
 				filepath.Join(dir, "AGENTS.md"):                               scaffoldAgents,
 				filepath.Join(dir, ".claude", "skills", "tiffin", "SKILL.md"): scaffoldSkill,
+				filepath.Join(dir, ".agents", "skills", "tiffin", "SKILL.md"): scaffoldSkill,
 			}
 			for p, b := range extra {
 				if _, err := os.Stat(p); err == nil {
@@ -314,6 +317,10 @@ func (a *app) initCmd() *cobra.Command {
 					return err
 				}
 			}
+			claudeMD, err := importAgents(dir)
+			if err != nil {
+				return err
+			}
 			// Vendor the SDK into an app that has a package.json (unless it installs it from npm).
 			sdk, err := sdkpkg.Add(dir)
 			switch {
@@ -324,6 +331,9 @@ func (a *app) initCmd() *cobra.Command {
 			}
 			if a.tty() {
 				fmt.Fprintf(a.io.Out, "Wrote %s, AGENTS.md and the Tiffin agent skill for project %q.\n", path, project)
+				if claudeMD != "" {
+					fmt.Fprintf(a.io.Out, "Added @AGENTS.md to %s, so Claude Code reads AGENTS.md too.\n", claudeMD)
+				}
 				switch {
 				case sdk != nil && sdk.FromNPM != "":
 					fmt.Fprintf(a.io.Out, "@shiptiffin/sdk is installed from npm (%s).\n", sdk.FromNPM)
@@ -335,6 +345,9 @@ func (a *app) initCmd() *cobra.Command {
 				fmt.Fprintln(a.io.Out, "Next: tiffin plan")
 			} else {
 				out := map[string]any{"path": path, "project": project}
+				if claudeMD != "" {
+					out["claudeMd"] = claudeMD
+				}
 				if sdk != nil {
 					out["sdk"] = sdk
 				}
@@ -345,6 +358,43 @@ func (a *app) initCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&project, "project", "", "project slug (default: the directory name)")
 	return cmd
+}
+
+// importAgents makes the project's CLAUDE.md import AGENTS.md: Claude Code
+// reads AGENTS.md by itself only when there is no CLAUDE.md. It appends one
+// line and returns the file it changed ("" when there is none, or it already
+// imports AGENTS.md).
+func importAgents(dir string) (string, error) {
+	var path, line string
+	for _, f := range []struct{ path, line string }{
+		{filepath.Join(dir, "CLAUDE.md"), "@AGENTS.md"},
+		{filepath.Join(dir, ".claude", "CLAUDE.md"), "@../AGENTS.md"}, // imports are relative to the file
+	} {
+		b, err := os.ReadFile(f.path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		if s := string(b); strings.Contains(s, "@AGENTS.md") || strings.Contains(s, "@../AGENTS.md") || strings.Contains(s, "@./AGENTS.md") {
+			return "", nil
+		}
+		if path == "" {
+			path, line = f.path, f.line
+		}
+	}
+	if path == "" {
+		return "", nil
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString("\n" + line + "\n"); err != nil {
+		f.Close()
+		return "", err
+	}
+	return path, f.Close()
 }
 
 func slugify(s string) string {

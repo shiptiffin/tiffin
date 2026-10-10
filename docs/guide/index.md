@@ -7,6 +7,10 @@ You and your AI agents run it through one CLI, one API and one dashboard.
 It is made for hobby projects, side projects and experiments: the things you want
 online this weekend without stitching six services together.
 
+A box is one Linux server you own. ShipTiffin can set it up in your Hetzner account for you
+(managed), or you run it yourself, free, on Hetzner or any Ubuntu server. The
+[quickstart](quickstart.md) shows all three.
+
 ## What you get
 
 - **One box, everything in it.** No accounts to create for the database, the KV store,
@@ -23,8 +27,6 @@ Honesty matters more than a big claim:
 - **One machine.** If the box is down, your app is down. Backups stay on the box unless
   you [copy them off it](data.md#copies-off-the-box) to a bucket. That is fine for side projects; it is not a bank.
 - **Pre-1.0.** Interfaces may still change between versions.
-- **Local first.** A box runs as a VM on your Mac, or on a Hetzner or any Ubuntu server
-  (see the [quickstart](quickstart.md#run-it-on-a-server)).
 
 [What works and what doesn't](limits.md) lists every framework, limit and gap in one place.
 

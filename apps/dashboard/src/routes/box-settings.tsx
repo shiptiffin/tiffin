@@ -213,7 +213,7 @@ function Updates({ admin, version, build, source }: { admin: boolean; version?: 
         <>
           {s && <p className="mt-4 text-[0.8125rem] text-ink-3">This is a development build. Update it from your computer.</p>}
           <FromTerminal className="mt-4">
-            <Command cmd="tiffin up" />
+            <Command cmd="tiffin up --name <box>" />
           </FromTerminal>
         </>
       )}

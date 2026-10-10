@@ -102,7 +102,7 @@ func TestObserve(t *testing.T) {
 
 	// ---- box + project ----
 	p := time.Now()
-	ok("up", "--binary", bin)
+	ok("up", "--provider", "local", "--binary", bin)
 	// A folder of its own: the CLI refuses a config beside its settings (dir/config).
 	proj := filepath.Join(dir, "project")
 	_ = os.MkdirAll(proj, 0o755)

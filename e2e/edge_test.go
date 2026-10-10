@@ -127,7 +127,7 @@ sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.cr
 
 	// ---- (c) an update to a new build: tiffin up --binary (copy, provision, self-update) ----
 	noFailures("update (tiffin up)", load("update (tiffin up)", func() {
-		b.ok("up", "--binary", next)
+		b.ok("up", "--provider", "local", "--binary", next)
 		b.inBox(healthy)
 	}))
 	if v := b.ok("health")["version"]; v != "0.0.2-edge" {

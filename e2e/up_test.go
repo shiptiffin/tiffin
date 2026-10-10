@@ -65,7 +65,7 @@ func TestUpDown(t *testing.T) {
 
 	// ---- up ----
 	p := time.Now()
-	code, up, raw := run("up", "--binary", good)
+	code, up, raw := run("up", "--provider", "local", "--binary", good)
 	if code != 0 {
 		t.Fatalf("up: exit %d\n%s", code, raw)
 	}
@@ -128,13 +128,13 @@ func TestUpDown(t *testing.T) {
 
 	// ---- self-update round trip ----
 	p = time.Now()
-	if code, _, raw := run("up", "--binary", next); code != 0 {
+	if code, _, raw := run("up", "--provider", "local", "--binary", next); code != 0 {
 		t.Fatalf("update: %d %s", code, raw)
 	}
 	if _, h, raw := run("health"); h["version"] != "0.0.2-b" {
 		t.Fatalf("after update: %s", raw)
 	}
-	code, _, raw = run("up", "--binary", broken)
+	code, _, raw = run("up", "--provider", "local", "--binary", broken)
 	if code == 0 || !strings.Contains(raw, "rolled back") {
 		t.Fatalf("broken update must fail with a rollback: %d %s", code, raw)
 	}

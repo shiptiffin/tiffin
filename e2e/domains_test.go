@@ -98,7 +98,7 @@ func TestDomains(t *testing.T) {
 	// ---- the box (a normal local box first) ----
 	p := time.Now()
 	linux := buildTiffin(t, dir, "linux", "0.0.12-domains")
-	ok(nil, "up", "--binary", linux)
+	ok(nil, "up", "--provider", "local", "--binary", linux)
 	phase("up", p)
 
 	// ---- Pebble and its DNS server inside the VM ----

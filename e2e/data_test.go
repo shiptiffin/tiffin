@@ -149,7 +149,7 @@ export default defineConfig({ project: "data", services: {` + services + `} });
 
 	// ---- up: provisions Postgres 18, Valkey and pgBackRest ----
 	p := time.Now()
-	if code, out := run("up", "--binary", bin); code != 0 {
+	if code, out := run("up", "--provider", "local", "--binary", bin); code != 0 {
 		t.Fatalf("up: exit %d\n%s", code, out)
 	}
 	st := ok("status")

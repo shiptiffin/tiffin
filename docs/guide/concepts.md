@@ -1,8 +1,9 @@
 # Concepts
 
 ## Box
-One Linux machine running Tiffin. Locally it is a VM (`tiffin up`). It holds any number
-of **projects**.
+One Linux server running Tiffin: a managed box that ShipTiffin sets up in your Hetzner
+account, or one you make with `tiffin up` ([quickstart](quickstart.md)). It holds any
+number of **projects**.
 
 ## Project and resources
 A project is described by `tiffin.config.ts`. Tiffin turns it into **resources**:

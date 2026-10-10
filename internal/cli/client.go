@@ -155,7 +155,7 @@ func (a *app) client(ctx context.Context) (*client, error) {
 			return nil, &exitError{ExitInvalid, "--url must be an http(s) URL"}
 		}
 		if a.token == "" {
-			return nil, &exitError{ExitAuth, "TIFFIN_TOKEN is not set (needed with TIFFIN_URL)"}
+			return nil, &exitError{ExitAuth, "TIFFIN_TOKEN is not set (needed with TIFFIN_URL): make an API key in the box's dashboard (Settings › API keys) and export it as TIFFIN_TOKEN"}
 		}
 		return &client{base: strings.TrimRight(a.url, "/"), token: a.token, session: a.session, model: a.model, close: func() error { return nil }, note: a.notes()}, nil
 	}
@@ -176,11 +176,14 @@ func (a *app) client(ctx context.Context) (*client, error) {
 			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }, note: a.notes()}, nil
 		}
 	}
-	if a.token != "" && !a.homeExplicit {
+	if !a.homeExplicit {
 		if _, err := os.Stat(filepath.Join(a.home, "state.db")); errors.Is(err, fs.ErrNotExist) {
-			// A key with nowhere to go: without this the CLI would make an
-			// empty local box and answer 401, which says nothing useful.
-			return nil, &exitError{ExitInvalid, "TIFFIN_TOKEN is set, but this computer knows no box to use it with: set TIFFIN_URL to the box's dashboard address (https://dashboard.<the box's domain>), or make a box with tiffin up"}
+			// No box on this computer: without this the CLI would quietly make
+			// an empty local one, and every command would seem to work on it.
+			if a.token != "" {
+				return nil, &exitError{ExitInvalid, "TIFFIN_TOKEN is set, but this computer knows no box to use it with: set TIFFIN_URL to the box's dashboard address (https://dashboard.<the box's domain>), or make a box with tiffin up"}
+			}
+			return nil, &exitError{ExitInvalid, "this computer knows no box yet. For a box you already have, make an API key in its dashboard (Settings › API keys) and set TIFFIN_URL=https://dashboard.<the box's domain> and TIFFIN_TOKEN=<the key>. To make a box: shiptiffin.com, or tiffin up --provider hetzner"}
 		}
 	}
 	b, fresh, err := openBox(ctx, a.home)
@@ -198,9 +201,15 @@ func (a *app) client(ctx context.Context) (*client, error) {
 }
 
 // agentRun reports whether a coding agent runs this command: Claude Code
-// sets CLAUDECODE=1 in its shells; any other agent can set TIFFIN_AGENT=1.
+// sets CLAUDECODE=1 in its shells, Codex CODEX_THREAD_ID (older versions
+// CODEX_SESSION_ID); any other agent can set TIFFIN_AGENT=1.
 func (a *app) agentRun() bool {
-	return a.io.Env("TIFFIN_AGENT") == "1" || a.io.Env("CLAUDECODE") == "1"
+	return a.io.Env("TIFFIN_AGENT") == "1" || a.io.Env("CLAUDECODE") == "1" || codexThread(a.io.Env) != ""
+}
+
+// codexThread is the Codex thread this command runs in ("" outside Codex).
+func codexThread(env func(string) string) string {
+	return orDefault(env("CODEX_THREAD_ID"), env("CODEX_SESSION_ID"))
 }
 
 // do performs one API call and returns the status and raw body.

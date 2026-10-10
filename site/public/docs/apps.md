@@ -76,7 +76,7 @@ responses that do not set them; an app's own headers (or its vercel.json's) win.
 ```bash
 tiffin deploy                 # every app in tiffin.config.ts
 tiffin deploy --app api       # one app
-tiffin deploy --preview pr-12 # a preview at pr-12--<project>.tiffin.localhost
+tiffin deploy --preview pr-12 # a preview at pr-12--<project>.<box domain>
 git push tiffin main          # after `tiffin git-remote --add`
 ```
 

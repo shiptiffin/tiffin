@@ -7,7 +7,7 @@ one API. Every box feature is a **module** that plugs into the platform spine in
 
 ## Build and test
 
-You need Go 1.27+ and [Bun](https://bun.sh); for a local box, [Lima](https://lima-vm.io)
+You need Go 1.27+ and [Bun](https://bun.sh); for a local box (below), [Lima](https://lima-vm.io)
 (`brew install lima`).
 
 ```bash
@@ -142,6 +142,23 @@ routes to app instances) is its own process (`tiffin edge`, unit `tiffin-edge`, 
 so restarting or updating `tiffin` never interrupts the apps; `tiffin` sends it routes and instances over
 `/var/lib/tiffin/platform/edge.sock` (internal/edge/proto.go). Edge access logs: `/var/lib/tiffin/logs/access.log`.
 
+## A local box
+
+To try Tiffin without a server, run a box in a Lima VM on your Mac. It is for trying and
+developing Tiffin only: people who use ShipTiffin get a box on a server (README, Get
+started). To develop, use a dev box (next section) beside it.
+
+```bash
+make build
+bin/tiffin up --provider local  # an Ubuntu 26.04 VM with Tiffin; about a minute the first time
+bin/tiffin trust                # once, so browsers trust the box's own certificate (macOS asks for your password)
+bin/tiffin login --open         # the dashboard, at https://dashboard.tiffin.localhost:8443
+```
+
+Apps are served at `https://<project>.tiffin.localhost:8443`. Run `tiffin up` again to
+update the box in place (it rolls back by itself if an update is unhealthy).
+`tiffin down --confirm local` deletes it and everything on it.
+
 ## A dev box
 
 A dev box is a second Lima VM beside your default one, with its own instance, disk,
@@ -153,7 +170,7 @@ export TIFFIN_CONFIG_DIR=/tmp/tiffin-dev  TIFFIN_LIMA_INSTANCE=tiffin-dev \
 # TIFFIN_LIMA_DISK is at most 7 characters; TIFFIN_LIMA_CPUS is optional.
 go build -o /tmp/tiffin-dev ./cmd/tiffin
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/tiffin-dev-linux ./cmd/tiffin
-/tmp/tiffin-dev up --binary /tmp/tiffin-dev-linux    # create or update (provision + self-update)
+/tmp/tiffin-dev up --provider local --binary /tmp/tiffin-dev-linux   # create or update
 /tmp/tiffin-dev status                               # every CLI command talks to the dev box
 limactl shell tiffin-dev -- sudo journalctl -u tiffin -u tiffin-edge -n 200 --no-pager
 /tmp/tiffin-dev down --confirm local                 # delete it when you're done

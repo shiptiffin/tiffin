@@ -220,7 +220,7 @@ func newGHBox(t *testing.T) *cliBox {
 		"TIFFIN_CONFIG_DIR="+filepath.Join(dir, "config"),
 		"TIFFIN_LIMA_INSTANCE="+inst, "TIFFIN_LIMA_DISK="+os.Getenv("TIFFIN_E2E_GH_DISK"), fmt.Sprintf("TIFFIN_LIMA_PORT=%d", b.port),
 		"TIFFIN_LIMA_MEMORY=3GiB", "TIFFIN_HOME=", "TIFFIN_URL=", "TIFFIN_TOKEN=")
-	b.ok("up", "--binary", bin)
+	b.ok("up", "--provider", "local", "--binary", bin)
 	return b
 }
 

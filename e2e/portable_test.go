@@ -71,7 +71,7 @@ func TestPortable(t *testing.T) {
 	// ---- box A ----
 	p := time.Now()
 	a := portBox(t, "a", dir, cli, os.Getenv("TIFFIN_E2E_BOX_A"))
-	a.ok("up", "--binary", bin)
+	a.ok("up", "--provider", "local", "--binary", bin)
 	phase("A up", p)
 
 	p = time.Now()
@@ -175,7 +175,7 @@ func TestPortable(t *testing.T) {
 	// ---- box B ----
 	p = time.Now()
 	b := portBox(t, "b", dir, cli, os.Getenv("TIFFIN_E2E_BOX_B"))
-	b.ok("up", "--binary", bin)
+	b.ok("up", "--provider", "local", "--binary", bin)
 	phase("B up", p)
 
 	// Without the key the import is refused before anything is uploaded.

@@ -9,7 +9,7 @@ Every box serves an MCP server at `https://dashboard.<box domain>/mcp` (an API k
 ## Start here
 
 - [Set up ShipTiffin with your coding agent](https://shiptiffin.com/docs/agent-onboarding.md): the setup prompt, what only the person can do, connecting Claude Code, Codex, Cursor and VS Code
-- [Quickstart](https://shiptiffin.com/docs/quickstart.md): make a box with tiffin up (a Mac, Hetzner or any Ubuntu server), describe a project, plan, apply, deploy
+- [Quickstart](https://shiptiffin.com/docs/quickstart.md): get a box (managed, or self-hosted on Hetzner or any Ubuntu server), connect the CLI and your agent, ship a first project
 - [Concepts](https://shiptiffin.com/docs/concepts.md): the box, projects and resources, sharing the box, changes, risk tiers, undo, people and API keys
 - [Working with agents](https://shiptiffin.com/docs/agents.md): the MCP server, plan then apply, API keys, CLI conventions, untrusted data
 - [Managed boxes](https://shiptiffin.com/docs/managed.md): how shiptiffin.com sets up a box in your Hetzner account, what it can and can't do, billing

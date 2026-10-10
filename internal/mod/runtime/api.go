@@ -717,6 +717,8 @@ func (m *Module) followBuildLog(a huma.API) func(huma.Context, func(huma.Context
 					off = noff
 					sse.event("log", map[string]any{"text": string(text), "offset": off})
 				}
+				// The addresses as a get shows them: the app's own, not only this version's.
+				r.presentAll(ctx, project, []*Deploy{d})
 				sse.event("done", d)
 				return
 			}

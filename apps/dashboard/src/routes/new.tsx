@@ -6,6 +6,7 @@ import { api, ApiError, request, type Manifest, type Op } from "@/api/client";
 import type { components } from "@/api/schema";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
+import { AgentCommand } from "@/components/agent-command";
 import { Command, CopyButton } from "@/components/copy";
 import { appAddress } from "@/components/deploy-parts";
 import { EditCodeButton } from "@/components/edit-code";
@@ -27,7 +28,7 @@ import { checkPick, emptyPick, GitHubImport, unsupportedWhy, type GitHubPick } f
 import { ImportFile, ImportPanel, ImportSteps, useProjectImport } from "@/components/project-import";
 import { deployGitHub, nameFromRepo, setSecret, type RepoRoot } from "@/lib/github";
 import { useMe } from "@/lib/me";
-import { agentConnect, mcpCommand } from "@/lib/mcp";
+import { agentConnect } from "@/lib/mcp";
 import { boxDomainQuery } from "@/lib/domains";
 import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
@@ -402,8 +403,8 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
                   {firstRun && (
                     <section aria-label="Hand it to your agent" className="mt-10">
                       <h2 className="text-[0.9375rem] font-[550] text-ink">Or hand it to your agent</h2>
-                      <p className="mt-1 mb-3 text-sm text-ink-2">Claude Code can set up projects for you. It asks you before anything destructive, and every change can be undone in History.</p>
-                      <Command cmd={mcpCommand()} />
+                      <p className="mt-1 mb-3 text-sm text-ink-2">Claude Code or Codex can set up projects for you. It asks you before anything destructive, and every change can be undone in History.</p>
+                      <AgentCommand />
                     </section>
                   )}
                 </>
@@ -1025,9 +1026,9 @@ function Live({
     <NextStep
       n={2}
       title="Connect your agent"
-      line="Create an API key, then run this with it. Claude Code asks you before anything destructive, and every change lands in History, where you can undo it."
+      line="Create an API key, then run this with it. Your agent asks you before anything destructive, and every change lands in History, where you can undo it."
     >
-      <Command cmd={connect.cmd} />
+      <AgentCommand connect />
       <Link to="/settings/keys" search={{ create: true }} className="mt-2 inline-block text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
         Create a key in Settings › API keys
       </Link>
@@ -1036,9 +1037,9 @@ function Live({
     <NextStep
       n={2}
       title="Connect your agent"
-      line="Claude Code gets the box’s agent key: full access to every project. It asks you before anything destructive, and every change lands in History, where you can undo it."
+      line="Your agent gets the box’s agent key: full access to every project. It asks you before anything destructive, and every change lands in History, where you can undo it."
     >
-      <Command cmd={connect.cmd} />
+      <AgentCommand connect />
       {admin && (
         <Link to="/settings/keys" search={{ create: true }} className="mt-2 inline-block text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
           Or make a key for just {L.project}, or read only

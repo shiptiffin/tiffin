@@ -275,7 +275,8 @@ export function BoxActions({ box }: { box: BoxView }) {
       <Dialog open={open === "forget"} onClose={close} title="Sign in on the box instead?" busy={busy}>
         <p className="cp-dialog-text">
           We drop the sign-in link we hold and never ask your box for another, so Open dashboard takes you to the box&rsquo;s own sign-in page. Sign in there
-          with your passkey, or run <code>tiffin login</code> on the server.
+          with your passkey. Without one, open the server&rsquo;s console at Hetzner, run{" "}
+          <code>tiffin login --home /var/lib/tiffin/platform</code> and open the path it prints on your dashboard&rsquo;s address.
         </p>
         <Status msg={msg} />
         <DialogButtons busy={busy} onBack={close}>

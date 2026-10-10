@@ -52,10 +52,11 @@ Three ways to run it. Pick one.
 
 ### 1. Managed: ready in about 5 minutes
 
-Go to **[shiptiffin.com/start](https://shiptiffin.com/start)**, pay, and paste a Hetzner
-Cloud API key. ShipTiffin builds the box in **your own** Hetzner account; the page shows each
-step live. The key is used for that job and then forgotten, and every call made with it is
-listed in your account.
+Go to **[shiptiffin.com/start](https://shiptiffin.com/start)**, sign in, pay, and paste a
+Hetzner Cloud API key. ShipTiffin builds the box in **your own** Hetzner account; the page
+shows each step live. The key is used for that job and then forgotten, and every call made
+with it is listed in your account. When it's ready, **Open your dashboard** signs you in.
+Nothing to install.
 
 - **$19 a month per box** ($12 for the first 100 customers, locked for 24 months), plus the
   server, which Hetzner bills you for: about $10 a month before VAT for the smallest, with
@@ -91,36 +92,55 @@ curl -fsSL https://shiptiffin.com/install.sh | sh
 tiffin up --provider ssh --name shop --host root@203.0.113.5
 ```
 
-To try it on a Mac first, `tiffin up` with no provider makes a box in a
-[Lima](https://lima-vm.io) VM in about a minute (`tiffin trust` once for its HTTPS
-certificate).
+Self-hosted, `tiffin up` ends by printing the dashboard's address and a one-time sign-in
+link.
+
+### Connect your computer and your agent
+
+A box you made with `tiffin up` is already connected: every `tiffin` command on that
+computer talks to it, and `claude mcp add --scope user tiffin -- tiffin mcp` connects Claude Code
+(`codex mcp add tiffin -- tiffin mcp` for Codex).
+
+For a managed box, or from another computer, create an API key in the dashboard
+(Settings › API keys), install the CLI as above, and point it at the box:
+
+```bash
+export TIFFIN_URL=https://dashboard.<name>.shiptiffin.app   # the dashboard's address
+export TIFFIN_TOKEN=<key>
+tiffin whoami
+```
+
+Your agent gets a key of its own and connects over HTTP; the dialog that shows a new key
+shows the line to paste ([agents](#built-for-coding-agents)).
 
 ### Ship your first project
 
+In the dashboard, **New project** starts from a starter app or imports a GitHub repository:
+every push deploys, and every pull request gets a preview. Or from your app's folder:
+
 ```bash
-mkdir hello && cd hello
+cd hello
 tiffin init                                     # tiffin.config.ts, AGENTS.md and an agent skill
 tiffin plan                                     # every step, its risk and why
 tiffin apply --confirm <hash> -m "Set up hello"
 tiffin deploy                                   # live at https://hello.<box domain>
-tiffin login --open                             # the dashboard
 ```
 
-Or connect GitHub in the dashboard and import a repository: every push deploys, and every
-pull request gets a preview. The [quickstart](docs/guide/quickstart.md) has the details.
+The [quickstart](docs/guide/quickstart.md) has the details.
 
 ### Or hand it to your agent
 
-Give Claude Code, Codex or Cursor one line:
+Paste this into Claude Code or Codex:
 
 ```text
 Set up ShipTiffin for me: follow https://shiptiffin.com/agent-setup.md
 ```
 
-It walks you through any of the three ways above, connects itself to your box over MCP and
-deploys your first app. It stops and asks you for the steps that are yours: paying, pasting
-your Hetzner key, adding a passkey and creating its API key.
-[The full prompt, and connecting other agents](docs/guide/agent-onboarding.md).
+The agent asks which way you want (managed or self-hosted), does the steps it can, and stops
+for the ones that are yours: paying, your Hetzner token, a passkey and its first API key.
+Then it connects itself to your box and deploys your first app. Some agents summarize a page
+they fetch, so for the surest result paste [the full prompt](docs/guide/agent-onboarding.md#the-prompt)
+instead.
 
 ## What's in the box
 
@@ -143,11 +163,26 @@ Every project on the box gets these parts. There are no extra accounts, keys or 
 
 ## Built for coding agents
 
+Every box serves an MCP server at `https://dashboard.<box domain>/mcp`. Give each agent its
+own key (Settings › API keys), then connect it once:
+
 ```bash
-claude mcp add tiffin -- tiffin mcp          # on the computer that ran tiffin up
-claude mcp add --transport http tiffin https://dashboard.<box domain>/mcp \
-  --header "Authorization: Bearer <key>"      # any box, with a key from Settings › API keys
+# Claude Code (--scope user: in every folder, not only this one)
+claude mcp add --transport http --scope user tiffin https://dashboard.<box domain>/mcp \
+  --header "Authorization: Bearer <key>"
+
+# Codex: first add `export TIFFIN_TOKEN=<key>` to your shell profile and restart Codex
+codex mcp add tiffin --url https://dashboard.<box domain>/mcp --bearer-token-env-var TIFFIN_TOKEN
 ```
+
+On the computer that ran `tiffin up` there is no key to make: `claude mcp add --scope user tiffin -- tiffin mcp`,
+or `codex mcp add tiffin -- tiffin mcp`.
+
+In each app's folder, `tiffin init` writes `AGENTS.md` (Codex and Claude Code both read it)
+and a tiffin skill for each agent (`.claude/skills/tiffin` and `.agents/skills/tiffin`).
+Codex's sandbox blocks network by default, so approve `tiffin` commands when it asks, or
+set `network_access = true` under `[sandbox_workspace_write]` in `~/.codex/config.toml`.
+Cursor, VS Code and other clients: see [connecting an agent](docs/guide/agent-onboarding.md#connecting-an-agent).
 
 - **One API, three ways in.** Every operation is a CLI command, an MCP tool and an HTTP call,
   generated from one OpenAPI description (`/v1/openapi.json`), so they always agree.
