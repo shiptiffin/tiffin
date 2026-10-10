@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Download, Play, TriangleAlert, X } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
-import { mod, mq, type PgStatement } from "@/api/modules";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { mod, mq, type PgStatement, type PgTable } from "@/api/modules";
 import { Rows, Section } from "@/components/data-parts";
 import { Select } from "@/components/ui/choice";
 import { Skeleton } from "@/components/page";
@@ -18,7 +18,7 @@ import { useMe } from "@/lib/me";
 import { db, dq, problemToast } from "./api";
 import { NUMERIC, toCSV } from "./format";
 import { DataGrid, widthFor, type GridCol } from "./grid";
-import type { SqlSchema } from "./sql-editor";
+import type { SqlHandle, SqlSchema } from "./sql-editor";
 
 const SqlEditor = lazy(() => import("./sql-editor"));
 
@@ -72,9 +72,17 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
   const writer = can("apply:irreversible");
   const nParams = paramCount(sql);
 
+  const editor = useRef<SqlHandle | null>(null);
+  // Completions carry what a name is: a table's size, a column's type.
   const schema: SqlSchema = useMemo(() => {
-    const ns: Record<string, Record<string, string[]>> = {};
-    for (const t of tables.data ?? []) (ns[t.schema] ??= {})[t.name] = (t.columns ?? []).map((c) => c.name);
+    const ns: Record<string, SqlSchema> = {};
+    for (const t of tables.data ?? []) {
+      (ns[t.schema] as Record<string, SqlSchema> | undefined) ??= {};
+      (ns[t.schema] as Record<string, SqlSchema>)[t.name] = {
+        self: { label: t.name, type: "type", detail: tableDetail(t) },
+        children: (t.columns ?? []).map((c) => ({ label: c.name, type: "property", detail: c.primary ? `${c.type} · key` : c.type })),
+      };
+    }
     return ns;
   }, [tables.data]);
 
@@ -143,7 +151,7 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
           )}
           <div className="h-[13rem] min-h-[8rem] resize-y overflow-hidden sm:h-[15rem]">
             <Suspense fallback={<Skeleton className="m-3 h-[calc(100%-1.5rem)] opacity-50" />}>
-              <SqlEditor value={sql} onChange={setSql} onRun={go} schema={schema} wrap={typeof window !== "undefined" && window.innerWidth < 640} />
+              <SqlEditor value={sql} onChange={setSql} onRun={go} schema={schema} handleRef={editor} wrap={typeof window !== "undefined" && window.innerWidth < 640} />
             </Suspense>
           </div>
           {nParams > 0 && (
@@ -250,6 +258,7 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
       </div>
 
       <aside className="flex min-w-0 flex-col gap-8">
+        <TableList tables={tables.data} pending={tables.isPending} onPick={(x) => editor.current?.insert(x)} />
         <Section id="saved" label="Saved">
           {(saved.data ?? []).length === 0 ? (
             <p className="border-y border-rule py-3 text-sm text-ink-3">{saved.isPending ? "…" : "Queries you save show up here, for everyone on the project."}</p>
@@ -359,6 +368,74 @@ export function ResultTable({ r }: { r: PgStatement }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/** "1.2k rows", "view": what the completer and the table list say about a table. */
+function tableDetail(t: PgTable) {
+  if (t.kind === "view" || t.kind === "materialized-view") return t.kind === "view" ? "view" : "materialized view";
+  return t.rowEstimate == null ? "table" : `${count(t.rowEstimate, "row", "rows")}`;
+}
+
+/** A name as SQL needs it: quoted unless plain lower-case, schema-qualified outside public. */
+function ident(name: string) {
+  return /^[a-z_][a-z0-9_$]*$/.test(name) ? name : `"${name.replaceAll('"', '""')}"`;
+}
+
+/** The project's tables beside the editor: open one for its columns; a name goes into the query at the cursor. */
+function TableList({ tables, pending, onPick }: { tables: PgTable[] | undefined; pending: boolean; onPick: (text: string) => void }) {
+  const own = (tables ?? []).filter((t) => !t.managed);
+  return (
+    <Section id="tables" label="Tables" aside={own.length > 0 ? "click a name to insert it" : undefined}>
+      {own.length === 0 ? (
+        <p className="border-y border-rule py-3 text-sm text-ink-3">{pending ? "…" : "No tables yet. CREATE TABLE here, or make one in Tables."}</p>
+      ) : (
+        <Rows className="max-h-[22rem] overflow-y-auto">
+          {own.map((t) => {
+            const name = t.schema === "public" ? ident(t.name) : `${ident(t.schema)}.${ident(t.name)}`;
+            return (
+              <li key={`${t.schema}.${t.name}`}>
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-baseline gap-2 py-2 [&::-webkit-details-marker]:hidden">
+                    <span aria-hidden className="w-3 shrink-0 text-ink-3 transition-transform group-open:rotate-90">›</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onPick(name);
+                      }}
+                      title={`Insert ${name}`}
+                      className="min-w-0 truncate text-left font-mono text-[0.75rem] text-ink-2 hover:text-ink"
+                    >
+                      {name}
+                    </button>
+                    <span className="ml-auto shrink-0 text-xs text-ink-3 tnum">{tableDetail(t)}</span>
+                  </summary>
+                  <ul className="pb-2 pl-5">
+                    {(t.columns ?? []).map((c) => (
+                      <li key={c.name} className="flex items-baseline gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onPick(ident(c.name))}
+                          title={`Insert ${c.name}`}
+                          className="min-w-0 truncate py-0.5 text-left font-mono text-[0.75rem] text-ink-2 hover:text-ink"
+                        >
+                          {c.name}
+                        </button>
+                        <span className="ml-auto shrink-0 font-mono text-[0.6875rem] text-ink-3">
+                          {c.type}
+                          {c.primary && " · key"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </li>
+            );
+          })}
+        </Rows>
+      )}
+    </Section>
   );
 }
 

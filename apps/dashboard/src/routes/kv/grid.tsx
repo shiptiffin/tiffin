@@ -17,6 +17,8 @@ export type GridRow = {
   cells: ReactNode[];
   /** The text to edit, per column; undefined where a cell can't be edited. */
   edit?: Array<string | undefined>;
+  /** Can't be deleted here (its name was clipped, so the box can't be told which). */
+  fixed?: boolean;
 };
 
 /**
@@ -129,7 +131,7 @@ export function ValueGrid({
       }
       case "Delete":
       case "Backspace":
-        if (!onDelete) return;
+        if (!onDelete || rows[r].fixed) return;
         onDelete(r);
         break;
       default:
@@ -234,16 +236,18 @@ export function ValueGrid({
                 })}
                 {onDelete && (
                   <div role="gridcell" className="grid place-items-center">
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      aria-label={deleteLabel?.(r) ?? "Delete"}
-                      title={`${deleteLabel?.(r) ?? "Delete"} (Delete)`}
-                      onClick={() => onDelete(r)}
-                      className="grid size-6 place-items-center rounded-[5px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-danger-wash hover:text-danger max-lg:opacity-60"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {!row.fixed && (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-label={deleteLabel?.(r) ?? "Delete"}
+                        title={`${deleteLabel?.(r) ?? "Delete"} (Delete)`}
+                        onClick={() => onDelete(r)}
+                        className="grid size-6 place-items-center rounded-[5px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-danger-wash hover:text-danger max-lg:opacity-60"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

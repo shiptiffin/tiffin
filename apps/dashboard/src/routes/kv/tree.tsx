@@ -236,6 +236,11 @@ export function KeyBrowser({
         </span>
         {top?.isFetching && !top.isPending && <span>Updating…</span>}
       </p>
+      {top?.data?.partial && (
+        <p className="mb-1.5 text-xs text-ink-3">
+          {flat ? `Stopped at ${int(top.data.scanned)} matches: narrow the search to see the rest.` : `Counted the first ${int(top.data.scanned)} keys: search to find the rest.`}
+        </p>
+      )}
       {top?.isError && <ProblemNote error={top.error} />}
       {top?.isPending && (
         <div className="space-y-2 border-t border-rule pt-2">

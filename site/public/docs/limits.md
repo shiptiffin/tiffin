@@ -519,6 +519,11 @@ the box unless you [copy them off it](https://shiptiffin.com/docs/data.md#copies
 - **Live app logs:** after a dropped connection the stream resumes from the newest line it
   showed. A line from another instance still in flight at that moment can be missed;
   reloading shows it.
+- **KV key browser:** each level of the key list looks at up to 250,000 keys (or 5 s), then
+  shows its counts as "at least" with a hint to search; a search from the top counts only
+  the keys it matches. In a hash, list, set, sorted set or stream, an item over 64 KB shows
+  its first 64 KB marked "clipped" and can't be edited there (a field name or member that
+  long can't be deleted there either); a page of big items holds fewer of them.
 - **Table editor:** arrays are edited as Postgres array literals (`{a,"b c",NULL}`), not one
   item per line. Timestamps with microseconds, `infinity` or BC dates are edited as text.
   After a change, the rows reload so filters and sort stay true; an edited row that no

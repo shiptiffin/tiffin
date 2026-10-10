@@ -7,7 +7,7 @@ import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } fr
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
 
 const highlight = HighlightStyle.define([
   { tag: [t.keyword, t.operatorKeyword, t.modifier], color: "var(--graphite)", fontWeight: "550" },
@@ -44,6 +44,9 @@ const theme = EditorView.theme({
 /** Tables and their columns, as the completer wants them: { public: { books: ["id", …] } }. */
 export type SqlSchema = SQLNamespace;
 
+/** What the page can do to the editor from outside. */
+export type SqlHandle = { insert: (text: string) => void };
+
 export default function SqlEditor({
   value,
   onChange,
@@ -51,6 +54,7 @@ export default function SqlEditor({
   schema,
   label = "SQL",
   wrap,
+  handleRef,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -58,6 +62,8 @@ export default function SqlEditor({
   schema: SqlSchema;
   label?: string;
   wrap?: boolean;
+  /** Filled with the editor's handle once it exists. */
+  handleRef?: RefObject<SqlHandle | null>;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -104,8 +110,20 @@ export default function SqlEditor({
   useEffect(() => {
     const v = create(host.current!);
     view.current = v;
-    return () => v.destroy();
-  }, []);
+    if (handleRef)
+      handleRef.current = {
+        // At the cursor (replacing a selection), then back to typing.
+        insert: (text) => {
+          const r = v.state.selection.main;
+          v.dispatch({ changes: { from: r.from, to: r.to, insert: text }, selection: { anchor: r.from + text.length }, scrollIntoView: true });
+          v.focus();
+        },
+      };
+    return () => {
+      if (handleRef) handleRef.current = null;
+      v.destroy();
+    };
+  }, [handleRef]);
 
   // New tables: new completions.
   useEffect(() => {

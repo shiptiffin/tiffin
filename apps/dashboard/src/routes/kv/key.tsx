@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { bytes, count, int } from "@/lib/format";
-import { HashEditor, ListEditor, SetEditor, StreamEditor, TextEditor, ZsetEditor, type Items } from "./editors";
+import { HashEditor, ListEditor, SetEditor, StreamEditor, TextEditor, ZsetEditor, type Clips, type Items } from "./editors";
 import { expiresIn, splitSeconds, toGlob, typeInfo, UNITS } from "./words";
 import { useKv } from "./write";
 
@@ -21,23 +21,24 @@ function merge(pages: KVValue[], complete: boolean): Items {
   const t = pages[0].type;
   const all = pages.flatMap((p) => (Array.isArray(p.value) ? p.value : []));
   const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+  const clipped: Clips = new Map(pages.flatMap((p) => (p.clipped ?? []).map((c) => [c.item, { bytes: c.bytes, name: c.name }] as const)));
   switch (t) {
     case "string":
       return { type: "string", text: String(pages[0].value ?? ""), truncated: pages[0].truncated };
     case "hash": {
       const pairs = pages.flatMap((p) => Object.entries((p.value ?? {}) as Record<string, string>));
-      return { type: "hash", pairs: complete ? pairs.sort(([a], [b]) => byName(a, b)) : pairs };
+      return { type: "hash", pairs: complete ? pairs.sort(([a], [b]) => byName(a, b)) : pairs, clipped };
     }
     case "set": {
       const items = all.map(String);
-      return { type: "set", items: complete ? items.sort(byName) : items };
+      return { type: "set", items: complete ? items.sort(byName) : items, clipped };
     }
     case "zset":
-      return { type: "zset", pairs: (all as Array<[string, number]>).map(([m, s]) => [String(m), Number(s)]) };
+      return { type: "zset", pairs: (all as Array<[string, number]>).map(([m, s]) => [String(m), Number(s)]), clipped };
     case "stream":
-      return { type: "stream", entries: (all as Array<[string, string[]]>).map(([id, f]) => [String(id), (f ?? []).map(String)]) };
+      return { type: "stream", entries: (all as Array<[string, string[]]>).map(([id, f]) => [String(id), (f ?? []).map(String)]), clipped };
     default:
-      return { type: "list", items: all.map((x) => (typeof x === "string" ? x : JSON.stringify(x))) };
+      return { type: "list", items: all.map((x) => (typeof x === "string" ? x : JSON.stringify(x))), clipped };
   }
 }
 
@@ -188,11 +189,17 @@ export function KeyPanel({ k, onBack, onGone, onRenamed }: { k: string; onBack: 
         </label>
       )}
       {items.type === "string" && <TextEditor key={k} k={k} text={items.text} truncated={items.truncated} />}
-      {items.type === "hash" && <HashEditor k={k} pairs={items.pairs} {...paging} />}
-      {items.type === "list" && <ListEditor k={k} items={items.items} {...paging} />}
-      {items.type === "set" && <SetEditor k={k} items={items.items} {...paging} />}
-      {items.type === "zset" && <ZsetEditor k={k} pairs={items.pairs} ranked={!match} {...paging} />}
-      {items.type === "stream" && <StreamEditor k={k} entries={items.entries} length={first.length} {...paging} />}
+      {items.type === "hash" && <HashEditor k={k} pairs={items.pairs} clipped={items.clipped} {...paging} />}
+      {items.type === "list" && <ListEditor k={k} items={items.items} clipped={items.clipped} {...paging} />}
+      {items.type === "set" && <SetEditor k={k} items={items.items} clipped={items.clipped} {...paging} />}
+      {items.type === "zset" && <ZsetEditor k={k} pairs={items.pairs} ranked={!match} clipped={items.clipped} {...paging} />}
+      {items.type === "stream" && <StreamEditor k={k} entries={items.entries} length={first.length} clipped={items.clipped} {...paging} />}
+      {items.type !== "string" && items.clipped.size > 0 && (
+        <p className="mt-2 text-xs text-ink-3">
+          Items over 64 KB show only their start and can't be edited here
+          {[...items.clipped.values()].some((c) => c.name) && ", nor deleted when the name itself is that long"}. Change them from your app or the Console.
+        </p>
+      )}
       {(items.type === "hash" || items.type === "set") && q.hasNextPage && (
         <p className="mt-2 text-xs text-ink-3">Showing {int(first.length > 0 ? q.data.pages.reduce((n, p) => n + (Array.isArray(p.value) ? p.value.length : Object.keys(p.value ?? {}).length), 0) : 0)} of {int(first.length)} so far.</p>
       )}

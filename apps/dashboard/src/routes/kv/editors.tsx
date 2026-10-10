@@ -4,25 +4,43 @@ import { Segmented } from "@/components/segmented";
 import { jsonLine } from "@/components/data-parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { int } from "@/lib/format";
+import { bytes, int } from "@/lib/format";
 import { ValueGrid, type GridRow } from "./grid";
 import { JsonTree } from "./json-view";
 import { asJSON, jsonProblem, streamTime, unixHint } from "./words";
 import { useKv } from "./write";
 
+/**
+ * Items the box cut to their first 64 KB, by field, list index, member or
+ * entry ID: their full size, and whether the name itself was cut.
+ */
+export type Clips = Map<string, { bytes: number; name?: boolean }>;
+
 /** One page-merged view of a key's value, as the editors need it. */
 export type Items =
   | { type: "string"; text: string; truncated: boolean }
-  | { type: "hash"; pairs: Array<[string, string]> }
-  | { type: "list" | "set"; items: string[] }
-  | { type: "zset"; pairs: Array<[string, number]> }
-  | { type: "stream"; entries: Array<[string, string[]]> };
+  | { type: "hash"; pairs: Array<[string, string]>; clipped: Clips }
+  | { type: "list" | "set"; items: string[]; clipped: Clips }
+  | { type: "zset"; pairs: Array<[string, number]>; clipped: Clips }
+  | { type: "stream"; entries: Array<[string, string[]]>; clipped: Clips };
 
-type Paging = { more: boolean; loadMore: () => void };
+type Paging = { more: boolean; loadMore: () => void; clipped: Clips };
 const quiet = () => undefined;
 
-/** A field value as one line: JSON compacted, a Unix time with its date. */
-function Cell({ text }: { text: string }) {
+/**
+ * A field value as one line: JSON compacted, a Unix time with its date. A
+ * clipped one shows its start as plain text, then how big it really is.
+ */
+function Cell({ text, clip }: { text: string; clip?: { bytes: number } }) {
+  if (clip)
+    return (
+      <span className="flex min-w-0 items-baseline">
+        <span className="min-w-0 truncate">{text}</span>
+        <span className="ml-2 shrink-0 font-sans text-xs text-ink-3" title="Only the first 64 KB is shown, so it can't be edited here. Change it from your app or the Console.">
+          … clipped, {bytes(clip.bytes)}
+        </span>
+      </span>
+    );
   const j = asJSON(text);
   const hint = unixHint(text);
   return (
@@ -191,11 +209,14 @@ export function TextEditor({ k, text, truncated }: { k: string; text: string; tr
 
 // ------------------------------------------------------------------ hash
 
-export function HashEditor({ k, pairs, more, loadMore }: { k: string; pairs: Array<[string, string]> } & Paging) {
+export function HashEditor({ k, pairs, more, loadMore, clipped }: { k: string; pairs: Array<[string, string]> } & Paging) {
   const { run, canWrite } = useKv();
   const [field, setField] = useState("");
   const [val, setVal] = useState("");
-  const rows: GridRow[] = pairs.map(([f, v]) => ({ id: f, cells: [f, <Cell key="v" text={v} />], edit: [undefined, v] }));
+  const rows: GridRow[] = pairs.map(([f, v]) => {
+    const clip = clipped.get(f);
+    return { id: f, cells: [f, <Cell key="v" text={v} clip={clip} />], edit: [undefined, clip ? undefined : v], fixed: clip?.name };
+  });
   return (
     <>
       <ValueGrid
@@ -231,10 +252,13 @@ export function HashEditor({ k, pairs, more, loadMore }: { k: string; pairs: Arr
 
 // ------------------------------------------------------------------ list
 
-export function ListEditor({ k, items, more, loadMore }: { k: string; items: string[] } & Paging) {
+export function ListEditor({ k, items, more, loadMore, clipped }: { k: string; items: string[] } & Paging) {
   const { run, canWrite } = useKv();
   const [val, setVal] = useState("");
-  const rows: GridRow[] = items.map((v, i) => ({ id: String(i), cells: [int(i), <Cell key="v" text={v} />], edit: [undefined, v] }));
+  const rows: GridRow[] = items.map((v, i) => {
+    const clip = clipped.get(String(i));
+    return { id: String(i), cells: [int(i), <Cell key="v" text={v} clip={clip} />], edit: [undefined, clip ? undefined : v] };
+  });
   return (
     <>
       <ValueGrid
@@ -280,7 +304,7 @@ export function ListEditor({ k, items, more, loadMore }: { k: string; items: str
 
 // ------------------------------------------------------------------ set
 
-export function SetEditor({ k, items, more, loadMore }: { k: string; items: string[] } & Paging) {
+export function SetEditor({ k, items, more, loadMore, clipped }: { k: string; items: string[] } & Paging) {
   const { run, canWrite } = useKv();
   const [val, setVal] = useState("");
   return (
@@ -288,7 +312,7 @@ export function SetEditor({ k, items, more, loadMore }: { k: string; items: stri
       <ValueGrid
         label={`Members of ${k}`}
         cols={[{ label: "Member", width: "minmax(10rem,1fr)" }]}
-        rows={items.map((m) => ({ id: m, cells: [<Cell key="m" text={m} />] }))}
+        rows={items.map((m) => ({ id: m, cells: [<Cell key="m" text={m} clip={clipped.get(m)} />], fixed: clipped.has(m) }))}
         more={more}
         loadMore={loadMore}
         onDelete={canWrite ? (r) => void run("set/remove", { key: k, members: [items[r]] }, `Removed ${items[r]} from ${k}`).catch(quiet) : undefined}
@@ -314,7 +338,7 @@ export function SetEditor({ k, items, more, loadMore }: { k: string; items: stri
 
 const scoreText = (n: number) => (Number.isInteger(n) ? int(n) : String(n));
 
-export function ZsetEditor({ k, pairs, more, loadMore, ranked }: { k: string; pairs: Array<[string, number]>; ranked: boolean } & Paging) {
+export function ZsetEditor({ k, pairs, more, loadMore, ranked, clipped }: { k: string; pairs: Array<[string, number]>; ranked: boolean } & Paging) {
   const { run, canWrite } = useKv();
   const [member, setMember] = useState("");
   const [score, setScore] = useState("");
@@ -329,8 +353,10 @@ export function ZsetEditor({ k, pairs, more, loadMore, ranked }: { k: string; pa
         ]}
         rows={pairs.map(([m, s], i) => ({
           id: m,
-          cells: [...(ranked ? [int(i + 1)] : []), <Cell key="m" text={m} />, scoreText(s)],
-          edit: [...(ranked ? [undefined] : []), undefined, String(s)],
+          cells: [...(ranked ? [int(i + 1)] : []), <Cell key="m" text={m} clip={clipped.get(m)} />, scoreText(s)],
+          // A clipped member can't be named to the box, so it stays as it is.
+          edit: [...(ranked ? [undefined] : []), undefined, clipped.has(m) ? undefined : String(s)],
+          fixed: clipped.has(m),
         }))}
         more={more}
         loadMore={loadMore}
@@ -366,7 +392,7 @@ export function ZsetEditor({ k, pairs, more, loadMore, ranked }: { k: string; pa
 
 // ------------------------------------------------------------------ stream
 
-export function StreamEditor({ k, entries, more, loadMore, length }: { k: string; entries: Array<[string, string[]]>; length: number } & Paging) {
+export function StreamEditor({ k, entries, more, loadMore, length, clipped }: { k: string; entries: Array<[string, string[]]>; length: number } & Paging) {
   const { run, canWrite } = useKv();
   const [fields, setFields] = useState<Array<[string, string]>>([["", ""]]);
   const [keep, setKeep] = useState("");
@@ -379,15 +405,19 @@ export function StreamEditor({ k, entries, more, loadMore, length }: { k: string
           { label: "Entry", width: "minmax(9rem,0.5fr)", quiet: true },
           { label: "Fields", width: "minmax(10rem,1.5fr)" },
         ]}
-        rows={entries.map(([id, fv]) => ({
-          id,
-          cells: [
-            <span key="id" title={id}>
-              {streamTime(id) ?? id}
-            </span>,
-            fv.reduce<string[]>((out, x, i) => (i % 2 ? out : [...out, `${x}=${fv[i + 1] ?? ""}`]), []).join("  "),
-          ],
-        }))}
+        rows={entries.map(([id, fv]) => {
+          const line = fv.reduce<string[]>((out, x, i) => (i % 2 ? out : [...out, `${x}=${fv[i + 1] ?? ""}`]), []).join("  ");
+          const clip = clipped.get(id);
+          return {
+            id,
+            cells: [
+              <span key="id" title={id}>
+                {streamTime(id) ?? id}
+              </span>,
+              clip ? <Cell key="f" text={line} clip={clip} /> : line,
+            ],
+          };
+        })}
         more={more}
         loadMore={loadMore}
         onDelete={canWrite ? (r) => void run("stream/delete", { key: k, ids: [entries[r][0]] }, `Deleted entry ${entries[r][0]} from ${k}`).catch(quiet) : undefined}

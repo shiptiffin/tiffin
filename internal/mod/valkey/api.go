@@ -58,11 +58,19 @@ type KVKeyPage struct {
 // KeyValue is a key with one page of its value.
 type KVKeyValue struct {
 	KVKeyInfo
-	Length      int64  `json:"length" doc:"String length in bytes, or number of fields/elements/members/entries"`
-	MemoryBytes int64  `json:"memoryBytes"`
-	Value       any    `json:"value" doc:"One page: a string (up to 1 MB), an object of fields, an array of elements, [member, score] pairs (highest score first) or [id, fields] entries (newest first)"`
-	Truncated   bool   `json:"truncated" doc:"This page is not the whole value"`
-	Cursor      string `json:"cursor,omitempty" doc:"Pass back as cursor for the next page; absent on the last"`
+	Length      int64       `json:"length" doc:"String length in bytes, or number of fields/elements/members/entries"`
+	MemoryBytes int64       `json:"memoryBytes"`
+	Value       any         `json:"value" doc:"One page: a string (up to 1 MB), an object of fields, an array of elements, [member, score] pairs (highest score first) or [id, fields] entries (newest first)"`
+	Truncated   bool        `json:"truncated" doc:"This page is not the whole value"`
+	Cursor      string      `json:"cursor,omitempty" doc:"Pass back as cursor for the next page; absent on the last"`
+	Clipped     []KVClipped `json:"clipped,omitempty" doc:"Items cut to their first 64 KB on this page. Writing one back as shown would lose the rest"`
+}
+
+// KVClipped is one item of a page that was cut short.
+type KVClipped struct {
+	Item  string `json:"item" doc:"The hash field, list index, member or stream entry ID, as the page shows it"`
+	Bytes int64  `json:"bytes" doc:"The full size of what was cut (the value, or the name when only the name was)"`
+	Name  bool   `json:"name,omitempty" doc:"The field name or member itself was cut, so it can't be found by it to change or delete"`
 }
 
 // KVEnv is one variable the project's apps get.

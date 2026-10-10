@@ -12722,6 +12722,17 @@ export interface components {
              */
             ttlSeconds?: number;
         };
+        ValkeyKVClipped: {
+            /**
+             * Format: int64
+             * @description The full size of what was cut (the value, or the name when only the name was)
+             */
+            bytes: number;
+            /** @description The hash field, list index, member or stream entry ID, as the page shows it */
+            item: string;
+            /** @description The field name or member itself was cut, so it can't be found by it to change or delete */
+            name?: boolean;
+        };
         ValkeyKVCommandResult: {
             /** @description The command's words, as parsed */
             command: string[] | null;
@@ -12792,6 +12803,8 @@ export interface components {
             keys: components["schemas"]["ValkeyKVKeyInfo"][] | null;
         };
         ValkeyKVKeyValue: {
+            /** @description Items cut to their first 64 KB on this page. Writing one back as shown would lose the rest */
+            clipped?: components["schemas"]["ValkeyKVClipped"][] | null;
             /** @description Pass back as cursor for the next page; absent on the last */
             cursor?: string;
             key: string;

@@ -2,12 +2,15 @@ package valkey
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // These tests run a real valkey-server (skipped when there is none on PATH):
@@ -210,5 +213,106 @@ func TestKVUndoRealServer(t *testing.T) {
 	}
 	if ttl, _ := a.Int(ctx, "PTTL", "p_app:k"); ttl <= 0 || ttl > 600_000 {
 		t.Fatalf("expiry after undo: %d", ttl)
+	}
+}
+
+// The key browser cuts big items to their first 64 KB, says which, and
+// pages a list of big items by size, picking up where the last page
+// stopped.
+func TestKVReadClipsBigItems(t *testing.T) {
+	s := startValkey(t)
+	ctx := context.Background()
+	c, err := s.admin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	pre := Prefix("app")
+	big := strings.Repeat("é", 2_500_000) // 5 MB, two bytes a character
+	if _, err := c.Do(ctx, "HSET", pre+"h", "small", "x", "big", big, "huge", big); err != nil {
+		t.Fatal(err)
+	}
+	fields, clipped, cursor := map[string]string{}, []KVClipped{}, ""
+	for page := 0; page == 0 || cursor != ""; page++ {
+		v, err := getKey(ctx, c, "app", "h", valueQuery{count: 200, cursor: cursor})
+		if err != nil || page > 10 {
+			t.Fatalf("hash page %d: %v", page, err)
+		}
+		maps.Copy(fields, v.Value.(map[string]string))
+		clipped, cursor = append(clipped, v.Clipped...), v.Cursor
+	}
+	if len(fields) != 3 || fields["small"] != "x" || len(clipped) != 2 {
+		t.Fatalf("hash: %d fields, clipped %+v", len(fields), clipped)
+	}
+	for _, cl := range clipped {
+		if cl.Bytes != 5_000_000 || cl.Name || len(fields[cl.Item]) != itemMax || !utf8.ValidString(fields[cl.Item]) {
+			t.Fatalf("clipped field %q: %+v, %d bytes shown", cl.Item, cl, len(fields[cl.Item]))
+		}
+	}
+
+	item := strings.Repeat("a", 100_000)
+	cmd := []string{"RPUSH", pre + "l"}
+	for range 40 {
+		cmd = append(cmd, item)
+	}
+	if _, err := c.Do(ctx, cmd...); err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for page := 0; ; page++ {
+		v, err := getKey(ctx, c, "app", "l", valueQuery{count: 200, cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		items := v.Value.([]any)
+		if len(items) == 0 || len(items)*itemMax > pageMax+itemMax || len(v.Clipped) != len(items) || v.Clipped[0].Item != strconv.Itoa(seen) || v.Clipped[0].Bytes != 100_000 {
+			t.Fatalf("list page %d: %d items, clipped %+v", page, len(items), v.Clipped[:min(2, len(v.Clipped))])
+		}
+		seen += len(items)
+		if cursor = v.Cursor; cursor == "" {
+			break
+		}
+		if cursor != strconv.Itoa(seen) || page > 40 {
+			t.Fatalf("list cursor %q after %d items", cursor, seen)
+		}
+	}
+	if seen != 40 {
+		t.Fatalf("list pages held %d items, want 40", seen)
+	}
+}
+
+// One tree request looks at no more than treeScanMax keys and then says its
+// counts are partial; a search from the top counts only the keys it matches.
+func TestKVTreeScanCap(t *testing.T) {
+	s := startValkey(t)
+	ctx := context.Background()
+	c, err := s.admin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	was := treeScanMax
+	treeScanMax = 1000
+	t.Cleanup(func() { treeScanMax = was })
+	cmds := make([][]string, 0, 5000)
+	for i := range 5000 {
+		cmds = append(cmds, []string{"SET", Prefix("app") + "session:" + strconv.Itoa(i), "v"})
+	}
+	if _, err := c.Pipe(ctx, cmds...); err != nil {
+		t.Fatal(err)
+	}
+	top, err := tree(ctx, c, "app", treeQuery{delimiter: ":"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !top.Partial || top.Scanned < 1000 || top.Scanned > 3000 || len(top.Groups) != 1 || top.Groups[0].Keys != top.Scanned {
+		t.Fatalf("capped: %+v", top)
+	}
+	found, err := tree(ctx, c, "app", treeQuery{match: "session:4??"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Partial || found.Total != 100 {
+		t.Fatalf("search: total %d partial %v", found.Total, found.Partial)
 	}
 }

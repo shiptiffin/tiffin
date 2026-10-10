@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/shiptiffin/tiffin/internal/api"
 )
@@ -38,6 +39,11 @@ type treeQuery struct {
 	offset, limit                         int
 }
 
+// treeScanMax is how many keys one tree request looks at before it stops
+// and calls its counts partial: every page scans its level again, and at a
+// million keys a full scan took about a second and 300 MB on the box.
+var treeScanMax int64 = 250_000 // a var for tests
+
 // tree lists one level of the project's keys: branches with counts, then a
 // page of the keys themselves with their type and expiry.
 func tree(ctx context.Context, c *Client, project string, q treeQuery) (*KVTree, error) {
@@ -46,7 +52,13 @@ func tree(ctx context.Context, c *Client, project string, q treeQuery) (*KVTree,
 	groups := map[string]int64{}
 	seen := map[string]bool{}
 	var leaves []string
-	err := scanAll(ctx, c, pre+globEscape(q.prefix)+"*", q.typ, 2_000_000, func(keys []string) error {
+	pattern := pre + globEscape(q.prefix) + "*"
+	if q.prefix == "" && q.match != "" {
+		// A search from the top lets the server filter, so the cap counts
+		// matches rather than every key looked at.
+		pattern = pre + q.match
+	}
+	err := scanAll(ctx, c, pattern, q.typ, treeScanMax, func(keys []string) error {
 		var shorts []string
 		for _, k := range keys {
 			s := strings.TrimPrefix(k, pre)
@@ -162,6 +174,26 @@ type valueQuery struct {
 	count         int
 }
 
+// A page of a key's value cuts each item to itemMax bytes and, where it
+// pages by position, stops once it holds pageMax: a hash of 5 MB fields
+// would otherwise send the browser hundreds of megabytes at once.
+const (
+	itemMax = 64 << 10
+	pageMax = 2 << 20
+)
+
+// clip cuts s to itemMax bytes, at a character boundary.
+func clip(s string) (string, bool) {
+	if len(s) <= itemMax {
+		return s, false
+	}
+	i := itemMax
+	for i > itemMax-utf8.UTFMax && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i], true
+}
+
 // getKey returns a key's type, expiry, size and one page of its value:
 // sorted sets highest score first, streams newest first.
 func getKey(ctx context.Context, c *Client, project, key string, q valueQuery) (*KVKeyValue, error) {
@@ -182,7 +214,14 @@ func getKey(ctx context.Context, c *Client, project, key string, q valueQuery) (
 	out.TTLMs, _ = r[1].(int64)
 	out.MemoryBytes, _ = r[2].(int64)
 	off, _ := strconv.Atoi(q.cursor)
-	from, to := strconv.Itoa(off), strconv.Itoa(off+n-1)
+	// fit asks for fewer items when they are big on average (from the
+	// key's memory), so the box reads about pageMax at a time.
+	fit := func() {
+		if avg := out.MemoryBytes / max(out.Length, 1); avg > 0 && int64(n)*avg > pageMax {
+			n = int(max(1, pageMax/avg))
+		}
+	}
+	var size int // bytes on this page so far
 	// scan pages a hash, set or (filtered) sorted set by cursor.
 	scan := func(cmd string) ([]string, error) {
 		cur := q.cursor
@@ -214,59 +253,100 @@ func getKey(ctx context.Context, c *Client, project, key string, q valueQuery) (
 		out.Value, out.Truncated = v, out.Length > most
 	case "hash":
 		out.Length, _ = c.Int(ctx, "HLEN", key)
+		fit()
 		items, err := scan("HSCAN")
 		if err != nil {
 			return nil, err
 		}
 		m := map[string]string{}
 		for i := 0; i+1 < len(items); i += 2 {
-			m[items[i]] = items[i+1]
+			f, fcut := clip(items[i])
+			v, vcut := clip(items[i+1])
+			if fcut || vcut {
+				full := len(items[i+1])
+				if !vcut {
+					full = len(items[i])
+				}
+				out.Clipped = append(out.Clipped, KVClipped{Item: f, Bytes: int64(full), Name: fcut})
+			}
+			m[f] = v
 		}
 		out.Value = m
 	case "set":
 		out.Length, _ = c.Int(ctx, "SCARD", key)
+		fit()
 		items, err := scan("SSCAN")
 		if err != nil {
 			return nil, err
 		}
+		for i, s := range items {
+			if cut, ok := clip(s); ok {
+				out.Clipped = append(out.Clipped, KVClipped{Item: cut, Bytes: int64(len(s)), Name: true})
+				items[i] = cut
+			}
+		}
 		out.Value = items
 	case "list":
 		out.Length, _ = c.Int(ctx, "LLEN", key)
-		v, err := c.Do(ctx, "LRANGE", key, from, to)
+		fit()
+		v, err := c.Do(ctx, "LRANGE", key, strconv.Itoa(off), strconv.Itoa(off+n-1))
 		if err != nil {
 			return nil, err
 		}
-		out.Value = v
-		if int64(off+n) < out.Length {
-			out.Cursor = strconv.Itoa(off + n)
+		page := []any{}
+		for _, x := range asList(v) {
+			if size >= pageMax {
+				break
+			}
+			s, _ := x.(string)
+			cut, ok := clip(s)
+			if ok {
+				out.Clipped = append(out.Clipped, KVClipped{Item: strconv.Itoa(off + len(page)), Bytes: int64(len(s))})
+			}
+			size += len(cut)
+			page = append(page, cut)
+		}
+		out.Value = page
+		if int64(off+len(page)) < out.Length {
+			out.Cursor = strconv.Itoa(off + len(page))
 		}
 	case "zset":
 		out.Length, _ = c.Int(ctx, "ZCARD", key)
+		fit()
 		var flat []string
 		if q.match != "" {
 			if flat, err = scan("ZSCAN"); err != nil {
 				return nil, err
 			}
 		} else {
-			v, err := c.Do(ctx, "ZRANGE", key, from, to, "REV", "WITHSCORES")
+			v, err := c.Do(ctx, "ZRANGE", key, strconv.Itoa(off), strconv.Itoa(off+n-1), "REV", "WITHSCORES")
 			if err != nil {
 				return nil, err
 			}
 			for _, x := range asList(v) {
 				flat = append(flat, fmt.Sprint(x))
 			}
-			if int64(off+n) < out.Length {
-				out.Cursor = strconv.Itoa(off + n)
-			}
 		}
 		pairs := [][2]any{}
 		for i := 0; i+1 < len(flat); i += 2 {
+			if q.match == "" && size >= pageMax {
+				break // by rank, the next page starts where this one stops
+			}
+			m, ok := clip(flat[i])
+			if ok {
+				out.Clipped = append(out.Clipped, KVClipped{Item: m, Bytes: int64(len(flat[i])), Name: true})
+			}
+			size += len(m)
 			score, _ := strconv.ParseFloat(flat[i+1], 64)
-			pairs = append(pairs, [2]any{flat[i], score})
+			pairs = append(pairs, [2]any{m, score})
 		}
 		out.Value = pairs
+		if q.match == "" && int64(off+len(pairs)) < out.Length {
+			out.Cursor = strconv.Itoa(off + len(pairs))
+		}
 	case "stream":
 		out.Length, _ = c.Int(ctx, "XLEN", key)
+		fit()
 		end := "+"
 		if q.cursor != "" {
 			end = "(" + q.cursor
@@ -275,15 +355,35 @@ func getKey(ctx context.Context, c *Client, project, key string, q valueQuery) (
 		if err != nil {
 			return nil, err
 		}
-		entries := asList(v)
-		out.Value = entries
-		if len(entries) == n {
-			if last, _ := entries[n-1].([]any); len(last) > 0 {
-				out.Cursor = fmt.Sprint(last[0])
+		all := asList(v)
+		entries := []any{}
+		for _, e := range all {
+			if size >= pageMax {
+				break
 			}
+			entry, _ := e.([]any)
+			if len(entry) < 2 {
+				continue
+			}
+			fields, _ := entry[1].([]any)
+			full, cut := 0, false
+			for i, x := range fields {
+				s, _ := x.(string)
+				short, ok := clip(s)
+				full, cut, fields[i] = full+len(s), cut || ok, short
+				size += len(short)
+			}
+			if cut {
+				out.Clipped = append(out.Clipped, KVClipped{Item: fmt.Sprint(entry[0]), Bytes: int64(full)})
+			}
+			entries = append(entries, entry)
+		}
+		out.Value = entries
+		if len(entries) > 0 && (len(entries) < len(all) || len(all) == n) {
+			out.Cursor = fmt.Sprint(entries[len(entries)-1].([]any)[0])
 		}
 	}
-	out.Truncated = out.Truncated || out.Cursor != ""
+	out.Truncated = out.Truncated || out.Cursor != "" || len(out.Clipped) > 0
 	return out, nil
 }
 
