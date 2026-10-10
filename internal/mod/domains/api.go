@@ -415,6 +415,20 @@ func onlyManagedMissing(c *DomainCheck) bool {
 }
 
 // validDomain cleans and checks a domain name typed by someone.
+// sharedZones are ShipTiffin's own domains: managed boxes get names under
+// them, and nobody else can set their DNS.
+var sharedZones = []string{"shiptiffin.app"}
+
+// sharedZone returns the shared zone d is in, or "".
+func sharedZone(d string) string {
+	for _, z := range sharedZones {
+		if d == z || strings.HasSuffix(d, "."+z) {
+			return z
+		}
+	}
+	return ""
+}
+
 func validDomain(d string) (string, error) {
 	d = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
 	d = strings.TrimPrefix(strings.TrimPrefix(d, "https://"), "http://")
@@ -865,9 +879,15 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 		// The box domain itself (and a separate apps domain itself) may be
 		// an app's: until one claims it, it redirects to the dashboard.
-		if p.IsBoxHost(d) || d == p.DashboardHost() {
-			pr := api.NewProblem(422, "validation", d+" is one of the box's own names, which already point here")
-			pr.Hint = "use the app's routes for first-level names (\"shop\" is " + p.Host("shop") + "), or pick a domain of your own"
+		if d == p.DashboardHost() {
+			pr := api.NewProblem(422, "validation", d+" is the box's dashboard")
+			pr.Hint = "pick another name: \"shop\" is " + p.Host("shop") + ", or use a domain of your own"
+			return nil, pr
+		}
+		if z := sharedZone(d); z != "" && !p.IsBoxHost(d) {
+			label, _, _ := strings.Cut(d, ".")
+			pr := api.NewProblem(422, "validation", d+" is not this box's: names under "+z+" belong to ShipTiffin, and DNS for them can't be set here")
+			pr.Hint = "use " + p.Host(label) + " (free, no DNS to set), or a domain of your own"
 			return nil, pr
 		}
 		path := strings.TrimRight(strings.TrimSpace(in.Body.Path), "/")
@@ -875,6 +895,14 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			path = "/" + path
 		}
 		rt := d + path
+		// A name on the box (<name>.<apps domain>) already points here: it
+		// is a route of its own, with no DNS to set.
+		boxName := p.IsBoxHost(d)
+		if boxName {
+			label, _, _ := strings.Cut(d, ".")
+			rt = label + path
+			in.Body.WWW, in.Body.CreateRecords = false, false
+		}
 		intent := orDefault(in.Body.Intent, "serve "+rt+" from app "+in.Body.App)
 		out, err := m.editManifest(ctx, p, in.Project, in.Body.Confirm, intent, func(man *manifest.Manifest) error {
 			app, ok := man.Apps[in.Body.App]
@@ -922,6 +950,12 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, api.NewProblem(http.StatusBadGateway, "internal", "the domain was added, but the DNS provider refused the records: "+err.Error())
 			}
 			out.Created = recs
+		}
+		if boxName {
+			out.Domain = &Domain{Domain: d, Project: in.Project, Routes: []route{{Path: orDefault(path, "/"), App: in.Body.App}}, State: "live",
+				Since: time.Now().UTC(), Records: []dnskit.Record{}, Found: []string{}, URL: p.URL(d) + path,
+				Summary: "A name on the box: it already points here, so there is nothing to set."}
+			return &struct{ Body DomainChange }{*out}, nil
 		}
 		m.recheck(ctx, names...)
 		for _, ds := range m.projectDomains(ctx, p, in.Project) {

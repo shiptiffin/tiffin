@@ -270,14 +270,24 @@ func TestCustomDomainLifecycle(t *testing.T) {
 		body map[string]any
 		code int
 	}{
-		{map[string]any{"domain": "web.box.test", "app": "web"}, 422},  // under the box domain
-		{map[string]any{"domain": "example.test", "app": "nope"}, 404}, // no such app
+		{map[string]any{"domain": "dashboard.box.test", "app": "web"}, 422},   // the dashboard
+		{map[string]any{"domain": "blog2.shiptiffin.app", "app": "web"}, 422}, // another box's name
+		{map[string]any{"domain": "example.test", "app": "nope"}, 404},        // no such app
 		{map[string]any{"domain": "x.example.test", "app": "jobs"}, 422},
 		{map[string]any{"domain": "localhost", "app": "web"}, 422},
 	} {
 		if code, out := h.call("POST", "/v1/projects/shop/domains", tc.body); code != tc.code {
 			t.Errorf("%v: %d %v", tc.body, code, out)
 		}
+	}
+
+	// A name on the box is a route of the app: live at once, no records.
+	out = h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "blog2.box.test", "app": "web"})
+	if d, _ := out["domain"].(map[string]any); d["state"] != "live" || len(d["records"].([]any)) != 0 {
+		t.Errorf("box name: %v", out["domain"])
+	}
+	if code, out := h.call("GET", "/v1/projects/shop/manifest", nil); code != 200 || !strings.Contains(string(mustJSON(out)), `"blog2"`) {
+		t.Errorf("route not in the manifest: %d %v", code, out)
 	}
 
 	// Removing it is a planned change too.
@@ -464,12 +474,13 @@ func TestAppsDomain(t *testing.T) {
 	if code, _ := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test"}); code != 409 {
 		t.Errorf("same again: %d", code)
 	}
-	// Project domains: the box's own names are refused, and a subdomain's
-	// CNAME alternative targets the dashboard's host (the apex need not exist).
+	// Project domains: the dashboard's name is refused, a name on the box
+	// becomes a route (a plan to confirm), and a subdomain's CNAME
+	// alternative targets the dashboard's host (the apex need not exist).
 	h.project("shop")
-	for _, own := range []string{"web.apps.test", "dashboard.example.test"} {
-		if code, _ := h.call("POST", "/v1/projects/shop/domains", map[string]any{"domain": own, "app": "web"}); code != 422 {
-			t.Errorf("project domain %s: %d", own, code)
+	for own, want := range map[string]int{"dashboard.example.test": 422, "web.apps.test": 428} {
+		if code, _ := h.call("POST", "/v1/projects/shop/domains", map[string]any{"domain": own, "app": "web"}); code != want {
+			t.Errorf("project domain %s: %d, want %d", own, code, want)
 		}
 	}
 	// The bare domains redirect to the dashboard; once the website claims
@@ -678,4 +689,9 @@ func TestExplain(t *testing.T) {
 			t.Errorf("explain(%q) = %q", in, got)
 		}
 	}
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

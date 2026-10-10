@@ -4796,7 +4796,13 @@ https://shop.203-0-113-7.sslip.io          an app called shop
 
 `203-0-113-7` is the server's IPv4 address with dashes. sslip.io answers every name
 under it with that address, so there is nothing to set up. The certificates come from
-Let's Encrypt. `tiffin domain` shows where you are.
+Let's Encrypt. `tiffin domain` shows where you are. A managed box works the same way
+under `<name>.shiptiffin.app`.
+
+Any other name one level under the box's domain is free too, and works at once:
+**Domains › Add domain** with `blog.<box domain>` (or `tiffin domains add <project>
+--domain blog.<box domain> --app web`) adds `blog` to the app's routes, with no DNS to
+set. Names directly under `shiptiffin.app` belong to other boxes and are refused.
 
 (A local box in a VM, for trying Tiffin out, uses `*.tiffin.localhost` and its own
 certificate authority: the CLI trusts it after `tiffin up`, browsers after `tiffin trust`.

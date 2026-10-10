@@ -44,6 +44,9 @@ export function AddDomainDialog(props: Props) {
   );
 }
 
+/** ShipTiffin's own domain: managed boxes get names under it, and nobody else can set its DNS. */
+const SHARED = "shiptiffin.app";
+
 function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onDone }: Props) {
   const qc = useQueryClient();
   const [raw, setRaw] = useState("");
@@ -56,8 +59,13 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
   const kind = kindOf(domain);
   const apex = valid && kind === "apex";
   const dup = taken.includes(domain);
-  // The box domain itself (and the apps domain itself) may be an app's; the names under them are the box's.
-  const boxName = !!box && (domain === box.dashboard || (!!box.appsDomain && domain.endsWith(`.${box.appsDomain}`)));
+  // A name one level under the apps domain is the box's own: it already points here, so it is added with nothing to set.
+  // Deeper names, and the dashboard's, can't be an app's. Other names under ShipTiffin's own domain belong to other boxes.
+  const under = !!box?.appsDomain && domain.endsWith(`.${box.appsDomain}`);
+  const label = domain.split(".")[0];
+  const freeName = under && !domain.slice(0, -box!.appsDomain.length - 1).includes(".") && domain !== box!.dashboard;
+  const boxName = !!box && (domain === box.dashboard || (under && !freeName));
+  const shared = !under && (domain === SHARED || domain.endsWith(`.${SHARED}`));
   const target = box && box.certificates === "acme" ? (box.appsDomain !== box.domain ? box.dashboard : box.domain) : "";
   const ips = box?.publicIps ?? [];
 
@@ -122,15 +130,18 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (valid && chosen && !dup && !boxName && !add.isPending) add.mutate();
+    if (valid && chosen && !dup && !boxName && !shared && !add.isPending) add.mutate();
   };
-  const problem = raw.trim() === "" ? null : !valid ? "bad" : dup ? "dup" : boxName ? "box" : null;
+  const problem = raw.trim() === "" ? null : !valid ? "bad" : dup ? "dup" : boxName ? "box" : shared ? "shared" : null;
 
   return (
     <form onSubmit={submit} className="contents">
       <DialogHeader>
         <DialogTitle>Add a domain</DialogTitle>
-        <DialogDescription>Use a domain you own. You’ll get the exact DNS records to set, and HTTPS follows by itself.</DialogDescription>
+        <DialogDescription>
+          {box?.appsDomain ? <>A free name on your box (blog.{box.appsDomain}) works at once. </> : null}
+          For a domain you own, you’ll get the exact DNS records to set, and HTTPS follows by itself.
+        </DialogDescription>
       </DialogHeader>
       <DialogBody className="space-y-5">
         <div>
@@ -156,12 +167,27 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
             ) : problem === "dup" ? (
               <span className="text-ink-2">{domain} is already on this page.</span>
             ) : problem === "box" ? (
-              <span className="text-ink-2">That’s one of your box’s own names, which already work. Pick a domain you own.</span>
+              <span className="text-ink-2">That name can’t be an app’s. Use one name before {box?.appsDomain}, like {label}.{box?.appsDomain}.</span>
+            ) : problem === "shared" ? (
+              <span className="text-ink-2">
+                Names under {SHARED} belong to ShipTiffin, so their DNS can’t be set for this box.{" "}
+                {box?.appsDomain && (
+                  <>
+                    Use{" "}
+                    <button type="button" className="text-ink underline decoration-rule-3 underline-offset-2 hover:decoration-current" onClick={() => setRaw(`${label}.${box.appsDomain}`)}>
+                      {label}.{box.appsDomain}
+                    </button>{" "}
+                    instead: it’s free and works at once.
+                  </>
+                )}
+              </span>
+            ) : freeName ? (
+              <span className="text-ink-2">A name on your box: it already points here, so there’s no DNS to set.</span>
             ) : !valid ? (
               <span className="text-ink-3">A whole domain (example.com) or a subdomain (shop.example.com).</span>
             ) : null}
           </div>
-          {valid && !problem && <Kind domain={domain} target={target} ips={ips} local={local} />}
+          {valid && !problem && !freeName && <Kind domain={domain} target={target} ips={ips} local={local} />}
         </div>
 
         {apps.length > 1 ? (
