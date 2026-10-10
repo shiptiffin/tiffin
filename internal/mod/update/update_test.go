@@ -447,3 +447,19 @@ func TestBrokenReleaseNotRetried(t *testing.T) {
 		t.Fatalf("newer release: %v %+v", b.calls, load().Updates[0])
 	}
 }
+
+// A check time left from the old daily schedule (up to 28 hours away) is
+// not waited for: the next tick checks, and the next check is within the hour.
+func TestOldDailyCheckTimeIsNotWaitedFor(t *testing.T) {
+	s := newServer(t, "1.4.0", 100, true)
+	u, _, _ := setup(t, s, "1.4.0")
+	now := time.Now()
+	if _, err := edit(func(r *record) { r.NextCheck = now.Add(20 * time.Hour) }); err != nil {
+		t.Fatal(err)
+	}
+	u.tick(context.Background(), nil, now)
+	r := load()
+	if r.CheckedAt.IsZero() || r.NextCheck.Sub(now) > checkEvery {
+		t.Fatalf("checked at %v, next %v", r.CheckedAt, r.NextCheck)
+	}
+}

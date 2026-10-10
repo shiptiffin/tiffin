@@ -167,6 +167,9 @@ func newUpdater(b box, version string, notify func(context.Context, string, stri
 // errBusy: a check or update is running.
 var errBusy = errors.New("an update is already running; try again in a minute")
 
+// checkEvery is the longest wait between checks.
+const checkEvery = 70 * time.Minute
+
 // check fetches the channel's manifest and records what it offers.
 func (u *updater) check(ctx context.Context) (*release.Manifest, record, error) {
 	r, _ := edit(func(*record) {})
@@ -175,7 +178,7 @@ func (u *updater) check(ctx context.Context) (*release.Manifest, record, error) 
 	prevErr := r.CheckError
 	r, serr := edit(func(r *record) {
 		r.CheckedAt, r.CheckError, r.Refused, r.Available = now, "", errors.Is(err, release.ErrRefused), nil
-		r.NextCheck = now.Add(50*time.Minute + rand.N(20*time.Minute)) // hourly, spread so boxes do not all ask at once
+		r.NextCheck = now.Add(checkEvery - 20*time.Minute + rand.N(20*time.Minute)) // hourly, spread so boxes do not all ask at once
 		if err != nil {
 			r.CheckError = err.Error()
 			return
@@ -446,7 +449,7 @@ func (u *updater) tick(ctx context.Context, p *platform.Platform, now time.Time)
 		if u.install(ctx, p) {
 			_, _ = edit(func(r *record) { r.LastScheduled = now.UTC() })
 		}
-	case r.NextCheck.After(now):
+	case r.NextCheck.After(now) && r.NextCheck.Sub(now) <= checkEvery: // (a later one is from the old daily schedule)
 	case !r.Manual && win == "" && !u.isPaused():
 		u.install(ctx, p) // checks first
 	default:
