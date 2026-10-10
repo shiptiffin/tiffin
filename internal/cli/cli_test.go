@@ -724,3 +724,14 @@ func TestScaffoldSkillMatchesRepoSkill(t *testing.T) {
 		t.Fatal("internal/cli/scaffold/SKILL.md differs from skills/tiffin/SKILL.md: copy skills/tiffin/SKILL.md over it")
 	}
 }
+
+// An address copied from the docs' examples is refused at once, not after
+// two minutes of SSH timeouts.
+func TestExampleAddr(t *testing.T) {
+	for host, want := range map[string]bool{"203.0.113.5": true, "198.51.100.7": true, "192.0.2.1": true, "2001:db8::1": true,
+		"46.224.210.97": false, "10.0.0.5": false, "shop.example.com": false} {
+		if got := exampleAddr(host); got != want {
+			t.Errorf("%s: %v, want %v", host, got, want)
+		}
+	}
+}

@@ -232,7 +232,12 @@ func (m *Machine) Wait(ctx context.Context, d time.Duration) error {
 			return fmt.Errorf("the server's SSH host key is not the one trusted for %s; if you rebuilt the server, remove its line from %s", m.T, where)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("could not reach %s over SSH after %s: %s", m.T, d.Round(time.Second), last)
+			try := "ssh " + m.T.User + "@" + m.T.Host
+			if m.T.Port != 0 && m.T.Port != 22 {
+				try = fmt.Sprintf("ssh -p %d %s@%s", m.T.Port, m.T.User, m.T.Host)
+			}
+			return fmt.Errorf("could not reach %s over SSH after %s: %s (check the address, that the server is on and lets SSH in, and that your key logs in: %s)",
+				m.T, d.Round(time.Second), last, try)
 		}
 		select {
 		case <-ctx.Done():

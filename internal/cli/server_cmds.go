@@ -341,6 +341,10 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		if err != nil {
 			return &exitError{ExitInvalid, err.Error()}
 		}
+		if exampleAddr(t.Host) {
+			return &exitError{ExitInvalid, t.Host + " is an example address from the docs, not a server: use your own server's IP " +
+				"(an Ubuntu server you can SSH into). No server yet? tiffin up --provider hetzner --name <box> makes one"}
+		}
 		sb.Identity = pick(o.identity, pick(o.sshKey, prev.Identity))
 		if sb.Identity != "" {
 			sb.Identity = a.expandHome(sb.Identity)
@@ -838,4 +842,19 @@ func publiclyTrusted(ctx context.Context, url string) bool {
 	}
 	res.Body.Close()
 	return true
+}
+
+// exampleAddr reports whether host is in a range kept for documentation
+// (RFC 5737, RFC 3849): copied from an example, it can never answer.
+func exampleAddr(host string) bool {
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	for _, p := range []string{"192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32"} {
+		if netip.MustParsePrefix(p).Contains(a.Unmap()) {
+			return true
+		}
+	}
+	return false
 }

@@ -49,7 +49,7 @@ passwordless sudo:
 
 ```bash
 curl -fsSL https://shiptiffin.com/install.sh | sh
-tiffin up --provider ssh --name shop --host root@203.0.113.5
+tiffin up --provider ssh --name shop --host root@YOUR_SERVER_IP
 ```
 
 It prints the dashboard address and a one-time sign-in link, as above.
@@ -229,7 +229,7 @@ never moved or formatted.
 To keep your data on a disk of its own:
 
 ```bash
-tiffin up --provider ssh --name shop --host root@203.0.113.5 --data-disk /dev/sdb
+tiffin up --provider ssh --name shop --host root@YOUR_SERVER_IP --data-disk /dev/sdb
 ```
 
 `--data-disk` is optional: a blank disk is formatted XFS for your data (one with a

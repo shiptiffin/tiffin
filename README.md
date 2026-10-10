@@ -89,7 +89,7 @@ Any Ubuntu 26.04 server you can reach over SSH with passwordless sudo (24.04 als
 
 ```bash
 curl -fsSL https://shiptiffin.com/install.sh | sh
-tiffin up --provider ssh --name shop --host root@203.0.113.5
+tiffin up --provider ssh --name shop --host root@YOUR_SERVER_IP
 ```
 
 Self-hosted, `tiffin up` ends by printing the dashboard's address and a one-time sign-in
