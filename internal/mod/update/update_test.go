@@ -357,29 +357,93 @@ func TestManagedPauseInstallsNothing(t *testing.T) {
 	}
 }
 
-// A server box with no reboot window still installs updates by itself, at
-// DefaultWindow; its reboot window or the update setting moves it; a local
-// box (no server config) has none.
-func TestWindowDefaultsOnServers(t *testing.T) {
-	platform.ServerConfigPath = filepath.Join(t.TempDir(), "server.json")
-	if w := window(record{}); w != "" {
-		t.Fatalf("local box: %q", w)
+// releaseStatus is the status a release build would show (tests run a
+// development build).
+func releaseStatus(now time.Time) *Status {
+	s := status(load(), now)
+	s.Release = true
+	s.Summary = s.words()
+	return s
+}
+
+// With no update window, the hourly check installs a new release at once
+// when the box is in its rollout, and checks again 50 to 70 minutes later.
+func TestInstallsOnHourlyCheck(t *testing.T) {
+	s := newServer(t, "1.5.0", 0, false)
+	u, b, _ := setup(t, s, "1.4.0")
+	now := time.Now()
+	u.tick(context.Background(), nil, now) // rollout 0: checked only
+	r := load()
+	if len(b.calls) != 0 || r.Available == nil || r.Available.InRollout {
+		t.Fatalf("rollout 0: %v %+v", b.calls, r)
 	}
-	write := func(reboot string) {
-		raw, _ := json.Marshal(platform.ServerConfig{Provider: "ssh", Name: "x", RebootWindow: reboot})
-		if err := os.WriteFile(platform.ServerConfigPath, raw, 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if d := r.NextCheck.Sub(now); d < 50*time.Minute || d > 70*time.Minute {
+		t.Fatalf("next check in %v", d)
 	}
-	write("")
-	if w := window(record{}); w != DefaultWindow {
-		t.Fatalf("server, no window: %q", w)
+	s.m.Rollout = 100
+	u.tick(context.Background(), nil, now.Add(30*time.Minute)) // not time to check yet
+	if len(b.calls) != 0 {
+		t.Fatalf("before the next check: %v", b.calls)
 	}
-	write("05:30")
-	if w := window(record{}); w != "05:30" {
-		t.Fatalf("reboot window: %q", w)
+	u.tick(context.Background(), nil, r.NextCheck)
+	if strings.Join(b.calls, ", ") != "hold postgres, backup, launch" {
+		t.Fatalf("at the next check: %v", b.calls)
 	}
-	if w := window(record{Window: "01:00"}); w != "01:00" {
-		t.Fatalf("update setting: %q", w)
+	if up := load().Updates[0]; up.Trigger != "schedule" || up.To != "1.5.0" {
+		t.Fatalf("update: %+v", up)
+	}
+}
+
+// With an update window set, the hourly check only checks; the release
+// installs in the window.
+func TestWindowSetInstallsOnlyInWindow(t *testing.T) {
+	s := newServer(t, "1.5.0", 100, false)
+	u, b, _ := setup(t, s, "1.4.0")
+	now := time.Now()
+	_, _ = edit(func(r *record) { r.Window = now.Add(2 * time.Hour).Format("15:04") })
+	u.tick(context.Background(), nil, now)
+	if r := load(); len(b.calls) != 0 || r.Available == nil || r.NextCheck.IsZero() {
+		t.Fatalf("outside the window: %v %+v", b.calls, r)
+	}
+	if st := releaseStatus(now); st.NextRun == nil || st.NextCheck == nil || !strings.Contains(st.Summary, "update window") {
+		t.Fatalf("status: %+v", st)
+	}
+	u.tick(context.Background(), nil, now.Add(2*time.Hour+windowDelay+time.Minute))
+	if len(b.calls) != 3 {
+		t.Fatalf("in the window: %v", b.calls)
+	}
+}
+
+// A release that failed or rolled back here is not installed again by
+// itself; update apply still can, and a newer release installs as usual.
+func TestBrokenReleaseNotRetried(t *testing.T) {
+	s := newServer(t, "1.5.0", 100, false)
+	u, b, _ := setup(t, s, "1.4.0")
+	ctx := context.Background()
+	u.tick(ctx, nil, time.Now())
+	up := load().Updates[0]
+	_ = install.WriteResult(dlDir, install.StagedResult{ID: up.ID, Status: "rolled-back", Error: "unhealthy"})
+	u.collect(time.Now())
+	_, _ = edit(func(r *record) { r.NextCheck = time.Time{} })
+	u.tick(ctx, nil, time.Now())
+	if len(b.calls) != 3 {
+		t.Fatalf("retried a rolled-back release: %v", b.calls)
+	}
+	if st := releaseStatus(time.Now()); !strings.Contains(st.Summary, "failed here") {
+		t.Fatalf("summary: %s", st.Summary)
+	}
+	again, err := u.apply(ctx, "now")
+	if err != nil || again.Status != "running" || len(b.calls) != 6 {
+		t.Fatalf("update apply: %+v %v %v", again, err, b.calls)
+	}
+	_ = install.WriteResult(dlDir, install.StagedResult{ID: again.ID, Status: "failed", Error: "provision"})
+	u.collect(time.Now())
+
+	s2 := newServer(t, "1.6.0", 100, false)
+	u.keys = []release.PublicKey{s2.key.Public()}
+	_, _ = edit(func(r *record) { r.Source, r.NextCheck = s2.source(), time.Time{} })
+	u.tick(ctx, nil, time.Now())
+	if len(b.calls) != 9 || load().Updates[0].To != "1.6.0" {
+		t.Fatalf("newer release: %v %+v", b.calls, load().Updates[0])
 	}
 }

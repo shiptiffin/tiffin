@@ -14,9 +14,10 @@ There is no bug bounty.
 
 ## Supported versions
 
-Only the latest release gets security fixes. Boxes update themselves to the newest signed
-release of their channel (`tiffin update status` shows yours), so a fix reaches them without
-anyone running a command, unless automatic updates were turned off.
+Only the latest release gets security fixes. Boxes check for the newest signed release of
+their channel about every hour and install it by themselves (`tiffin update status` shows
+yours), so a fix reaches them within about an hour without anyone running a command, unless
+automatic updates were turned off or the owner set an update window.
 
 ## In scope
 

@@ -100,8 +100,9 @@ and your coding agent with an API key: see
   box makes no more links for us, and any it made that are still unused stop working: we
   have no way to sign in to your box.
 - **Updates are pulled, never pushed.** The box reads the signed release manifest itself
-  and installs new releases in its maintenance window, 03:00 server time (UTC) unless you
-  move it ([Tiffin's own updates](https://shiptiffin.com/docs/quickstart.md#tiffins-own-updates)); ShipTiffin never
+  about every hour and installs a new release within about an hour of it coming out,
+  after a backup, or at a time you set ([Tiffin's own
+  updates](https://shiptiffin.com/docs/quickstart.md#tiffins-own-updates)); ShipTiffin never
   connects to it to install anything. The only inbound requests from ShipTiffin are the monitor's: `GET
   https://dashboard.<name>.shiptiffin.app/v1/health` every five minutes.
 - **The check-in.** Every six hours the box posts its Tiffin version, uptime, the

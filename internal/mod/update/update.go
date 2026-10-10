@@ -1,19 +1,19 @@
 // Package update keeps the box on the newest Tiffin release of its channel
-// by itself. Once a day (at a time of its own) it fetches the channel's
-// signed manifest and checks it: signed by a key this build trusts, for
-// this channel, newer than the running version, and this version at least
-// the release's minVersion. In the maintenance window, half an hour in
-// (after Postgres's own updates), it installs it when the box falls in the
-// release's rollout: download the build and check its sha256 against the
-// signed manifest, take a backup and wait for it, then let `tiffin
-// self-update --staged` switch to it (provision, unit files, health check,
-// rollback) in a unit of its own, since it restarts this service. The
-// outcome comes back as a file; the box records it in the audit log and
-// alerts the owner when an update failed or rolled back.
+// by itself. About every hour (at a minute of its own) it fetches the
+// channel's signed manifest and checks it: signed by a key this build
+// trusts, for this channel, newer than the running version, and this
+// version at least the release's minVersion. When the box falls in the
+// release's rollout it installs it then, or in the update window when the
+// owner set one (half an hour in, after Postgres's own updates): download
+// the build and check its sha256 against the signed manifest, take a backup
+// and wait for it, then let `tiffin self-update --staged` switch to it
+// (provision, unit files, health check, rollback) in a unit of its own,
+// since it restarts this service. The outcome comes back as a file; the box
+// records it in the audit log and alerts the owner when an update failed or
+// rolled back, and does not try that release again by itself.
 package update
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,7 +38,7 @@ import (
 type Update struct {
 	ID            string    `json:"id"`
 	At            time.Time `json:"at"`
-	Trigger       string    `json:"trigger" enum:"schedule,now" doc:"The maintenance window, or someone (update apply)"`
+	Trigger       string    `json:"trigger" enum:"schedule,now" doc:"The box by itself (hourly check or update window), or someone (update apply)"`
 	From          string    `json:"from"`
 	To            string    `json:"to"`
 	Status        string    `json:"status" enum:"running,ok,rolled-back,failed"`
@@ -175,7 +175,7 @@ func (u *updater) check(ctx context.Context) (*release.Manifest, record, error) 
 	prevErr := r.CheckError
 	r, serr := edit(func(r *record) {
 		r.CheckedAt, r.CheckError, r.Refused, r.Available = now, "", errors.Is(err, release.ErrRefused), nil
-		r.NextCheck = now.Add(20*time.Hour + rand.N(8*time.Hour)) // daily, at a time of its own
+		r.NextCheck = now.Add(50*time.Minute + rand.N(20*time.Minute)) // hourly, spread so boxes do not all ask at once
 		if err != nil {
 			r.CheckError = err.Error()
 			return
@@ -203,9 +203,10 @@ type nothing struct{ why string }
 
 func (n nothing) Error() string { return n.why }
 
-// apply installs the channel's newest release now (trigger "now"), or in
-// the window when the box is in its rollout ("schedule"). It returns the
-// running update, or a nothing error that says why none started.
+// apply installs the channel's newest release now (trigger "now"), or by
+// itself when the box is in its rollout and the release did not fail here
+// before ("schedule"). It returns the running update, or a nothing error
+// that says why none started.
 func (u *updater) apply(ctx context.Context, trigger string) (*Update, error) {
 	if !u.mu.TryLock() {
 		return nil, errBusy
@@ -231,6 +232,9 @@ func (u *updater) apply(ctx context.Context, trigger string) (*Update, error) {
 	}
 	if trigger == "schedule" && !m.InRollout(r.BoxID) {
 		return nil, nothing{fmt.Sprintf("Tiffin %s goes to %d%% of boxes for now, and this one is not among them yet", m.Version, m.Rollout)}
+	}
+	if trigger == "schedule" && broken(r.Updates, m.Version) {
+		return nil, nothing{"the update to Tiffin " + m.Version + " failed here before; it waits for a newer release or update apply"}
 	}
 	up := &Update{ID: ids.New("upd"), At: time.Now().UTC(), Trigger: trigger, From: u.version, To: m.Version, Status: "running", EdgeRestart: m.EdgeRestart}
 	fail := func(err error) (*Update, error) {
@@ -286,6 +290,17 @@ func (u *updater) save(up *Update) error {
 		r.Updates = append([]Update{*up}, r.Updates...)
 	})
 	return err
+}
+
+// broken reports whether this box's latest update to version v failed or
+// rolled back: the box does not install v again by itself.
+func broken(updates []Update, v string) bool {
+	for _, up := range updates { // newest first
+		if up.To == v {
+			return up.Status == "failed" || up.Status == "rolled-back"
+		}
+	}
+	return false
 }
 
 // running is the update in progress, or nil.
@@ -384,23 +399,9 @@ func audit(ctx context.Context, p *platform.Platform) {
 	}
 }
 
-// DefaultWindow is when a server box installs updates when neither the
-// update setting nor its reboot window says (server time): updates restart
-// Tiffin, not the server, and apps keep serving.
-const DefaultWindow = "03:00"
-
-// window is when updates may install ("HH:MM", server time): the update
-// setting, else the box's maintenance window (tiffin up --reboot-window),
-// else DefaultWindow on a server. A local box has none.
-func window(r record) string {
-	if r.Window != "" {
-		return r.Window
-	}
-	if c, err := platform.LoadServerConfig(); err == nil && c != nil {
-		return cmp.Or(c.RebootWindow, DefaultWindow)
-	}
-	return ""
-}
+// window is when updates may install ("HH:MM", server time), as the owner
+// set it. Empty: as soon as the hourly check finds a new release.
+func window(r record) string { return r.Window }
 
 // windowDelay starts Tiffin updates half an hour into the window: after a
 // reboot unattended-upgrades may do at its start, and after the Postgres
@@ -439,25 +440,45 @@ func (u *updater) tick(ctx context.Context, p *platform.Platform, now time.Time)
 	if running(r) != nil {
 		return
 	}
-	if win := window(r); !r.Manual && win != "" && due(now, win, r.LastScheduled) {
-		up, err := u.apply(ctx, "schedule")
-		if errors.Is(err, errBusy) {
-			return // a Postgres update or a check runs: the next minute
+	win := window(r)
+	switch {
+	case !r.Manual && win != "" && due(now, win, r.LastScheduled):
+		if u.install(ctx, p) {
+			_, _ = edit(func(r *record) { r.LastScheduled = now.UTC() })
 		}
-		_, _ = edit(func(r *record) { r.LastScheduled = now.UTC() })
-		var n nothing
-		switch {
-		case up != nil:
-			u.log("tiffin update", "status", up.Status, "summary", up.Summary)
-		case err != nil && !errors.As(err, &n):
-			u.log("tiffin update: check", "err", err)
-		}
-		audit(ctx, p)
-		return
-	}
-	if !r.NextCheck.After(now) {
+	case r.NextCheck.After(now):
+	case !r.Manual && win == "" && !u.isPaused():
+		u.install(ctx, p) // checks first
+	default:
 		_, _, _ = u.checkNow(ctx)
 	}
+}
+
+// install runs the automatic update; false when it has to wait for a
+// Postgres update or a check (the window tries again the next minute, the
+// hourly check at the next check).
+func (u *updater) install(ctx context.Context, p *platform.Platform) bool {
+	up, err := u.apply(ctx, "schedule")
+	if errors.Is(err, errBusy) {
+		return false
+	}
+	var n nothing
+	switch {
+	case up != nil:
+		u.log("tiffin update", "status", up.Status, "summary", up.Summary)
+	case err != nil && !errors.As(err, &n):
+		u.log("tiffin update: check", "err", err)
+	}
+	audit(ctx, p)
+	return true
+}
+
+func (u *updater) isPaused() bool {
+	if u.paused == nil {
+		return false
+	}
+	p, _ := u.paused()
+	return p
 }
 
 // checkNow is check, unless an update or another check runs.

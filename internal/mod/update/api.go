@@ -19,11 +19,12 @@ import (
 type Status struct {
 	Version    string     `json:"version" doc:"The Tiffin version running"`
 	Release    bool       `json:"release" doc:"It is a release build; a development build updates with tiffin up only"`
-	Auto       bool       `json:"auto" doc:"New releases install by themselves in the maintenance window"`
+	Auto       bool       `json:"auto" doc:"New releases install by themselves: within about an hour of release, or in the update window when one is set"`
 	Channel    string     `json:"channel" enum:"stable,edge"`
 	Source     string     `json:"source" doc:"Where the box reads the channel's signed manifest ({channel} is replaced)"`
-	Window     string     `json:"window,omitempty" doc:"When updates may install (HH:MM, server time; they start 30 minutes in). Empty: none, so updates wait for update apply"`
-	NextRun    *time.Time `json:"nextRun,omitempty" doc:"When the window next opens for an update"`
+	Window     string     `json:"window,omitempty" doc:"When updates may install (HH:MM, server time; they start 30 minutes in). Empty: as soon as the hourly check finds a new release"`
+	NextRun    *time.Time `json:"nextRun,omitempty" doc:"When the update window next opens; only with a window"`
+	NextCheck  *time.Time `json:"nextCheck,omitempty" doc:"When the box next reads the manifest (about hourly); with no window, a new release installs then"`
 	CheckedAt  *time.Time `json:"checkedAt,omitempty" doc:"When the box last read the manifest"`
 	Available  *Available `json:"available,omitempty" doc:"A newer release of the channel"`
 	CheckError string     `json:"checkError,omitempty" doc:"Why the last check failed"`
@@ -50,6 +51,9 @@ func status(r record, now time.Time) *Status {
 		n := nextRun(now, s.Window)
 		s.NextRun = &n
 	}
+	if !r.NextCheck.IsZero() {
+		s.NextCheck = &r.NextCheck
+	}
 	s.Summary = s.words()
 	return s
 }
@@ -66,18 +70,24 @@ func (s *Status) words() string {
 		return "the last check failed: " + s.CheckError
 	case a == nil && s.CheckedAt == nil:
 		return "Tiffin " + s.Version + "; not checked for updates yet"
+	case a == nil && s.Auto && s.Window == "":
+		return "Tiffin " + s.Version + " is up to date (checked " + s.CheckedAt.Local().Format("2006-01-02 15:04") + "); new releases install within about an hour"
 	case a == nil:
 		return "Tiffin " + s.Version + " is up to date (checked " + s.CheckedAt.Local().Format("2006-01-02 15:04") + ")"
 	case a.Blocked != "":
 		return "Tiffin " + a.Version + " is out, but " + a.Blocked
 	case !s.Auto:
 		return "Tiffin " + a.Version + " is out; automatic updates are off: run tiffin update apply"
-	case s.NextRun == nil:
-		return "Tiffin " + a.Version + " is out; there is no maintenance window, so run tiffin update apply (or set one: tiffin update settings --window 04:00)"
+	case s.Paused != "":
+		return "Tiffin " + a.Version + " is out. " + s.Paused
+	case broken(s.Updates, a.Version):
+		return "Tiffin " + a.Version + " is out, but the update to it failed here, so it does not install by itself again: run tiffin update apply, or wait for a newer release"
 	case !a.InRollout:
 		return fmt.Sprintf("Tiffin %s is out to %d%% of boxes; this one gets it as the rollout widens (or now with tiffin update apply)", a.Version, a.Rollout)
+	case s.NextRun != nil:
+		return "Tiffin " + a.Version + " installs at " + s.NextRun.Local().Format("2006-01-02 15:04") + " (update window), or now with tiffin update apply"
 	}
-	return "Tiffin " + a.Version + " installs at " + s.NextRun.Local().Format("2006-01-02 15:04") + " (maintenance window), or now with tiffin update apply"
+	return "Tiffin " + a.Version + " is out; it installs within about an hour, or now with tiffin update apply"
 }
 
 // Checks reports a failed update or a refused release.
@@ -99,10 +109,10 @@ func (*Module) Checks(context.Context, *platform.Platform) []platform.Check {
 }
 
 type settingsBody struct {
-	Auto    *bool  `json:"auto,omitempty" doc:"Install new releases by themselves in the maintenance window (true), or only with update apply (false)"`
+	Auto    *bool  `json:"auto,omitempty" doc:"Install new releases by themselves, within about an hour or in the update window (true), or only with update apply (false)"`
 	Channel string `json:"channel,omitempty" enum:"stable,edge" doc:"stable: releases; edge: pre-releases too"`
 	Source  string `json:"source,omitempty" doc:"Where to read the channel's signed manifest, {channel} replaced; default resets it. Releases must still be signed by a key this build trusts."`
-	Window  string `json:"window,omitempty" doc:"When updates may install (HH:MM, server time); box resets it to the box's maintenance window (tiffin up --reboot-window)"`
+	Window  string `json:"window,omitempty" doc:"Install updates only at this time (HH:MM, server time); box clears it, so they install as soon as released"`
 }
 
 // RegisterAPI adds the update operations.
@@ -123,7 +133,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("update-status", http.MethodGet, "/v1/box/update", "update status", api.RiskRead,
 		"Show Tiffin updates",
-		"The Tiffin version running, the channel it follows, whether new releases install by themselves, the maintenance window, "+
+		"The Tiffin version running, the channel it follows, whether new releases install by themselves (and when), "+
 			"a newer release if there is one (and whether this box is in its rollout yet) and recent updates. Box admins only.", tag),
 		api.Wrap(func(ctx context.Context, _ *struct{}) (*out, error) {
 			if _, err := admin(ctx); err != nil {
@@ -135,7 +145,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	huma.Register(a, api.Op("update-check", http.MethodPost, "/v1/box/update/check", "update check", api.RiskRead,
 		"Check for a Tiffin update now",
 		"Reads the channel's release manifest now and checks its signature against the keys this build trusts (the box also checks "+
-			"once a day). Installs nothing. Box admins only.", tag),
+			"about every hour). Installs nothing. Box admins only.", tag),
 		api.Wrap(func(ctx context.Context, _ *struct{}) (*out, error) {
 			u, err := admin(ctx)
 			if err != nil {
@@ -188,8 +198,9 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("update-settings", http.MethodPut, "/v1/box/update/settings", "update settings", api.RiskWrite,
 		"Set how Tiffin updates",
-		"Changes the settings it names and keeps the rest: auto (new releases install by themselves in the maintenance window), "+
-			"channel (stable or edge), source (where the signed manifest is read) and window (HH:MM, server time). Box admins only.", tag),
+		"Changes the settings it names and keeps the rest: auto (new releases install by themselves within about an hour of release), "+
+			"channel (stable or edge), source (where the signed manifest is read) and window (install only at this time, HH:MM server time; "+
+			"box clears it). Box admins only.", tag),
 		api.Wrap(func(ctx context.Context, in *struct{ Body settingsBody }) (*out, error) {
 			if _, err := admin(ctx); err != nil {
 				return nil, err

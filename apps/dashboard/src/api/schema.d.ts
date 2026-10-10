@@ -749,7 +749,7 @@ export interface paths {
         };
         /**
          * Show Tiffin updates
-         * @description The Tiffin version running, the channel it follows, whether new releases install by themselves, the maintenance window, a newer release if there is one (and whether this box is in its rollout yet) and recent updates. Box admins only.
+         * @description The Tiffin version running, the channel it follows, whether new releases install by themselves (and when), a newer release if there is one (and whether this box is in its rollout yet) and recent updates. Box admins only.
          */
         get: operations["update-status"];
         put?: never;
@@ -791,7 +791,7 @@ export interface paths {
         put?: never;
         /**
          * Check for a Tiffin update now
-         * @description Reads the channel's release manifest now and checks its signature against the keys this build trusts (the box also checks once a day). Installs nothing. Box admins only.
+         * @description Reads the channel's release manifest now and checks its signature against the keys this build trusts (the box also checks about every hour). Installs nothing. Box admins only.
          */
         post: operations["update-check"];
         delete?: never;
@@ -810,7 +810,7 @@ export interface paths {
         get?: never;
         /**
          * Set how Tiffin updates
-         * @description Changes the settings it names and keeps the rest: auto (new releases install by themselves in the maintenance window), channel (stable or edge), source (where the signed manifest is read) and window (HH:MM, server time). Box admins only.
+         * @description Changes the settings it names and keeps the rest: auto (new releases install by themselves within about an hour of release), channel (stable or edge), source (where the signed manifest is read) and window (install only at this time, HH:MM server time; box clears it). Box admins only.
          */
         put: operations["update-settings"];
         post?: never;
@@ -12598,7 +12598,7 @@ export interface components {
             summary: string;
             to: string;
             /**
-             * @description The maintenance window, or someone (update apply)
+             * @description The box by itself (hourly check or update window), or someone (update apply)
              * @enum {string}
              */
             trigger: "schedule" | "now";
@@ -12621,7 +12621,7 @@ export interface components {
             version: string;
         };
         UpdateSettingsBody: {
-            /** @description Install new releases by themselves in the maintenance window (true), or only with update apply (false) */
+            /** @description Install new releases by themselves, within about an hour or in the update window (true), or only with update apply (false) */
             auto?: boolean;
             /**
              * @description stable: releases; edge: pre-releases too
@@ -12630,11 +12630,11 @@ export interface components {
             channel?: "stable" | "edge";
             /** @description Where to read the channel's signed manifest, {channel} replaced; default resets it. Releases must still be signed by a key this build trusts. */
             source?: string;
-            /** @description When updates may install (HH:MM, server time); box resets it to the box's maintenance window (tiffin up --reboot-window) */
+            /** @description Install updates only at this time (HH:MM, server time); box clears it, so they install as soon as released */
             window?: string;
         };
         UpdateStatus: {
-            /** @description New releases install by themselves in the maintenance window */
+            /** @description New releases install by themselves: within about an hour of release, or in the update window when one is set */
             auto: boolean;
             /** @description A newer release of the channel */
             available?: components["schemas"]["UpdateAvailable"];
@@ -12649,7 +12649,12 @@ export interface components {
             checkedAt?: string;
             /**
              * Format: date-time
-             * @description When the window next opens for an update
+             * @description When the box next reads the manifest (about hourly); with no window, a new release installs then
+             */
+            nextCheck?: string;
+            /**
+             * Format: date-time
+             * @description When the update window next opens; only with a window
              */
             nextRun?: string;
             /** @description Why updates are paused (a ShipTiffin managed box whose subscription is not active); empty when they are not */
@@ -12665,7 +12670,7 @@ export interface components {
             updates: components["schemas"]["Update"][] | null;
             /** @description The Tiffin version running */
             version: string;
-            /** @description When updates may install (HH:MM, server time; they start 30 minutes in). Empty: none, so updates wait for update apply */
+            /** @description When updates may install (HH:MM, server time; they start 30 minutes in). Empty: as soon as the hourly check finds a new release */
             window?: string;
         };
         ValkeyCommandBody: {

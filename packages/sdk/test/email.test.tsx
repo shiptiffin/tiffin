@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createServer, type AddressInfo } from "node:net";
 import { SMTPServer } from "smtp-server";
 import { createElement } from "react";
 import { render, send } from "../src/email";
@@ -73,6 +74,73 @@ describe("email", () => {
     const m = got.at(-1)!;
     expect(m.from).toBe("hello@shop.test");
     expect(m.raw).toContain('filename=a.txt');
+  });
+
+  test("a send while the mail server restarts goes through once it is back", async () => {
+    // A free port with nothing on it yet: the box's server is restarting.
+    const probe = createServer();
+    await new Promise<void>((res) => probe.listen(0, "127.0.0.1", () => res()));
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((res) => probe.close(() => res()));
+    const got: string[] = [];
+    const later = new SMTPServer({
+      authOptional: false,
+      allowInsecureAuth: true,
+      disabledCommands: ["STARTTLS"],
+      onAuth: (_a, _s, cb) => cb(null, { user: "shop" }),
+      onData(stream, _s, cb) {
+        let raw = "";
+        stream.on("data", (c: Buffer) => (raw += c.toString()));
+        stream.on("end", () => (got.push(raw), cb()));
+      },
+    });
+    setTimeout(() => later.listen(port, "127.0.0.1"), 800);
+    try {
+      const res = await send({ to: "ada@example.com", subject: "Back", text: "hi" }, { smtpUrl: `smtp://shop:pw@127.0.0.1:${port}`, env: { EMAIL_FROM: "shop@b.co" } });
+      expect(res.accepted).toEqual(["ada@example.com"]);
+      expect(got.length).toBe(1);
+    } finally {
+      await new Promise<void>((res) => later.close(() => res()));
+    }
+    // With retries off, the same outage is an error at once.
+    await expect(send({ to: "a@b.co", subject: "x", text: "y" }, { smtpUrl: `smtp://shop:pw@127.0.0.1:${port}`, env: { EMAIL_FROM: "shop@b.co" }, retryFor: 0 })).rejects.toThrow();
+  });
+
+  test("a message the server took is never sent twice, even if the connection drops before its answer", async () => {
+    // A bare SMTP server that takes the message, then hangs up without replying.
+    let messages = 0;
+    const flaky = createServer((sock) => {
+      let data = false;
+      let buf = "";
+      sock.write("220 box\r\n");
+      sock.on("data", (c) => {
+        buf += c.toString();
+        let i: number;
+        while (!data && (i = buf.indexOf("\r\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const cmd = line.slice(0, 4).toUpperCase();
+          if (cmd === "EHLO") sock.write("250-box\r\n250 AUTH PLAIN\r\n");
+          else if (cmd === "AUTH") sock.write("235 ok\r\n");
+          else if (cmd === "DATA") (sock.write("354 go\r\n"), (data = true));
+          else if (cmd === "QUIT") sock.end("221 bye\r\n");
+          else sock.write("250 ok\r\n");
+        }
+        if (data && buf.includes("\r\n.\r\n")) {
+          messages++;
+          sock.destroy();
+        }
+      });
+    });
+    await new Promise<void>((res) => flaky.listen(0, "127.0.0.1", () => res()));
+    const port = (flaky.address() as AddressInfo).port;
+    try {
+      await expect(send({ to: "a@b.co", subject: "Once", text: "y" }, { smtpUrl: `smtp://shop:pw@127.0.0.1:${port}`, env: { EMAIL_FROM: "shop@b.co" } })).rejects.toThrow();
+      await new Promise((r) => setTimeout(r, 600));
+      expect(messages).toBe(1);
+    } finally {
+      await new Promise<void>((res) => flaky.close(() => res()));
+    }
   });
 
   test("clear errors without settings", async () => {

@@ -57,7 +57,7 @@ export default function Managed() {
               sign in to your box.
             </li>
             <li>
-              Updates: the box fetches signed Tiffin releases itself, in its maintenance window. We never push anything to it; nothing of ours
+              Updates: the box fetches signed Tiffin releases itself, within about an hour of release. We never push anything to it; nothing of ours
               connects to it except monitoring, which only loads its health page.
             </li>
             <li>

@@ -150,8 +150,8 @@ function AccountLink({ href, children }: { href: string; children: ReactNode }) 
 }
 
 /**
- * Updates: what runs, the last update, the next window and the automatic
- * switch. A box without the endpoint (older, or not an admin) shows how to
+ * Updates: what runs, the last update, the next check (or window) and the
+ * automatic switch. A box without the endpoint (older, or not an admin) shows how to
  * update by hand.
  */
 function Updates({ admin, version, build, source }: { admin: boolean; version?: string; build?: string; source: string }) {
@@ -161,7 +161,7 @@ function Updates({ admin, version, build, source }: { admin: boolean; version?: 
     mutationFn: (auto: boolean) => setUpdateSettings({ auto }),
     onSuccess: (r) => {
       qc.setQueryData(updateStatusQuery.queryKey, r);
-      toast({ title: r.auto ? "New releases install by themselves in the maintenance window." : "Automatic updates are off. Releases wait for you." });
+      toast({ title: r.auto ? (r.window ? `New releases install by themselves at ${r.window}.` : "New releases install by themselves within about an hour.") : "Automatic updates are off. Releases wait for you." });
     },
   });
   const s = st.data;
@@ -180,10 +180,10 @@ function Updates({ admin, version, build, source }: { admin: boolean; version?: 
       {s.available.notes && <a className="ml-2 text-ink-3 underline underline-offset-2" href={s.available.notes} target="_blank" rel="noreferrer">What’s new</a>}
       {s.available.blocked && <span className="block text-[0.8125rem] text-ink-3">Needs an update by hand first: run tiffin up.</span>}
     </>],
-    s && s.release && ["Next window", s.nextRun ? nextWindow(s.nextRun) : "No maintenance window yet"],
+    s?.release && s.auto && (s.nextRun ? ["Next window", nextWindow(s.nextRun)] : !!s.nextCheck && ["Next check", nextWindow(s.nextCheck)]),
   ];
   return (
-    <Section title="Updates" note="New releases install by themselves in the maintenance window, after a backup. Apps keep serving while Tiffin restarts.">
+    <Section title="Updates" note={`New releases install by themselves ${s?.window ? `at ${s.window} (server time)` : "within about an hour of release"}, after a backup. Apps keep serving while Tiffin restarts.`}>
       <dl className="grid grid-cols-[8rem_minmax(0,1fr)] text-[0.875rem]">
         {(rows.filter(Boolean) as Array<[string, ReactNode]>).map(([k, v]) => (
           <div key={k} className="col-span-2 grid grid-cols-subgrid border-b border-rule py-2.5 first:border-t">
@@ -194,16 +194,16 @@ function Updates({ admin, version, build, source }: { admin: boolean; version?: 
       </dl>
       {s && s.release ? (
         <div className="mt-4">
-          <Row label="Install updates by themselves" note={s.nextRun ? undefined : "They wait for a maintenance window."}>
+          <Row label="Install updates by themselves" note={!auto ? "Releases wait for you to install them." : s.window ? `Only at ${s.window}, server time.` : undefined}>
             <Breaker label="Install updates by themselves" state={auto ? "on" : "off"} disabled={save.isPending} onFlip={(v) => save.mutate(v === "on")} />
           </Row>
           {save.isError && <ProblemNote className="mt-3" error={save.error} />}
           <FromTerminal className="mt-5">
             <p className="text-[0.8125rem] text-ink-3">Install the newest release now:</p>
             <Command className="mt-1.5" cmd="tiffin update apply" />
-            {!s.nextRun && (
+            {auto && !s.window && (
               <>
-                <p className="mt-3 text-[0.8125rem] text-ink-3">Set a maintenance window:</p>
+                <p className="mt-3 text-[0.8125rem] text-ink-3">Install only at a set time (optional):</p>
                 <Command className="mt-1.5" cmd="tiffin update settings --window 04:00" />
               </>
             )}

@@ -187,7 +187,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "What uptime can I expect?",
     a: (
       <p>
-        Your box is one server. Updates and restarts happen in a weekly maintenance window you choose, and
+        Your box is one server. Tiffin updates itself without stopping your apps, server restarts happen in a maintenance window you choose, and
         monitoring from outside the box tells you when something&rsquo;s wrong. A hardware fault means downtime
         until the server is back, which is why we don&rsquo;t suggest it yet for apps that must never go down.
       </p>

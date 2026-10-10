@@ -260,23 +260,28 @@ server unless you choose a time: `tiffin up --name shop --reboot-window 04:00`.
 This applies to every box, managed ones too.
 
 A box running a Tiffin release keeps itself on the newest release of its channel
-(`stable`, or `edge` for pre-releases too). Once a day it reads the channel's release
+(`stable`, or `edge` for pre-releases too). About every hour it reads the channel's release
 manifest and checks its signature against the release keys built into Tiffin; a manifest
-or a build that does not match is refused, and so is anything older than what runs. In
-its maintenance window (`--reboot-window`, else 03:00 server time; half an hour in, after
-the Postgres update) it installs a new release by itself: it downloads the build and checks its sha256, takes a
-backup and waits for it, then switches to the new build the way `tiffin up` does. Apps
-keep serving throughout; if the new build is not healthy within 90 seconds, the previous
-one comes back. A release that changed the edge restarts it too (the ports are held
-meanwhile, about a tenth of a second). A release may go to a share of boxes first: each
-box knows whether it is in that share.
+or a build that does not match is refused, and so is anything older than what runs. When
+it finds a new release it installs it by itself, so a release reaches the box within about
+an hour: it downloads the build and checks its sha256, takes a backup and waits for it,
+then switches to the new build the way `tiffin up` does. Apps keep serving throughout; if
+the new build is not healthy within 90 seconds, the previous one comes back, and the box
+does not try that release again by itself (it waits for a newer one, or for `tiffin update
+apply`). A release that changed the edge restarts it too (the ports are held meanwhile,
+about a tenth of a second). A release may go to a share of boxes first: each box knows
+whether it is in that share.
+
+To install updates only at a set time, give the box an update window: it still checks
+every hour, but installs half an hour into the window.
 
 ```bash
 tiffin update status                      # version, channel, what is out, recent updates
 tiffin update check                       # read the manifest now
 tiffin update apply                       # install the newest release now
 tiffin update settings --auto=false       # only when you run update apply
-tiffin update settings --window 03:30     # a window for updates of its own
+tiffin update settings --window 03:30     # install only at this time (server time)
+tiffin update settings --window box       # as soon as released again
 tiffin update settings --channel edge
 ```
 

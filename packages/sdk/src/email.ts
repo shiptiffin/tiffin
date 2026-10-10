@@ -60,6 +60,13 @@ export interface SendOptions {
   /** smtp://user:pass@host:port; default process.env.SMTP_URL. */
   smtpUrl?: string;
   env?: Env;
+  /**
+   * How long to keep trying, in milliseconds, while the box's mail server
+   * can't be reached (it restarts for a few seconds when Tiffin updates).
+   * Only a refused connection is tried again (nothing was sent), so a
+   * message is never sent twice. Default 30000; 0 tries once.
+   */
+  retryFor?: number;
 }
 
 export interface RenderOptions {
@@ -104,32 +111,56 @@ export async function send(msg: EmailMessage, options?: SendOptions): Promise<Se
   if (!html && !text) throw new Error("send html, text or react");
 
   const nodemailer = await import("nodemailer");
-  const transport = nodemailer.createTransport(url);
-  try {
-    const info = await transport.sendMail({
-      from,
-      to: list(msg.to),
-      cc: list(msg.cc),
-      bcc: list(msg.bcc),
-      ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
-      subject: msg.subject,
-      ...(html ? { html } : {}),
-      ...(text ? { text } : {}),
-      ...(msg.headers ? { headers: msg.headers } : {}),
-      attachments: (msg.attachments ?? []).map((a) => ({
-        filename: a.filename,
-        content: typeof a.content === "string" ? a.content : Buffer.from(a.content as ArrayBuffer),
-        ...(a.contentType ? { contentType: a.contentType } : {}),
-      })),
-    });
-    const addr = (x: unknown) => (typeof x === "string" ? x : (x as { address: string }).address);
-    return {
-      messageId: info.messageId,
-      accepted: (info.accepted ?? []).map(addr),
-      rejected: (info.rejected ?? []).map(addr),
-      response: info.response,
-    };
-  } finally {
-    transport.close();
+  const until = Date.now() + (options?.retryFor ?? 30_000);
+  for (let wait = 250; ; wait = Math.min(wait * 2, 4000)) {
+    const transport = nodemailer.createTransport(url);
+    try {
+      return await submit(transport, msg, from, html, text);
+    } catch (err) {
+      if (!unreached(err) || Date.now() + wait > until) throw err;
+      await new Promise((r) => setTimeout(r, wait));
+    } finally {
+      transport.close();
+    }
   }
+}
+
+/**
+ * Whether the server surely never took the message: the connection was
+ * refused (nothing listens: the box's mail server is restarting), or the
+ * server greeted with 421 (not available now). A connection that drops
+ * later is not tried again, even before an answer: the message may have
+ * arrived, and a second try could send it twice.
+ */
+function unreached(err: unknown): boolean {
+  const e = err as { code?: string; command?: string; responseCode?: number; message?: string };
+  return (e.code === "ESOCKET" && /\bECONNREFUSED\b/.test(e.message ?? "")) || (e.responseCode === 421 && e.command === "CONN");
+}
+
+type Transport = { sendMail: (m: Record<string, unknown>) => Promise<{ messageId: string; accepted?: unknown[]; rejected?: unknown[]; response: string }> };
+
+async function submit(transport: Transport, msg: EmailMessage, from: string, html?: string, text?: string): Promise<SendResult> {
+  const info = await transport.sendMail({
+    from,
+    to: list(msg.to),
+    cc: list(msg.cc),
+    bcc: list(msg.bcc),
+    ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+    subject: msg.subject,
+    ...(html ? { html } : {}),
+    ...(text ? { text } : {}),
+    ...(msg.headers ? { headers: msg.headers } : {}),
+    attachments: (msg.attachments ?? []).map((a) => ({
+      filename: a.filename,
+      content: typeof a.content === "string" ? a.content : Buffer.from(a.content as ArrayBuffer),
+      ...(a.contentType ? { contentType: a.contentType } : {}),
+    })),
+  });
+  const addr = (x: unknown) => (typeof x === "string" ? x : (x as { address: string }).address);
+  return {
+    messageId: info.messageId,
+    accepted: (info.accepted ?? []).map(addr),
+    rejected: (info.rejected ?? []).map(addr),
+    response: info.response,
+  };
 }

@@ -55,6 +55,13 @@ export interface SendOptions {
     /** smtp://user:pass@host:port; default process.env.SMTP_URL. */
     smtpUrl?: string;
     env?: Env;
+    /**
+     * How long to keep trying, in milliseconds, while the box's mail server
+     * can't be reached (it restarts for a few seconds when Tiffin updates).
+     * Only a refused connection is tried again (nothing was sent), so a
+     * message is never sent twice. Default 30000; 0 tries once.
+     */
+    retryFor?: number;
 }
 export interface RenderOptions {
     /** Render plain text instead of HTML. */

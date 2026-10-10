@@ -84,7 +84,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `DIRECT_DATABASE_URL` (also Prisma's `directUrl` and drizzle-kit; release commands get it as
    `DATABASE_URL`). With node-postgres add `pool.on("error", ...)`. Postgres minor updates: `tiffin maintenance
    show` / `tiffin maintenance postgres-update [--now]` (queries wait a fraction of a second, none fail).
-   Tiffin itself installs signed releases in the maintenance window after a backup:
+   Tiffin itself installs signed releases within about an hour of release, after a backup:
    `tiffin update status|check|apply`, `tiffin update settings --auto=false` (box admins).
    `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
    secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and
