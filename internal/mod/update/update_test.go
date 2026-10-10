@@ -356,3 +356,30 @@ func TestManagedPauseInstallsNothing(t *testing.T) {
 		t.Fatalf("unpaused: %+v %v", up, err)
 	}
 }
+
+// A server box with no reboot window still installs updates by itself, at
+// DefaultWindow; its reboot window or the update setting moves it; a local
+// box (no server config) has none.
+func TestWindowDefaultsOnServers(t *testing.T) {
+	platform.ServerConfigPath = filepath.Join(t.TempDir(), "server.json")
+	if w := window(record{}); w != "" {
+		t.Fatalf("local box: %q", w)
+	}
+	write := func(reboot string) {
+		raw, _ := json.Marshal(platform.ServerConfig{Provider: "ssh", Name: "x", RebootWindow: reboot})
+		if err := os.WriteFile(platform.ServerConfigPath, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("")
+	if w := window(record{}); w != DefaultWindow {
+		t.Fatalf("server, no window: %q", w)
+	}
+	write("05:30")
+	if w := window(record{}); w != "05:30" {
+		t.Fatalf("reboot window: %q", w)
+	}
+	if w := window(record{Window: "01:00"}); w != "01:00" {
+		t.Fatalf("update setting: %q", w)
+	}
+}

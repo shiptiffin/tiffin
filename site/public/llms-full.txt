@@ -442,8 +442,8 @@ A box running a Tiffin release keeps itself on the newest release of its channel
 (`stable`, or `edge` for pre-releases too). Once a day it reads the channel's release
 manifest and checks its signature against the release keys built into Tiffin; a manifest
 or a build that does not match is refused, and so is anything older than what runs. In
-the maintenance window (`--reboot-window`, half an hour in, after the Postgres update) it
-installs a new release by itself: it downloads the build and checks its sha256, takes a
+its maintenance window (`--reboot-window`, else 03:00 server time; half an hour in, after
+the Postgres update) it installs a new release by itself: it downloads the build and checks its sha256, takes a
 backup and waits for it, then switches to the new build the way `tiffin up` does. Apps
 keep serving throughout; if the new build is not healthy within 90 seconds, the previous
 one comes back. A release that changed the edge restarts it too (the ports are held

@@ -13,6 +13,7 @@
 package update
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -383,14 +384,20 @@ func audit(ctx context.Context, p *platform.Platform) {
 	}
 }
 
+// DefaultWindow is when a server box installs updates when neither the
+// update setting nor its reboot window says (server time): updates restart
+// Tiffin, not the server, and apps keep serving.
+const DefaultWindow = "03:00"
+
 // window is when updates may install ("HH:MM", server time): the update
-// setting, else the box's maintenance window (tiffin up --reboot-window).
+// setting, else the box's maintenance window (tiffin up --reboot-window),
+// else DefaultWindow on a server. A local box has none.
 func window(r record) string {
 	if r.Window != "" {
 		return r.Window
 	}
 	if c, err := platform.LoadServerConfig(); err == nil && c != nil {
-		return c.RebootWindow
+		return cmp.Or(c.RebootWindow, DefaultWindow)
 	}
 	return ""
 }
