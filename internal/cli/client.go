@@ -176,17 +176,41 @@ func (a *app) client(ctx context.Context) (*client, error) {
 			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }, note: a.notes()}, nil
 		}
 	}
+	onServer := false
 	if !a.homeExplicit {
 		if _, err := os.Stat(filepath.Join(a.home, "state.db")); errors.Is(err, fs.ErrNotExist) {
+			// Root on a server with a box installed: that box.
+			home, err := a.serverBox()
+			switch {
+			case err != nil:
+				return nil, err
+			case home != "":
+				a.home, onServer = home, true
 			// No box on this computer: without this the CLI would quietly make
 			// an empty local one, and every command would seem to work on it.
-			if a.token != "" {
+			case a.token != "":
 				return nil, &exitError{ExitInvalid, "TIFFIN_TOKEN is set, but this computer knows no box to use it with: set TIFFIN_URL to the box's dashboard address (https://dashboard.<the box's domain>), or make a box with tiffin up"}
+			default:
+				return nil, &exitError{ExitInvalid, "this computer knows no box yet. For a box you already have, make an API key in its dashboard (Settings › API keys) and set TIFFIN_URL=https://dashboard.<the box's domain> and TIFFIN_TOKEN=<the key>. To make a box: shiptiffin.com, or tiffin up --provider hetzner"}
 			}
-			return nil, &exitError{ExitInvalid, "this computer knows no box yet. For a box you already have, make an API key in its dashboard (Settings › API keys) and set TIFFIN_URL=https://dashboard.<the box's domain> and TIFFIN_TOKEN=<the key>. To make a box: shiptiffin.com, or tiffin up --provider hetzner"}
 		}
 	}
-	b, fresh, err := openBox(ctx, a.home)
+	var extra []func(*api.Deps)
+	if filepath.Clean(a.home) == serverHome {
+		// The box installed on this server: links it makes (tiffin login)
+		// carry its dashboard's address.
+		extra = append(extra, func(d *api.Deps) {
+			domain, u, err := installedURL(ctx, d.DB)
+			if err != nil {
+				fmt.Fprintln(a.io.Err, "cannot tell this box's dashboard address:", err)
+			}
+			d.PublicURL = u
+			if onServer {
+				fmt.Fprintf(a.io.Err, "Using the box on this server: %s (%s)\n", orDefault(domain, "domain unknown"), a.home)
+			}
+		})
+	}
+	b, fresh, err := openBox(ctx, a.home, extra...)
 	if err != nil {
 		return nil, fmt.Errorf("open local box in %s: %w", a.home, err)
 	}
