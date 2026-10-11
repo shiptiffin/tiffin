@@ -28,7 +28,9 @@ var FormOrigins atomic.Pointer[func() []string]
 
 var originRe = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$`)
 
-// csp is the dashboard's Content-Security-Policy.
+// csp is the dashboard's Content-Security-Policy. GitHub's API and avatars
+// are allowed for one thing: Settings › Server access imports a person's
+// public SSH keys from api.github.com in their browser.
 func csp() string {
 	fa := "'self'"
 	if f := FormOrigins.Load(); f != nil {
@@ -38,7 +40,7 @@ func csp() string {
 			}
 		}
 	}
-	return "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action " + fa
+	return "default-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'none'; form-action " + fa
 }
 
 func init() {
