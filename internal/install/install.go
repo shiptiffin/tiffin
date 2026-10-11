@@ -87,7 +87,11 @@ func (o Options) PublicURL() string {
 	return u
 }
 
-// Unit renders the systemd unit.
+// Unit renders the systemd unit. ProtectHome=yes hides /root (and /home)
+// from the service; the rest of the file system stays writable (no
+// ProtectSystem), which the service needs: it manages the owner's SSH keys
+// in /etc/ssh/authorized_keys.d (Settings › Server access), as well as
+// containers, packages and system services.
 func Unit(o Options) string {
 	ips := ""
 	if o.PublicIP != "" {

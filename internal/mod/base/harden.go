@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sshkeys"
 )
 
 // Server hardening runs only on real servers (`tiffin up --provider hetzner`
@@ -56,16 +57,28 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 ` + reboot
 }
 
+// sshdConfig keeps SSH to keys only. Root's keys are its own
+// (/root/.ssh/authorized_keys) and the ones the dashboard manages
+// (Settings › Server access), which live outside /root because the box's
+// service can't see it (ProtectHome=yes). LogLevel VERBOSE logs each key's
+// fingerprint, so the log says which key signed in.
 const sshdConfig = `# Managed by tiffin provision: keys only.
 # Ubuntu reads the first value it finds, and this file comes first.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
 PermitRootLogin prohibit-password
-MaxAuthTries 4
+AuthenticationMethods publickey
+AuthorizedKeysFile .ssh/authorized_keys ` + sshkeys.Dir + `/%u
+MaxAuthTries 3
 LoginGraceTime 30
 X11Forwarding no
+LogLevel VERBOSE
 `
+
+// sshdRSASize refuses RSA keys shorter than the dashboard accepts. OpenSSH
+// before 9.1 doesn't know it, so it is left out when sshd -t refuses it.
+var sshdRSASize = fmt.Sprintf("RequiredRSASize %d\n", sshkeys.MinRSABits)
 
 const journaldConfig = `# Managed by tiffin provision: keep logs from filling the disk.
 [Journal]
@@ -119,20 +132,60 @@ func hardenSSH(ctx context.Context, s *platform.System, _ *platform.ServerConfig
 	if raw, err := os.ReadFile("/etc/ssh/sshd_config"); err == nil && !strings.Contains(string(raw), "sshd_config.d/*.conf") {
 		return fmt.Errorf("/etc/ssh/sshd_config does not include sshd_config.d; set PasswordAuthentication no there yourself")
 	}
-	changed, err := s.WriteFile(sshdDropIn, []byte(sshdConfig), 0o644)
-	if err != nil {
+	if err := keysDir(sshkeys.Dir); err != nil {
 		return err
 	}
-	// Never leave a config sshd refuses: that would lock everyone out.
-	if _, err := s.Run(ctx, "sshd", "-t"); err != nil {
-		_ = os.Remove(sshdDropIn)
-		return fmt.Errorf("sshd rejected the hardened config (removed it): %w", err)
+	changed, err := writeSSHDConfig(sshdDropIn, s.WriteFile, func() error {
+		_, err := s.Run(ctx, "sshd", "-t")
+		return err
+	})
+	if err != nil || !changed {
+		return err
 	}
-	if changed {
-		s.Log("ssh: keys only, no passwords")
-		_, err = s.Run(ctx, "systemctl", "try-reload-or-restart", "ssh.service")
-	}
+	s.Log("ssh: keys only, no passwords")
+	// Ubuntu starts sshd from ssh.socket on the first connection. A running
+	// sshd reloads (its unit runs sshd -t, then SIGHUP); one not started yet
+	// reads the new file when it starts, so try-reload leaves it alone.
+	_, err = s.Run(ctx, "systemctl", "try-reload-or-restart", "ssh.service")
 	return err
+}
+
+// keysDir makes the directory sshd reads the dashboard's keys from: root's
+// and 0755, as sshd's StrictModes wants of every directory above a key file.
+func keysDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	return os.Chmod(dir, 0o755)
+}
+
+// writeSSHDConfig writes the drop-in at path: the strictest version sshd
+// accepts (check runs sshd -t). It never leaves a config sshd refuses, which
+// would lock everyone out: when no version passes, the file goes back to
+// what it was (or away) and the error says why. changed reports whether the
+// file differs from before.
+func writeSSHDConfig(path string, write func(string, []byte, os.FileMode) (bool, error), check func() error) (bool, error) {
+	prev, err := os.ReadFile(path)
+	had := err == nil
+	var refused error
+	for _, conf := range []string{sshdConfig + sshdRSASize, sshdConfig} {
+		if _, err := write(path, []byte(conf), 0o644); err != nil {
+			return false, err
+		}
+		if refused = check(); refused == nil {
+			return !had || string(prev) != conf, nil
+		}
+	}
+	if had {
+		if _, err := write(path, prev, 0o644); err == nil {
+			return false, fmt.Errorf("sshd rejected the hardened config (kept the previous one): %w", refused)
+		}
+	}
+	_ = os.Remove(path)
+	return false, fmt.Errorf("sshd rejected the hardened config (removed it): %w", refused)
 }
 
 func hardenTime(ctx context.Context, s *platform.System, _ *platform.ServerConfig) error {
@@ -231,12 +284,10 @@ func serverChecks(ctx context.Context, c *platform.ServerConfig) []platform.Chec
 			parts = append(parts, "a reboot is waiting for "+what+" (reboot the server, or set tiffin up --reboot-window 04:00)")
 		}
 	}
-	if raw, err := os.ReadFile(sshdDropIn); err == nil && strings.Contains(string(raw), "PasswordAuthentication no") {
-		parts = append(parts, "SSH keys only")
-	} else {
-		ok = false
-		parts = append(parts, "SSH password login is not turned off")
-	}
+	raw, _ := os.ReadFile(sshdDropIn)
+	sshOK, ssh := sshdCheck(string(raw))
+	ok = ok && sshOK
+	parts = append(parts, ssh)
 	if out, err := exec.CommandContext(ctx, "timedatectl", "show", "-p", "NTPSynchronized", "--value").Output(); err == nil && strings.TrimSpace(string(out)) == "no" {
 		parts = append(parts, "the clock is not synchronized yet")
 	}
@@ -253,6 +304,26 @@ func serverChecks(ctx context.Context, c *platform.ServerConfig) []platform.Chec
 		}
 	}
 	return []platform.Check{{Name: "server", OK: ok, Detail: strings.Join(parts, "; ")}}
+}
+
+// sshdCheck reads the drop-in back: passwords off, and the keys from
+// Settings › Server access read from where the dashboard writes them.
+func sshdCheck(conf string) (bool, string) {
+	has := func(want string) bool {
+		for _, l := range strings.Split(conf, "\n") {
+			if strings.Join(strings.Fields(l), " ") == want {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case !has("PasswordAuthentication no"):
+		return false, "SSH password login is not turned off"
+	case !has("AuthenticationMethods publickey") || !has("AuthorizedKeysFile .ssh/authorized_keys "+sshkeys.Dir+"/%u"):
+		return false, "SSH does not read the keys in Settings › Server access yet (the next update sets it)"
+	}
+	return true, "SSH keys only"
 }
 
 // memTotal reads the machine's RAM from /proc/meminfo.
