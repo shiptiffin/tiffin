@@ -864,14 +864,31 @@ and your coding agent with an API key: see
 
 ## What ShipTiffin can and can't do on your server
 
-- **No login after setup.** Setup logs in as root with an SSH key made for that one job,
-  through a firewall rule that lets only the worker's own address reach port 22. After the
-  install it deletes the key's line from `/root/.ssh/authorized_keys`, deletes the SSH key
-  object from your project, removes the firewall's SSH rule, checks all three are gone, and
-  deletes the private key (a worker that stops mid-setup deletes leftover keys when it
-  starts again, and the failed setup is cleaned up). Port 22 is then closed to everyone;
-  HTTP, HTTPS and ping stay open. (Hetzner's cloud-init adds keys only on a server's first
-  boot, so a reboot or a resize does not bring the key back.)
+- **No login for us after setup.** Setup logs in as root with an SSH key made for that
+  one job, through a firewall rule that lets only the worker's own address reach port 22.
+  After the install, in one command on the server, it writes your own SSH keys (if you
+  added any) to `/etc/ssh/authorized_keys.d/root`, deletes the setup key's line from
+  `/root/.ssh/authorized_keys` and reads both back. Then it deletes the setup key object
+  from your project and leaves the firewall with exactly one SSH rule (port 22 from
+  anywhere, for your keys) or, without your keys, none. It checks the result, and deletes
+  the private key (a worker that stops mid-setup deletes leftover keys when it starts
+  again, and the failed setup is cleaned up). A failure making your sign-in link doesn't
+  skip this. HTTP, HTTPS and ping stay open. (Hetzner's cloud-init adds keys only on a
+  server's first boot, so a reboot or a resize does not bring the setup key back.)
+- **Your own SSH key, if you add one.** At setup you can add your computer's public key:
+  from your GitHub username (your browser reads `api.github.com/users/<you>/keys`, the
+  public halves you gave GitHub; ShipTiffin never contacts GitHub, and you pick which keys
+  from the list), pasted, or one already in your Hetzner project. Keys are checked (ed25519,
+  security keys, ECDSA, or RSA of at least 3072 bits; no options or certificates) and
+  written by the worker itself, so nothing else from the page reaches the file. They're
+  copied once: a key you later remove on GitHub stays on the server until you remove it
+  in **Settings › Server access**. With a key, SSH stays open for key login only: no
+  passwords, root by key only, failed attempts slowed down by OpenSSH and banned by
+  CrowdSec and the box's firewall. The keys and the server's host keys recorded during
+  setup are listed in your account and the ready email, so an unexpected key is visible.
+  Getting back in is then one line: `ssh root@<name>.shiptiffin.app tiffin login` prints a
+  one-time sign-in link. Skipped it? **Open SSH** in your account opens port 22 again
+  (it asks for a Hetzner token once), then add a key in the dashboard.
 - **One-time sign-in links, until you sign in.** ShipTiffin never holds your box's owner
   token: it stays on the box. Your box makes one-time owner sign-in links and we keep only
   the newest. Your box enforces them: a link works once, and the box refuses it 24 hours
@@ -893,7 +910,9 @@ and your coding agent with an API key: see
   after a backup, or at a time you set ([Tiffin's own
   updates](https://shiptiffin.com/docs/quickstart.md#tiffins-own-updates)); ShipTiffin never
   connects to it to install anything. The only inbound requests from ShipTiffin are the monitor's: `GET
-  https://dashboard.<name>.shiptiffin.app/v1/health` every five minutes.
+  https://dashboard.<name>.shiptiffin.app/v1/health` every five minutes. A signed release runs as root like any software you install, so whoever holds
+  Tiffin's release key is trusted: that, not a login, is the one way new code from us
+  reaches your server.
 - **The check-in.** Every six hours the box posts its Tiffin version, uptime, the
   *names* of any failing status checks and whether its owner has signed in yet to
   shiptiffin.com, with its licence (an ed25519-signed token naming the box and its setup;
@@ -1633,6 +1652,14 @@ See [managed boxes](https://shiptiffin.com/docs/managed.md). What is not done ye
 - **One certificate per name, over HTTP-01.** The box holds no DNS token, so it cannot get
   a wildcard: each new app or preview gets its certificate on its first visit (a few
   seconds), counted against the limit above.
+- **Owner SSH keys are a snapshot, and removal doesn't end sessions.** Keys imported from
+  GitHub at setup aren't synced: removing one on GitHub leaves it on the server until it's
+  removed in Settings › Server access. Removing a key stops new logins but doesn't end an
+  SSH session that's already open, and can't undo anything done with it (reboot the
+  server, or rebuild it, if a key was stolen). With a key, port 22 is open to the internet
+  for key login only; to allow only your own address, edit the box's firewall in the
+  Hetzner console (a changing home address can then lock you out). During setup the
+  website and the setup worker see the keys you choose, as they see your Hetzner token.
 - **Support access has no button yet.** Support never logs in by default. A customer who
   wants help on the server writes to hello@shiptiffin.com and we arrange it by email: they
   add a temporary SSH key and firewall rule by hand, and remove both afterwards. A
@@ -1645,10 +1672,11 @@ See [managed boxes](https://shiptiffin.com/docs/managed.md). What is not done ye
   setup, again once the dashboard is ready if that took over an hour, and whenever the
   customer asks until their first sign-in) and enforces both; the control plane keeps the
   newest until the box reports the owner signed in. A customer who signs in and adds no
-  passkey (and has no mail service on the box for email links) gets back in through the
-  Hetzner console: in the server's root console, `sudo tiffin login --home
-  /var/lib/tiffin/platform` prints a one-time path (`/login#…`) to open on the dashboard's
-  address. Until the owner first signs in, the website's account (and its database) can
+  passkey (and has no mail service on the box for email links) gets back in with their
+  SSH key (`ssh root@<name>.shiptiffin.app tiffin login`) or, without one, through the
+  Hetzner console: Rescue → Reset root password, then the server's console, log in as
+  root and run `tiffin login`, which prints a one-time link. Until the owner first signs
+  in, the website's account (and its database) can
   get an owner link: whoever controls the customer's ShipTiffin account, or can read and
   write that database, before the first sign-in can sign in as the box's owner. A box
   waiting for its first sign-in checks in every 2 to 10 minutes instead of every six

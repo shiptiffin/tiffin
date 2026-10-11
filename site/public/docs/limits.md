@@ -616,6 +616,14 @@ See [managed boxes](https://shiptiffin.com/docs/managed.md). What is not done ye
 - **One certificate per name, over HTTP-01.** The box holds no DNS token, so it cannot get
   a wildcard: each new app or preview gets its certificate on its first visit (a few
   seconds), counted against the limit above.
+- **Owner SSH keys are a snapshot, and removal doesn't end sessions.** Keys imported from
+  GitHub at setup aren't synced: removing one on GitHub leaves it on the server until it's
+  removed in Settings › Server access. Removing a key stops new logins but doesn't end an
+  SSH session that's already open, and can't undo anything done with it (reboot the
+  server, or rebuild it, if a key was stolen). With a key, port 22 is open to the internet
+  for key login only; to allow only your own address, edit the box's firewall in the
+  Hetzner console (a changing home address can then lock you out). During setup the
+  website and the setup worker see the keys you choose, as they see your Hetzner token.
 - **Support access has no button yet.** Support never logs in by default. A customer who
   wants help on the server writes to hello@shiptiffin.com and we arrange it by email: they
   add a temporary SSH key and firewall rule by hand, and remove both afterwards. A
@@ -628,10 +636,11 @@ See [managed boxes](https://shiptiffin.com/docs/managed.md). What is not done ye
   setup, again once the dashboard is ready if that took over an hour, and whenever the
   customer asks until their first sign-in) and enforces both; the control plane keeps the
   newest until the box reports the owner signed in. A customer who signs in and adds no
-  passkey (and has no mail service on the box for email links) gets back in through the
-  Hetzner console: in the server's root console, `sudo tiffin login --home
-  /var/lib/tiffin/platform` prints a one-time path (`/login#…`) to open on the dashboard's
-  address. Until the owner first signs in, the website's account (and its database) can
+  passkey (and has no mail service on the box for email links) gets back in with their
+  SSH key (`ssh root@<name>.shiptiffin.app tiffin login`) or, without one, through the
+  Hetzner console: Rescue → Reset root password, then the server's console, log in as
+  root and run `tiffin login`, which prints a one-time link. Until the owner first signs
+  in, the website's account (and its database) can
   get an owner link: whoever controls the customer's ShipTiffin account, or can read and
   write that database, before the first sign-in can sign in as the box's owner. A box
   waiting for its first sign-in checks in every 2 to 10 minutes instead of every six
