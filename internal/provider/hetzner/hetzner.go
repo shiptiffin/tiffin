@@ -81,11 +81,16 @@ type Provider struct {
 
 	// Unprotect lets DestroyAll remove delete protection (adopted servers).
 	Unprotect bool
+	// NarrowSSH: the person named the addresses SSH is allowed from
+	// (--ssh-from). Only then does an anywhere rule on a managed box's
+	// firewall (the owner's way in with their own keys) become a list.
+	NarrowSSH bool
 
 	// Set by Up.
 	SSH    SSHAccess // what the firewall's SSH rule allows now
 	Server *hcloud.Server
 	Volume *hcloud.Volume
+	Key    *hcloud.SSHKey // the SSH key object the server was made with
 }
 
 var nameRE = func() func(string) bool {
@@ -583,7 +588,7 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 	if len(in.Firewalls) > 0 {
 		fw = in.Firewalls[0]
 	}
-	p.SSH = planSSH(fw, p.cfg.SSHFrom, p.cfg.SSHAnywhere, p.now())
+	p.SSH = p.sshPlan(fw)
 	rules := p.firewallRules(p.SSH)
 	if fw != nil {
 		if p.SSH.Changed || !sameRules(fw.Rules, rules) {
@@ -709,7 +714,7 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 	case vol.Server.ID != srv.ID:
 		return none, fmt.Errorf("the data volume %s is attached to another server (id %d); detach it in the Hetzner console first", vol.Name, vol.Server.ID)
 	}
-	p.Server, p.Volume = srv, vol
+	p.Server, p.Volume, p.Key = srv, vol, key
 
 	ip4, ip6 := PublicIPs(srv)
 	host := ip4

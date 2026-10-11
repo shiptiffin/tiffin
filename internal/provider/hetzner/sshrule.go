@@ -181,6 +181,19 @@ func planSSH(fw *hcloud.Firewall, current []netip.Prefix, anywhere bool, now tim
 	return acc
 }
 
+// sshPlan is planSSH for this provider's caller. An anywhere rule on a
+// managed box's firewall (LabelOwner: the control plane opened port 22 for
+// the owner's own keys) stays when someone later runs `tiffin up` or adopts
+// the box without naming addresses: that would quietly take away the
+// owner's way back in. Passing --ssh-from (NarrowSSH) still narrows it.
+func (p *Provider) sshPlan(fw *hcloud.Firewall) SSHAccess {
+	anywhere := p.cfg.SSHAnywhere
+	if !anywhere && !p.NarrowSSH && fw != nil && fw.Labels[LabelOwner] != "" {
+		_, anywhere = existingSSH(fw)
+	}
+	return planSSH(fw, p.cfg.SSHFrom, anywhere, p.now())
+}
+
 func sameSources(a, b []SSHSource) bool {
 	if len(a) != len(b) {
 		return false
