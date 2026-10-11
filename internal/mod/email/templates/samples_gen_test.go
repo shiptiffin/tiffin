@@ -96,6 +96,25 @@ var samples = map[string]func() (*Email, error){
 			KeysURL:     "https://dashboard.shiptiffin.com/settings/keys",
 		})
 	},
+	"new-ssh-key": func() (*Email, error) {
+		return NewSshKey(NewSshKeyData{
+			Brand:      "ShipTiffin",
+			Host:       "dashboard.shiptiffin.com",
+			MarkURL:    "https://dashboard.shiptiffin.com/email-mark.png",
+			First:      "Sam",
+			Count:      "one",
+			Server:     "new-box.shiptiffin.app",
+			Keys:       "SHA256:3fGkVq0n8x1sQ2b7mWl4cYp9dZt6uRj5hE0aKiLoNwU (ssh-ed25519)",
+			Source:     "GitHub (@sam)",
+			When:       "Wednesday 7 October, 14:32 UTC",
+			Device:     "Chrome on macOS",
+			Where:      "United Kingdom",
+			IP:         "198.51.100.7",
+			URL:        "https://dashboard.shiptiffin.com/settings/server-access",
+			ShownURL:   "dashboard.shiptiffin.com/settings/server-access",
+			SignInsURL: "https://dashboard.shiptiffin.com/settings/sign-ins",
+		})
+	},
 	"passkey-removed": func() (*Email, error) {
 		return PasskeyRemoved(PasskeyRemovedData{
 			Brand:      "ShipTiffin",
@@ -131,6 +150,24 @@ var samples = map[string]func() (*Email, error){
 			URL:     "https://dashboard.shiptiffin.com/login#eml_9Qw3zL6pK",
 			Until:   "for the next 15 minutes",
 			IP:      "203.0.113.24",
+		})
+	},
+	"ssh-key-removed": func() (*Email, error) {
+		return SshKeyRemoved(SshKeyRemovedData{
+			Brand:      "ShipTiffin",
+			Host:       "dashboard.shiptiffin.com",
+			MarkURL:    "https://dashboard.shiptiffin.com/email-mark.png",
+			First:      "Sam",
+			Server:     "new-box.shiptiffin.app",
+			Keys:       "SHA256:3fGkVq0n8x1sQ2b7mWl4cYp9dZt6uRj5hE0aKiLoNwU (ssh-ed25519)",
+			Source:     "GitHub (@sam)",
+			When:       "Wednesday 7 October, 14:32 UTC",
+			Device:     "Chrome on macOS",
+			Where:      "United Kingdom",
+			IP:         "198.51.100.7",
+			URL:        "https://dashboard.shiptiffin.com/settings/server-access",
+			ShownURL:   "dashboard.shiptiffin.com/settings/server-access",
+			SignInsURL: "https://dashboard.shiptiffin.com/settings/sign-ins",
 		})
 	},
 }

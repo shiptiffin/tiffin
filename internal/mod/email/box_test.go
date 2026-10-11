@@ -153,6 +153,56 @@ func TestRenderBoxMail(t *testing.T) {
 	if _, err := renderBoxMail(api.BoxMail{Kind: "nope"}, "x", now); err == nil {
 		t.Fatal("unknown kind")
 	}
+	// SSH key notices go to the owner: the server, the keys and where they
+	// came from, the button to Server access.
+	ed := api.ServerKey{Type: "ssh-ed25519", Fingerprint: "SHA256:3fGkVq0n8x1sQ2b7mWl4cYp9dZt6uRj5hE0aKiLoNwU", Source: "github:sam-o"}
+	rsa := api.ServerKey{Type: "ssh-rsa", Fingerprint: "SHA256:AAAAVq0n8x1sQ2b7mWl4cYp9dZt6uRj5hE0aKiLoNwU", Bits: 4096, Source: "github:sam-o"}
+	nk1, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewSSHKey, Name: "Sam Okafor", Role: "owner", SSHKeys: []api.ServerKey{ed}, Server: "new-box.shiptiffin.app",
+		Device: "Chrome on macOS", IP: "198.51.100.7", Where: "United Kingdom", At: now, Dashboard: "https://dashboard.new-box.shiptiffin.app"}, "new-box.shiptiffin.app", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nk1.Subject != "An SSH key was added to new-box.shiptiffin.app" {
+		t.Errorf("new-ssh-key subject: %q", nk1.Subject)
+	}
+	for _, want := range []string{"\nSam, a new SSH key can now log in to your server, new-box.shiptiffin.app, as root.",
+		"Key: SHA256:3fGkVq0n8x1sQ2b7mWl4cYp9dZt6uRj5hE0aKiLoNwU (ssh-ed25519)", "From: GitHub (@sam-o)", "Device: Chrome on macOS",
+		"Where: United Kingdom · 198.51.100.7", "Review server access: https://dashboard.new-box.shiptiffin.app/settings/server-access",
+		"Wasn't you? Remove it on that page, then sign out everywhere else: https://dashboard.new-box.shiptiffin.app/settings/sign-ins"} {
+		if !strings.Contains(nk1.Text, want) {
+			t.Errorf("new-ssh-key text lacks %q:\n%s", want, nk1.Text)
+		}
+	}
+	if !strings.Contains(nk1.HTML, `href="https://dashboard.new-box.shiptiffin.app/settings/server-access"`) {
+		t.Error("new-ssh-key HTML lacks the button")
+	}
+	nk2, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewSSHKey, Name: "Owner", SSHKeys: []api.ServerKey{ed, rsa}, Server: "new-box.shiptiffin.app", At: now},
+		"new-box.shiptiffin.app", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nk2.Subject != "SSH keys were added to new-box.shiptiffin.app" || !strings.Contains(nk2.Text, "\nNew SSH keys can now log in") ||
+		!strings.Contains(nk2.Text, "(ssh-ed25519), SHA256:AAAA") || !strings.Contains(nk2.Text, "(ssh-rsa, 4096 bits)") ||
+		strings.Contains(nk2.Text, "Device:") || strings.Contains(nk2.Text, "Where:") || strings.Count(nk2.Text, "GitHub (@sam-o)") != 1 {
+		t.Errorf("two keys, no device:\n%s\n%s", nk2.Subject, nk2.Text)
+	}
+	rk, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailSSHKeyRemoved, Name: "Owner", SSHKeys: []api.ServerKey{{Type: "ssh-ed25519", Fingerprint: ed.Fingerprint, Source: "hetzner"}},
+		Server: "new-box.shiptiffin.app", Device: "The tiffin CLI (owner token)", At: now, Dashboard: "https://dashboard.new-box.shiptiffin.app"}, "new-box.shiptiffin.app", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rk.Subject != "SSH key removed from new-box.shiptiffin.app" {
+		t.Errorf("ssh-key-removed subject: %q", rk.Subject)
+	}
+	for _, want := range []string{"\nAn SSH key was removed from your server, new-box.shiptiffin.app. It no longer logs in. SSH sessions already open with it stay open until they end.",
+		"From: Hetzner (chosen at setup)", "Device: The tiffin CLI (owner token)"} {
+		if !strings.Contains(rk.Text, want) {
+			t.Errorf("ssh-key-removed text lacks %q:\n%s", want, rk.Text)
+		}
+	}
+	if _, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewSSHKey, Server: "x"}, "x", now); err == nil {
+		t.Fatal("new-ssh-key without a key")
+	}
 	// HTML escapes what people typed.
 	e, _ := renderBoxMail(api.BoxMail{Kind: api.BoxMailInvite, Name: "<b>x</b>", By: "<script>", URL: link, Role: "viewer"}, "x", now)
 	if strings.Contains(e.HTML, "<script>") || strings.Contains(e.HTML, "<b>x</b>") {

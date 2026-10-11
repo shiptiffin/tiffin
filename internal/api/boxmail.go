@@ -27,7 +27,7 @@ import (
 // links (sent by an admin, or asked for on the login page), a notice when
 // someone signs in from a browser the box has not seen them use before, and
 // one when they create an API key in the dashboard or add or remove a
-// passkey. The
+// passkey, and one to the owner when SSH keys on the server change. The
 // email module sends it (SetBoxMailer): through the relay when the box has
 // one, else into the box's dev inbox, like any other mail.
 
@@ -42,6 +42,10 @@ const (
 	BoxMailNewPasskey = "new-passkey"
 	// BoxMailPasskeyRemoved: one of their passkeys was removed.
 	BoxMailPasskeyRemoved = "passkey-removed"
+	// BoxMailNewSSHKey: SSH keys were added to the server (to the owner).
+	BoxMailNewSSHKey = "new-ssh-key"
+	// BoxMailSSHKeyRemoved: an SSH key was removed from the server (to the owner).
+	BoxMailSSHKeyRemoved = "ssh-key-removed"
 )
 
 // BoxMail is one message from the box to a person.
@@ -63,6 +67,10 @@ type BoxMail struct {
 	Key *tokens.Key
 	// new-passkey, passkey-removed: the passkey's name ("MacBook").
 	Passkey string
+	// new-ssh-key, ssh-key-removed: the keys, and the server they log in to
+	// ("new-box.shiptiffin.app").
+	SSHKeys []ServerKey
+	Server  string
 }
 
 // BoxMailResult says what happened to a box message.

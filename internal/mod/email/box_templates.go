@@ -2,6 +2,7 @@ package email
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +63,8 @@ func renderBoxMail(m api.BoxMail, boxDomain string, now time.Time) (*boxEmail, e
 		return newKey(m, dash, brand, host, mark)
 	case api.BoxMailNewPasskey, api.BoxMailPasskeyRemoved:
 		return passkeyNotice(m, dash, brand, host, mark)
+	case api.BoxMailNewSSHKey, api.BoxMailSSHKeyRemoved:
+		return sshKeyNotice(m, dash, brand, host, mark)
 	default:
 		return nil, fmt.Errorf("unknown box mail %q", m.Kind)
 	}
@@ -166,6 +169,64 @@ func passkeyNotice(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, er
 	}
 	return templates.NewPasskey(templates.NewPasskeyData{Brand: brand, Host: host, MarkURL: mark, First: first, Name: name,
 		When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP, URL: url, ShownURL: shown, SignInsURL: signIns})
+}
+
+// sshKeyNotice writes the "SSH key added" or "SSH key removed" notice to the
+// owner. The button opens Server access; "Wasn't you?" links their sign-ins,
+// to sign out everywhere else.
+func sshKeyNotice(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error) {
+	if len(m.SSHKeys) == 0 || m.Server == "" {
+		return nil, fmt.Errorf("%s mail without a key or a server", m.Kind)
+	}
+	first := firstName(m.Name)
+	if first == "there" {
+		first = ""
+	}
+	var keys, sources []string
+	for _, k := range m.SSHKeys {
+		what := k.Type
+		if k.Bits > 0 {
+			what += fmt.Sprintf(", %d bits", k.Bits)
+		}
+		keys = append(keys, k.Fingerprint+" ("+what+")")
+		if s := sourceWords(k.Source); !slices.Contains(sources, s) {
+			sources = append(sources, s)
+		}
+	}
+	var url, shown, signIns string
+	if dash != "" {
+		url = dash + "/settings/server-access"
+		signIns = dash + "/settings/sign-ins"
+		shown = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+	}
+	if m.Kind == api.BoxMailSSHKeyRemoved {
+		return templates.SshKeyRemoved(templates.SshKeyRemovedData{Brand: brand, Host: host, MarkURL: mark, First: first, Server: m.Server,
+			Keys: strings.Join(keys, ", "), Source: strings.Join(sources, ", "), When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP,
+			URL: url, ShownURL: shown, SignInsURL: signIns})
+	}
+	count := "one"
+	if len(keys) > 1 {
+		count = "several"
+	}
+	return templates.NewSshKey(templates.NewSshKeyData{Brand: brand, Host: host, MarkURL: mark, First: first, Count: count, Server: m.Server,
+		Keys: strings.Join(keys, ", "), Source: strings.Join(sources, ", "), When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP,
+		URL: url, ShownURL: shown, SignInsURL: signIns})
+}
+
+// sourceWords says where an SSH key came from: "Pasted", "GitHub (@sam)".
+func sourceWords(s string) string {
+	if user, ok := strings.CutPrefix(s, "github:"); ok {
+		return "GitHub (@" + user + ")"
+	}
+	switch s {
+	case "hetzner":
+		return "Hetzner (chosen at setup)"
+	case "pasted":
+		return "Pasted"
+	case "dashboard":
+		return "The dashboard"
+	}
+	return s
 }
 
 // friendlyWhen: "Wednesday 7 October, 19:54 UTC". The email's own date gives the year.

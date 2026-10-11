@@ -32,6 +32,7 @@ import (
 	"github.com/shiptiffin/tiffin/internal/page"
 	"github.com/shiptiffin/tiffin/internal/passkeys"
 	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sshkeys"
 	"github.com/shiptiffin/tiffin/internal/state"
 	"github.com/shiptiffin/tiffin/internal/tokens"
 	"github.com/shiptiffin/tiffin/internal/version"
@@ -91,6 +92,10 @@ type Deps struct {
 	Platform *platform.Platform
 	// Passkeys signs people in to the dashboard (nil off-box).
 	Passkeys *passkeys.Manager
+	// ServerKeys is the file sshd reads the owner's SSH keys for root from
+	// (Settings › Server access): sshkeys.File on a box on a server, nil
+	// elsewhere (a local VM keeps the SSH setup it came with).
+	ServerKeys *sshkeys.Store
 }
 
 // API is the HTTP API.
@@ -134,6 +139,7 @@ func New(d Deps) *API {
 	a.registerBoxMail()
 	a.registerOAuthSignIn()
 	a.registerAppearance()
+	a.registerServerAccess()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {
 		if r, ok := m.(platform.APIRegistrar); ok {
