@@ -29,7 +29,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
   Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
   Health, Backups, API keys, Settings. Settings swaps the sidebar for its own (← Back, then
-  Your box: General, Machine, Git, DNS, Shield, People; You: Sign-ins, Touch ID / Face ID), so the sidebar
+  Your box: General, Machine, Git, DNS, Shield, People, Server access (the owner's SSH keys); You: Sign-ins, Touch ID / Face ID), so the sidebar
   never goes three levels deep. Inside a project: "← All projects", then only that project's sections:
   Overview, Deployments, Logs, Analytics, Observability, Domains, Environment Variables, its services,
   then Activity (the same changes as the box's Activity, for this project) and Settings. Every project has a Database, KV,
@@ -43,7 +43,10 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   also get "ShipTiffin account ↗" (plan and billing, in a new tab): billing lives in the account menu and
   Settings › General (a Plan row), never in the main nav. The word
   "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
-  sign-in link" as the fallback.
+  sign-in link" as the fallback; on a box ShipTiffin set up, "Can't sign in?" instead (`ssh root@<host> tiffin login`,
+  or Hetzner's console in a disclosure). A sign-in with a link, for someone with no passkey yet, goes through
+  /welcome/passkey first ("Next time, sign in with Touch ID", Not now). While nothing could sign someone in again
+  (no passkey, SSH key, emailed link, Google or GitHub), a quiet banner above every page says so, from the box's state.
 - **Projects (home)**: the box's memory, CPU and disk in one quiet line under the title (linking to
   Usage), then a card per project: icon, name, live address, one status line, its parts as small glyphs. Sort, list view and (past six projects) search. Nothing about the platform here.
 - **Project overview**: name, status line, live address (its own domain once that's live, the automatic

@@ -34,17 +34,37 @@ export function webauthnSupported() {
  */
 export type PasskeyWords = { title: string; name: string; button: string; how: string };
 
-export function passkeyWords(): PasskeyWords {
+type Platform = "android" | "mac" | "iphone" | "ipad" | "windows" | "other";
+
+function platform(): Platform {
   const nav = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { userAgentData?: { platform?: string } });
   const p = [nav?.userAgentData?.platform, nav?.platform, nav?.userAgent].join(" ");
-  if (/android/i.test(p)) return { title: "Fingerprint or face", name: "fingerprint or face", button: "fingerprint or face", how: "your fingerprint or face" };
-  if (/mac|iphone|ipad|ipod/i.test(p)) {
-    // An iPad asking for the desktop site says Macintosh, but has a touch screen.
-    const mac = !/iphone|ipad|ipod/i.test(p) && (nav?.maxTouchPoints ?? 0) < 2;
-    return { title: "Touch ID / Face ID", name: "Touch ID / Face ID", button: mac ? "Touch ID" : "Touch ID / Face ID", how: "your fingerprint or face" };
-  }
-  if (/windows|win32|win64/i.test(p)) return { title: "Windows Hello", name: "Windows Hello", button: "Windows Hello", how: "your face, fingerprint or PIN" };
+  if (/android/i.test(p)) return "android";
+  if (/ipad/i.test(p)) return "ipad";
+  if (/iphone|ipod/i.test(p)) return "iphone";
+  // An iPad asking for the desktop site says Macintosh, but has a touch screen.
+  if (/mac/i.test(p)) return (nav?.maxTouchPoints ?? 0) < 2 ? "mac" : "ipad";
+  if (/windows|win32|win64/i.test(p)) return "windows";
+  return "other";
+}
+
+export function passkeyWords(): PasskeyWords {
+  const p = platform();
+  if (p === "android") return { title: "Fingerprint or face", name: "fingerprint or face", button: "fingerprint or face", how: "your fingerprint or face" };
+  if (p === "mac" || p === "iphone" || p === "ipad")
+    return { title: "Touch ID / Face ID", name: "Touch ID / Face ID", button: p === "mac" ? "Touch ID" : "Touch ID / Face ID", how: "your fingerprint or face" };
+  if (p === "windows") return { title: "Windows Hello", name: "Windows Hello", button: "Windows Hello", how: "your face, fingerprint or PIN" };
   return { title: "Passkeys", name: "a passkey", button: "a passkey", how: "a passkey" };
+}
+
+/** Where a new passkey is kept, in this device's words. */
+export function passkeyPlace(): string {
+  const p = platform();
+  if (p === "mac") return "Saves a passkey on this Mac. With iCloud Keychain on, your iPhone can use it too.";
+  if (p === "iphone" || p === "ipad") return `Saves a passkey on this ${p === "ipad" ? "iPad" : "iPhone"}. With iCloud Keychain on, your Mac can use it too.`;
+  if (p === "android") return "Saves a passkey on this phone. With Google Password Manager on, your other devices can use it too.";
+  if (p === "windows") return "Saves a passkey on this PC, unlocked with Windows Hello.";
+  return "Saves a passkey in this browser or your password manager.";
 }
 
 /** Adds a passkey: creation options from the box → navigator.credentials.create() → JSON for the box. */
