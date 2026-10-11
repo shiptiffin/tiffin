@@ -5244,6 +5244,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/server-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List SSH keys for the server
+         * @description The SSH keys that log in to the server as root (ssh root@<host>), from Settings › Server access or chosen at setup. The owner only: their dashboard session, or the owner token. Admins and API keys are refused.
+         */
+        get: operations["server-access"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/server-access/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add SSH keys to the server
+         * @description Adds public keys (one per line, as in a .pub file or github.com/<user>.keys) that log in to the server as root. Accepted: ed25519, security keys (sk-), ECDSA, and RSA of 3072 bits or more; no options (command=, from=...) and no certificates. Keys already there are left as they are, so adding again is safe; at most 10 keys in all. The owner only: in a dashboard session it needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes (reauth_required otherwise); the owner token is not asked. API keys are refused. The owner is emailed about every key added.
+         */
+        post: operations["server-key-add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/server-access/keys/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove an SSH key from the server
+         * @description Removes one key, by its SHA256 fingerprint: it no longer logs in to the server. SSH sessions already open with it stay open until they end. With no key left, your provider's console (Hetzner's, say) is the way in when you can't sign in to the dashboard. Same rules as adding: the owner only, a recent strong sign-in in a dashboard session, never API keys. The owner is emailed about it.
+         */
+        post: operations["server-key-remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session": {
         parameters: {
             query?: never;
@@ -12010,6 +12070,45 @@ export interface components {
             /** Format: int64 */
             lineno?: number;
             module?: string;
+        };
+        "Server-key-addRequest": {
+            /** @description One or more SSH public keys, one per line */
+            keys: string;
+            /**
+             * @description Where the keys come from: pasted (the default), or github:<user> for keys from github.com/<user>.keys
+             * @default pasted
+             */
+            source: string;
+        };
+        "Server-key-removeRequest": {
+            /** @description The key's SHA256 fingerprint, as listed */
+            fingerprint: string;
+        };
+        ServerAccess: {
+            /** @description The file on the server the keys are in */
+            file: string;
+            /** @description The server's address: ssh root@<host> */
+            host: string;
+            /** @description The keys Tiffin manages, oldest first. Keys added by hand to /root/.ssh/authorized_keys work too, but aren't listed. */
+            keys: components["schemas"]["ServerKey"][] | null;
+        };
+        ServerKey: {
+            /**
+             * Format: date-time
+             * @description The day it was added (midnight UTC)
+             */
+            added: string;
+            /**
+             * Format: int64
+             * @description RSA keys only: the key's size in bits
+             */
+            bits?: number;
+            /** @description The key's SHA256 fingerprint, as ssh-keygen -lf shows it */
+            fingerprint: string;
+            /** @description Where it came from: pasted, hetzner (from the Hetzner project at setup), dashboard, or github:<user> */
+            source: string;
+            /** @description The key type: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256, ssh-rsa... */
+            type: string;
         };
         ServerMachine: {
             currency: string;
@@ -37181,6 +37280,209 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "server-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerAccess"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "server-key-add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Server-key-addRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerAccess"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "server-key-remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Server-key-removeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerAccess"];
                 };
             };
             /** @description Bad Request */

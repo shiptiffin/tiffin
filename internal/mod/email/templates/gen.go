@@ -138,6 +138,35 @@ func NewSignIn(d NewSignInData) (*Email, error) {
 	return render("new-sign-in", d)
 }
 
+// NewSshKeyData fills new-ssh-key: SSH keys were added to the server (sent to the owner).
+type NewSshKeyData struct {
+	Brand      string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
+	Host       string // The dashboard's host, e.g. dashboard.example.com
+	MarkURL    string // The mark as a PNG (email-mark.png on the dashboard); empty for none
+	First      string // First name; empty when the box doesn't know it
+	Count      string // How many keys were added: one, several
+	Server     string // The server they log in to: "new-box.shiptiffin.app"
+	Keys       string // The keys' fingerprints: "SHA256:3fGk… (ssh-ed25519)", several joined with ", "
+	Source     string // Where they came from: "Pasted", "GitHub (@sam)"
+	When       string // "Wednesday 7 October, 14:32 UTC"
+	Device     string // Where they were added: "Chrome on macOS", "The tiffin CLI (owner token)"; empty when unknown
+	Where      string // The country the address is in, "United States"; empty when unknown
+	IP         string // The address it came from; empty to leave it out
+	URL        string // Server access in the dashboard; empty for no button
+	ShownURL   string // The same address without https://: "dashboard.example.com/settings/server-access"
+	SignInsURL string // The owner's sign-ins page (to sign out everywhere else); empty for none
+}
+
+// NewSshKey renders new-ssh-key: SSH keys were added to the server (sent to the owner).
+func NewSshKey(d NewSshKeyData) (*Email, error) {
+	switch d.Count {
+	case "one", "several":
+	default:
+		return nil, fmt.Errorf("new-ssh-key: Count is %q, want one of one, several", d.Count)
+	}
+	return render("new-ssh-key", d)
+}
+
 // PasskeyRemovedData fills passkey-removed: A passkey was removed from someone's sign-ins (sent to them).
 type PasskeyRemovedData struct {
 	Brand      string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
@@ -190,5 +219,28 @@ func SignIn(d SignInData) (*Email, error) {
 	return render("sign-in", d)
 }
 
+// SshKeyRemovedData fills ssh-key-removed: An SSH key was removed from the server (sent to the owner).
+type SshKeyRemovedData struct {
+	Brand      string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
+	Host       string // The dashboard's host, e.g. dashboard.example.com
+	MarkURL    string // The mark as a PNG (email-mark.png on the dashboard); empty for none
+	First      string // First name; empty when the box doesn't know it
+	Server     string // The server it logged in to: "new-box.shiptiffin.app"
+	Keys       string // The key's fingerprint: "SHA256:3fGk… (ssh-ed25519)"
+	Source     string // Where it came from: "Pasted", "GitHub (@sam)"
+	When       string // "Wednesday 7 October, 14:32 UTC"
+	Device     string // Where it was removed: "Chrome on macOS", "The tiffin CLI (owner token)"; empty when unknown
+	Where      string // The country the address is in, "United States"; empty when unknown
+	IP         string // The address it came from; empty to leave it out
+	URL        string // Server access in the dashboard; empty for no button
+	ShownURL   string // The same address without https://: "dashboard.example.com/settings/server-access"
+	SignInsURL string // The owner's sign-ins page (to sign out everywhere else); empty for none
+}
+
+// SshKeyRemoved renders ssh-key-removed: An SSH key was removed from the server (sent to the owner).
+func SshKeyRemoved(d SshKeyRemovedData) (*Email, error) {
+	return render("ssh-key-removed", d)
+}
+
 // Names lists every box email.
-var Names = []string{"alert", "invite", "link", "new-key", "new-passkey", "new-sign-in", "passkey-removed", "relay-test", "sign-in"}
+var Names = []string{"alert", "invite", "link", "new-key", "new-passkey", "new-sign-in", "new-ssh-key", "passkey-removed", "relay-test", "sign-in", "ssh-key-removed"}

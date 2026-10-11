@@ -430,6 +430,11 @@ var ErrReauthPasskey error = reauthError("confirm it's you first: adding a passk
 // strong sign-in, so a stolen session must not point it at another inbox.
 var ErrReauthEmail error = reauthError("confirm it's you first: changing an email address needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
 
+// ErrReauthSSH asks the owner to confirm it's them before changing the SSH
+// keys that log in to the server as root: a stolen session must not add its
+// own, or remove the owner's way back in.
+var ErrReauthSSH error = reauthError("confirm it's you first: changing SSH keys on the server needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
+
 // RequireSudo returns refusal (an ErrReauth) when p is a dashboard session
 // that hasn't proved who is behind it within SudoWindow. API keys and the
 // owner token are never asked.

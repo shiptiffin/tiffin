@@ -169,8 +169,10 @@ func TestUnitAndURL(t *testing.T) {
 			t.Errorf("unit lacks %q", want)
 		}
 	}
-	// Restarting tiffin must not restart the edge: no Requires/BindsTo/PartOf on it.
-	for _, bad := range []string{"Requires=tiffin-edge", "BindsTo=", "PartOf="} {
+	// Restarting tiffin must not restart the edge: no Requires/BindsTo/PartOf
+	// on it. The service writes the owner's SSH keys in
+	// /etc/ssh/authorized_keys.d: nothing may make /etc read-only.
+	for _, bad := range []string{"Requires=tiffin-edge", "BindsTo=", "PartOf=", "ProtectSystem=", "ReadOnlyPaths=", "InaccessiblePaths="} {
 		if strings.Contains(unit, bad) {
 			t.Errorf("unit has %q", bad)
 		}

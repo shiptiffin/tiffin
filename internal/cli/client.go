@@ -20,6 +20,7 @@ import (
 	"github.com/shiptiffin/tiffin/internal/api"
 	"github.com/shiptiffin/tiffin/internal/change"
 	"github.com/shiptiffin/tiffin/internal/platform"
+	"github.com/shiptiffin/tiffin/internal/sshkeys"
 	"github.com/shiptiffin/tiffin/internal/state"
 	"github.com/shiptiffin/tiffin/internal/tokens"
 	"github.com/shiptiffin/tiffin/internal/version"
@@ -58,6 +59,10 @@ func openBox(ctx context.Context, home string, extra ...func(*api.Deps)) (b *box
 		}
 	}
 	deps := api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: version.Version}
+	if srv, err := platform.LoadServerConfig(); err == nil && srv != nil {
+		// A box on a server: sshd reads the owner's keys from the dashboard's file.
+		deps.ServerKeys = &sshkeys.Store{Path: api.ServerKeysFile}
+	}
 	for _, f := range extra {
 		f(&deps)
 	}
