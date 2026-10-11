@@ -237,6 +237,8 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		if err != nil {
 			return err
 		}
+		// Only addresses the person names narrow a managed box's anywhere rule.
+		hp.NarrowSSH = len(o.sshFrom) > 0
 		existing := bx != nil && bx.URL != ""
 		if existing && o.adopt == "" && (cmd.Flags().Changed("type") || cmd.Flags().Changed("volume-size")) {
 			wantType, wantGB := "", 0

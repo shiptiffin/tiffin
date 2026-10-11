@@ -67,6 +67,8 @@ type Worker struct {
 	WaitHTTPS func(ctx context.Context, url string, within time.Duration) error
 	// TempDir holds a job's setup key while it runs.
 	TempDir string
+	// AccessRoot prefixes the paths the access script edits on a server (tests).
+	AccessRoot string
 	// Concurrency is how many jobs run at once (default 3).
 	Concurrency int
 	// Lease is how long a claim lasts without renewal (default 5 minutes).
@@ -331,6 +333,8 @@ func (w *Worker) handle(ctx context.Context, job *Job) error {
 		var a DNSArgs
 		_ = json.Unmarshal(job.Args, &a)
 		return w.dnsRemove(ctx, job, box, a, progress)
+	case "open-ssh":
+		return w.openSSH(ctx, job, box, progress)
 	}
 	return fmt.Errorf("unknown job kind %q", job.Kind)
 }
@@ -344,6 +348,9 @@ type ProvisionArgs struct {
 	// OwnerName is the name on the customer's ShipTiffin account, if it has
 	// a real one: the box's owner starts with it instead of "Owner".
 	OwnerName string `json:"ownerName,omitempty"`
+	// SSHKeys are the owner's public keys (0-10): installed for root, with
+	// port 22 open to them. None: SSH stays closed.
+	SSHKeys []SSHKeyArg `json:"sshKeys,omitempty"`
 }
 
 // ResizeArgs changes the server type.
@@ -465,6 +472,11 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	}
 	if box.ReadyAt != nil || box.InstalledAt != nil {
 		return errors.New("this box was set up before; it is not set up again")
+	}
+	// The owner's SSH keys are checked before anything is made.
+	keys, err := setupKeys(a.SSHKeys, w.Now())
+	if err != nil {
+		return err
 	}
 	token, err := w.token(job, box)
 	if err != nil {
@@ -607,40 +619,35 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 	}
 	// From here on the server holds the customer's box: whatever fails
 	// next, nothing deletes it (failures need a person, not a clean-up).
+	// And whatever fails, the setup's way in is taken away before the job
+	// ends (unless the job is no longer this worker's).
 	installed = true
+	var later error // the first failure after the install
 	if err := w.markInstalled(ctx, job, box.ID); err != nil {
-		return err
+		if errors.Is(err, ErrLeaseLost) || ctx.Err() != nil {
+			return err
+		}
+		later = err
 	}
-	// The one sign-in we keep: a link the box made, which works once and
-	// which the box itself refuses after a day. The owner token stays on the box.
-	progress("Making your one-time sign-in link (it works once, for 24 hours)")
-	code, exp, err := bootstrapLink(ctx, m)
-	if err != nil {
-		return err
+	if later == nil {
+		// The one sign-in we keep: a link the box made, which works once and
+		// which the box itself refuses after a day. The owner token stays on
+		// the box. It needs the setup key, so it comes first.
+		progress("Making your one-time sign-in link (it works once, for 24 hours)")
+		code, exp, err := bootstrapLink(ctx, m)
+		if err == nil {
+			err = w.Store.SetSignin(ctx, job.Lease, box.ID, code, exp)
+		}
+		if err != nil && (errors.Is(err, ErrLeaseLost) || ctx.Err() != nil) {
+			return err
+		}
+		later = err
 	}
-	if err := w.Store.SetSignin(ctx, job.Lease, box.ID, code, exp); err != nil {
-		return err
+	if err := w.finishAccess(ctx, job, box, m, hp, dir, keys, []string{domain, ip4}, progress); err != nil && later == nil {
+		later = err
 	}
-
-	// Take away our way in: the key's line on the server first (over the
-	// connection it opens), then the key object and the firewall's SSH rule.
-	progress("Removing the setup key from your server")
-	pub, err := os.ReadFile(filepath.Join(dir, "id_ed25519.pub"))
-	if err != nil {
-		return err
-	}
-	if out, stderr, err := m.Exec(ctx, RemoveKeyScript(string(pub))); err != nil || !strings.Contains(out, "removed") {
-		return fmt.Errorf("remove the setup key from the server: %v %s %s", err, out, stderr)
-	}
-	progress("Closing SSH and deleting the setup key from your Hetzner project")
-	if err := hp.CloseSetupAccess(ctx, func(string) {}); err != nil {
-		return err
-	}
-	if open, keys, err := hp.SSHOpen(ctx); err != nil || open || keys > 0 {
-		return fmt.Errorf("the setup access is still there (SSH open: %v, keys: %d): %v", open, keys, err)
-	}
-	if err := w.Store.SetResources(ctx, job.Lease, box.ID, Resources{}); err != nil { // the SSH key is gone
-		return err
+	if later != nil {
+		return later
 	}
 
 	progress("Forgot your Hetzner key (only its fingerprint " + Fingerprint(token) + " stays)")
@@ -829,26 +836,6 @@ func bootstrapLink(ctx context.Context, m Machine) (string, time.Time, error) {
 		return "", time.Time{}, fmt.Errorf("make the sign-in link: unexpected answer %q", firstLine(out))
 	}
 	return r.Code, r.ExpiresAt, nil
-}
-
-// RemoveKeyScript deletes one public key's line from root's authorized_keys
-// and says "removed" once it is gone (or was never there).
-func RemoveKeyScript(pub string) string {
-	f := strings.Fields(pub)
-	key := pub
-	if len(f) >= 2 {
-		key = f[1] // the base64 body: unique, and free of quotes
-	}
-	return `set -eu
-f=/root/.ssh/authorized_keys
-k='` + strings.ReplaceAll(key, "'", "") + `'
-if [ -f "$f" ]; then
-  grep -vF "$k" "$f" > "$f.tiffin-new" || true
-  cat "$f.tiffin-new" > "$f"
-  rm -f "$f.tiffin-new"
-fi
-if [ -f "$f" ] && grep -qF "$k" "$f"; then echo still-there; exit 3; fi
-echo removed`
 }
 
 func (w *Worker) resize(ctx context.Context, job *Job, box *Box, a ResizeArgs, progress func(string)) error {

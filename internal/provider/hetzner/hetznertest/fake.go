@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"sort"
 	"strconv"
@@ -528,6 +529,10 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if err := validRules(req.Rules); err != nil {
+			apiError(w, 400, "invalid_input", err.Error())
+			return
+		}
 		fw := &schema.Firewall{ID: f.id(), Name: req.Name, Labels: deref(req.Labels), Created: time.Now(), Rules: rules(req.Rules), AppliedTo: []schema.FirewallResource{}}
 		f.firewalls[fw.ID] = fw
 		write(w, 201, schema.FirewallCreateResponse{Firewall: *fw, Actions: []schema.Action{f.action("set_firewall_rules")}})
@@ -538,6 +543,10 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 			if fw == nil {
 				apiError(w, 404, "not_found", "firewall not found")
 			}
+			return
+		}
+		if err := validRules(req.Rules); err != nil {
+			apiError(w, 400, "invalid_input", err.Error())
 			return
 		}
 		fw.Rules = rules(req.Rules)
@@ -802,6 +811,70 @@ func (f *Fake) applyFirewall(fw *schema.Firewall, serverID int64) {
 	fw.AppliedTo = append(fw.AppliedTo, schema.FirewallResource{Type: "server", Server: &schema.FirewallResourceServer{ID: serverID}})
 	if s := f.servers[serverID]; s != nil {
 		s.PublicNet.Firewalls = append(s.PublicNet.Firewalls, schema.ServerFirewall{ID: fw.ID, Status: "applied"})
+	}
+}
+
+// validRules refuses what the real API refuses: an unknown direction or
+// protocol, a port on ICMP/ESP/GRE or none on TCP/UDP, a port outside
+// 1-65535 (or a backwards range), no addresses, an address that isn't a
+// network, a description over 255 characters.
+func validRules(in []schema.FirewallRuleRequest) error {
+	for i, r := range in {
+		ips := r.SourceIPs
+		switch r.Direction {
+		case "in":
+		case "out":
+			ips = r.DestinationIPs
+		default:
+			return fmt.Errorf("rule %d: direction %q", i, r.Direction)
+		}
+		if len(ips) == 0 {
+			return fmt.Errorf("rule %d: no addresses", i)
+		}
+		for _, ip := range ips {
+			p, err := netip.ParsePrefix(ip)
+			if err != nil || p.Masked() != p {
+				return fmt.Errorf("rule %d: %q is not a network", i, ip)
+			}
+		}
+		switch r.Protocol {
+		case "tcp", "udp":
+			if r.Port == nil {
+				return fmt.Errorf("rule %d: %s needs a port", i, r.Protocol)
+			}
+			if *r.Port != "any" {
+				lo, hi, isRange := strings.Cut(*r.Port, "-")
+				if !isRange {
+					hi = lo
+				}
+				a, err1 := strconv.Atoi(lo)
+				b, err2 := strconv.Atoi(hi)
+				if err1 != nil || err2 != nil || a < 1 || b > 65535 || a > b {
+					return fmt.Errorf("rule %d: port %q", i, *r.Port)
+				}
+			}
+		case "icmp", "esp", "gre":
+			if r.Port != nil {
+				return fmt.Errorf("rule %d: %s has no ports", i, r.Protocol)
+			}
+		default:
+			return fmt.Errorf("rule %d: protocol %q", i, r.Protocol)
+		}
+		if r.Description != nil && len(*r.Description) > 255 {
+			return fmt.Errorf("rule %d: description longer than 255 characters", i)
+		}
+	}
+	return nil
+}
+
+// AddFirewallRule adds a rule to the first firewall, as a person would in
+// the console.
+func (f *Fake) AddFirewallRule(r schema.FirewallRule) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, fw := range sorted(f.firewalls, func(*schema.Firewall) bool { return true }) {
+		f.firewalls[fw.ID].Rules = append(f.firewalls[fw.ID].Rules, r)
+		return
 	}
 }
 

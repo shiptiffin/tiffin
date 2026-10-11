@@ -116,7 +116,7 @@ func (p *Provider) PlanAdopt(ctx context.Context, ref string, protect bool) (*Ad
 	if len(in.Firewalls) == 0 {
 		add("create the firewall %s (in: SSH from %s; HTTP/HTTPS and ping from anywhere) and attach it", p.cfg.Name, strings.Join(pl.SSHFrom, ", "))
 	} else {
-		acc := planSSH(in.Firewalls[0], p.cfg.SSHFrom, p.cfg.SSHAnywhere, p.now())
+		acc := p.sshPlan(in.Firewalls[0])
 		add("firewall %s: %s", in.Firewalls[0].Name, acc.Summary())
 	}
 	if protect {

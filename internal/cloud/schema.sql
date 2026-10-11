@@ -76,6 +76,9 @@ create table if not exists cloud_boxes (
   offsite_expires_at timestamptz,
   offsite_purge_after timestamptz,
   offsite_purged_at timestamptz,
+  ssh_keys jsonb not null default '[]',
+  host_keys text,
+  ssh_open boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -97,6 +100,9 @@ alter table cloud_boxes add column if not exists offsite_sealed text;
 alter table cloud_boxes add column if not exists offsite_expires_at timestamptz;
 alter table cloud_boxes add column if not exists offsite_purge_after timestamptz;
 alter table cloud_boxes add column if not exists offsite_purged_at timestamptz;
+alter table cloud_boxes add column if not exists ssh_keys jsonb not null default '[]';
+alter table cloud_boxes add column if not exists host_keys text;
+alter table cloud_boxes add column if not exists ssh_open boolean not null default false;
 -- Columns dropped since: a customer's Hetzner token lives only on its job.
 alter table cloud_boxes drop column if exists token_sealed;
 alter table cloud_boxes drop column if exists token_kept_at;
@@ -145,12 +151,15 @@ comment on column cloud_boxes.handoff_closed_at is 'When the hand-off ended: the
 comment on column cloud_boxes.signin_requested_at is 'The customer asked for a new one-time sign-in link; the box makes it at its next check-in.';
 comment on column cloud_boxes.checkout_attempt is 'The Checkout request being made (its idempotency key and exact parameters), saved before Stripe is called so a retry sends the very same request.';
 comment on column cloud_boxes.dns_state is 'none, pending (records are being published, or a publish failed half way: treated as live for removal), live, removed (grace period over, setup failed, released or deleted), parked (no check-in for 72 hours; the next one brings it back) or killed (abuse kill switch; only an admin restores it).';
+comment on column cloud_boxes.ssh_keys is 'The owner''s SSH public keys the setup installed for root (in /etc/ssh/authorized_keys.d/root on the box), read back from the server: [{type, fingerprint, bits?, source, added}]. What the setup left; the owner may change them on the box since (Settings › Server access).';
+comment on column cloud_boxes.host_keys is 'known_hosts lines for <name>.shiptiffin.app and the IPv4: the host keys the setup worker saw on its first connection (trust on first use), recorded during setup.';
+comment on column cloud_boxes.ssh_open is 'The box''s firewall lets port 22 in from anywhere, for the owner''s keys only: set at setup when keys were installed and sshd takes keys only, or by an open-ssh job.';
 comment on column cloud_boxes.last_heartbeat_at is 'The last check-in that counted: a licence of the current generation, sent from the box''s own address.';
 
 create table if not exists cloud_jobs (
   id bigint generated always as identity primary key,
   box_id text not null references cloud_boxes (id),
-  kind text not null check (kind in ('provision', 'resize', 'delete_server', 'cleanup', 'dns_set', 'dns_remove')),
+  kind text not null check (kind in ('provision', 'resize', 'delete_server', 'cleanup', 'dns_set', 'dns_remove', 'open-ssh')),
   status text not null default 'queued' check (status in ('queued', 'running', 'done', 'failed')),
   args jsonb not null default '{}',
   token_sealed text,
@@ -166,11 +175,13 @@ create table if not exists cloud_jobs (
   finished_at timestamptz,
   lease_until timestamptz
 );
+alter table cloud_jobs drop constraint if exists cloud_jobs_kind_check;
+alter table cloud_jobs add constraint cloud_jobs_kind_check check (kind in ('provision', 'resize', 'delete_server', 'cleanup', 'dns_set', 'dns_remove', 'open-ssh'));
 create index if not exists cloud_jobs_queue on cloud_jobs (status, id);
 create index if not exists cloud_jobs_box on cloud_jobs (box_id, created_at desc);
 -- One running job per box: infrastructure work on a box never overlaps.
 create unique index if not exists cloud_jobs_one_running on cloud_jobs (box_id) where status = 'running';
-comment on table cloud_jobs is 'Work for the provisioner. token_sealed holds a customer''s Hetzner token only while its job waits or runs (and never past token_expires_at); it is cleared when the job ends. lease_gen fences a worker that lost its lease; checkpoint records the phases a retry skips; not_before delays a retry.';
+comment on table cloud_jobs is 'Work for the provisioner. token_sealed holds a customer''s Hetzner token only while its job waits or runs (and never past token_expires_at); it is cleared when the job ends. lease_gen fences a worker that lost its lease; checkpoint records the phases a retry skips; not_before delays a retry. open-ssh opens port 22 on a box''s firewall for the owner''s keys (with a token pasted for it).';
 
 create table if not exists cloud_hetzner_calls (
   id bigint generated always as identity primary key,

@@ -19,6 +19,16 @@ type faultStore struct {
 	*PG
 	markReady func(ctx context.Context, boxID string) (bool, error)
 	extend    func(ctx context.Context, l Lease, d time.Duration) error
+	setSignin func(ctx context.Context, l Lease, boxID, code string, exp time.Time) error
+}
+
+var errDBDown = errors.New("connection reset by peer")
+
+func (f *faultStore) SetSignin(ctx context.Context, l Lease, boxID, code string, exp time.Time) error {
+	if f.setSignin != nil {
+		return f.setSignin(ctx, l, boxID, code, exp)
+	}
+	return f.PG.SetSignin(ctx, l, boxID, code, exp)
 }
 
 func (f *faultStore) MarkReady(ctx context.Context, boxID string) (bool, error) {

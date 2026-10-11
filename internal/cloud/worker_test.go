@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,18 +28,61 @@ import (
 	"github.com/shiptiffin/tiffin/internal/provider/hetzner"
 	"github.com/shiptiffin/tiffin/internal/provider/hetzner/hetznertest"
 	"github.com/shiptiffin/tiffin/internal/provider/remote"
+	"golang.org/x/crypto/ssh"
 )
 
-// fakeMachine is a new server reached over SSH: it records what runs.
+// fakeMachine is a new server reached over SSH: it records what runs. The
+// access script really runs (bash) on a folder standing in for the
+// server's / (Worker.AccessRoot), with an sshd whose `sshd -T` prints the
+// file sshdT.
 type fakeMachine struct {
 	mu      sync.Mutex
 	scripts []string
 	copies  []string
 	// hook, when set, answers a script first (ok false: the default answer).
-	hook func(script string) (out string, ok bool)
+	hook  func(script string) (out string, ok bool)
+	root  string // the server's /
+	bin   string // holds the fake sshd
+	sshdT string
 }
 
-func (m *fakeMachine) Exec(_ context.Context, script string) (string, string, error) {
+// goodSSHD is what `sshd -T` says on a box Tiffin hardened (the parts checked).
+const goodSSHD = `port 22
+permitrootlogin without-password
+pubkeyauthentication yes
+passwordauthentication no
+kbdinteractiveauthentication no
+authenticationmethods publickey
+authorizedkeysfile .ssh/authorized_keys /etc/ssh/authorized_keys.d/%u
+`
+
+func newFakeMachine(t *testing.T) *fakeMachine {
+	m := &fakeMachine{root: t.TempDir(), bin: t.TempDir()}
+	m.sshdT = filepath.Join(m.bin, "sshd-T")
+	_ = os.WriteFile(m.sshdT, []byte(goodSSHD), 0o644)
+	_ = os.WriteFile(filepath.Join(m.bin, "sshd"), []byte("#!/bin/sh\nexec cat '"+m.sshdT+"'\n"), 0o755)
+	_ = os.MkdirAll(filepath.Join(m.root, "root", ".ssh"), 0o700)
+	return m
+}
+
+// file reads a file on the fake server.
+func (m *fakeMachine) file(path string) string {
+	raw, _ := os.ReadFile(filepath.Join(m.root, path))
+	return string(raw)
+}
+
+// boot is cloud-init on a new server: the setup key goes into root's
+// authorized_keys (next to a line someone else put there).
+func (m *fakeMachine) boot(t *testing.T, identity string) {
+	pub, err := os.ReadFile(identity + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl theirs\n"
+	_ = os.WriteFile(filepath.Join(m.root, "root", ".ssh", "authorized_keys"), append([]byte(keep), pub...), 0o600)
+}
+
+func (m *fakeMachine) Exec(ctx context.Context, script string) (string, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.scripts = append(m.scripts, script)
@@ -48,7 +92,13 @@ func (m *fakeMachine) Exec(_ context.Context, script string) (string, string, er
 		}
 	}
 	if strings.Contains(script, "authorized_keys") {
-		return "removed\n", "", nil
+		cmd := exec.CommandContext(ctx, "bash", "-s")
+		cmd.Stdin = strings.NewReader(script)
+		cmd.Env = append(os.Environ(), "PATH="+m.bin+":"+os.Getenv("PATH"))
+		var out, errb strings.Builder
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		err := cmd.Run()
+		return out.String(), errb.String(), err
 	}
 	if strings.Contains(script, "bootstrap-link") {
 		return `{"code": "tfl_onetimecode", "expiresAt": "` + time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339) + `"}`, "", nil
@@ -61,6 +111,13 @@ func (m *fakeMachine) Copy(_ context.Context, local, remote string) error {
 }
 func (m *fakeMachine) Arch() string                          { return "arm64" }
 func (m *fakeMachine) Check(context.Context) (string, error) { return "26.04", nil }
+
+// hostKey is the fake server's SSH host key, as ssh records it.
+var hostKey = func() string {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	pk, _ := ssh.NewPublicKey(pub)
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pk)))
+}()
 
 type harness struct {
 	t       *testing.T
@@ -77,7 +134,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	h := &harness{t: t, store: newStore(t), hz: hetznertest.New(), cf: cftest.New("shiptiffin.app"), machine: &fakeMachine{}}
+	h := &harness{t: t, store: newStore(t), hz: hetznertest.New(), cf: cftest.New("shiptiffin.app"), machine: newFakeMachine(t)}
 	t.Cleanup(h.hz.Close)
 	h.seal, _ = ecdh.X25519().GenerateKey(rand.Reader)
 	_, h.key, _ = ed25519.GenerateKey(rand.Reader)
@@ -95,6 +152,9 @@ func newHarness(t *testing.T) *harness {
 		Binary: func(context.Context, string) (string, error) { return bin, nil },
 		Connect: func(_ context.Context, tg remote.Target) (Machine, error) {
 			h.connect = append(h.connect, tg)
+			h.machine.boot(t, tg.Identity)
+			// ssh pins the host key on first use (Ubuntu's ssh_config hashes the name).
+			_ = os.WriteFile(tg.KnownHosts, []byte("|1|c2FsdA==|aGFzaA== "+hostKey+"\n"), 0o600)
 			return h.machine, nil
 		},
 		Install: func(_ context.Context, _ provider.Machine, _ string, o install.Options, progress func(string)) (*install.Result, error) {
@@ -105,9 +165,10 @@ func newHarness(t *testing.T) *harness {
 		PrepareData: func(context.Context, provider.Machine, install.DataSpec, func(string)) ([]string, error) {
 			return nil, nil
 		},
-		WaitHTTPS: func(context.Context, string, time.Duration) error { return nil },
-		TempDir:   t.TempDir(),
-		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WaitHTTPS:  func(context.Context, string, time.Duration) error { return nil },
+		TempDir:    t.TempDir(),
+		AccessRoot: h.machine.root,
+		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	return h
 }
@@ -241,7 +302,7 @@ func TestProvisionEndToEnd(t *testing.T) {
 	if j.Status != "done" || j.Token != nil {
 		t.Fatalf("job: %s token kept=%v\n%s", j.Status, j.Token != nil, j.text())
 	}
-	for _, want := range []string{"Creating a cax11 server", "Pointing shop.shiptiffin.app", "one-time sign-in link", "Removing the setup key", "Closing SSH", "Forgot your Hetzner key", "valid certificate", "Your box is ready"} {
+	for _, want := range []string{"Creating a cax11 server", "Pointing shop.shiptiffin.app", "one-time sign-in link", "Removing the setup key from your server\nClosing setup access in your Hetzner project\nForgot your Hetzner key", "valid certificate", "Your box is ready"} {
 		if !strings.Contains(j.text(), want) {
 			t.Errorf("steps lack %q:\n%s", want, j.text())
 		}
@@ -305,6 +366,21 @@ func TestProvisionEndToEnd(t *testing.T) {
 	}
 	if removal == "" || h.machine.scripts[len(h.machine.scripts)-1] != removal {
 		t.Fatalf("the key removal must be the last thing run on the server: %d scripts", len(h.machine.scripts))
+	}
+	// On the server: the setup key's line is gone, the other one kept; no
+	// owner keys, so no key file and SSH stays closed.
+	if ak := h.machine.file("root/.ssh/authorized_keys"); ak != "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl theirs\n" {
+		t.Fatalf("root's authorized_keys: %q", ak)
+	}
+	if _, err := os.Stat(filepath.Join(h.machine.root, "etc/ssh/authorized_keys.d")); err == nil {
+		t.Fatal("no owner keys: no key file")
+	}
+	if h.str(`select ssh_open::text from cloud_boxes where id = 'box_1'`) != "false" || h.str(`select ssh_keys::text from cloud_boxes where id = 'box_1'`) != "[]" {
+		t.Fatal("no keys: SSH closed, none recorded")
+	}
+	// The host key the setup saw, for the names the owner uses.
+	if hk := h.str(`select host_keys from cloud_boxes where id = 'box_1'`); hk != "shop.shiptiffin.app,"+b.IPv4+" "+hostKey+"\n" {
+		t.Fatalf("host keys %q", hk)
 	}
 	if entries, _ := os.ReadDir(h.w.TempDir); len(entries) != 0 {
 		t.Fatalf("the setup key is still on disk: %v", entries)
@@ -938,6 +1014,42 @@ func TestRestartDeletesOldSetupKeys(t *testing.T) {
 	h.w.Run(ctx)
 	if entries, _ := os.ReadDir(h.w.TempDir); len(entries) != 0 {
 		t.Fatalf("left: %v", entries)
+	}
+
+	// A worker that stops after the install (a deploy) can't finish the
+	// access: the setup key's line stays on the server, but its private half
+	// is deleted as the job ends, so nothing can use it; the sweep flags the
+	// box for a person and deletes nothing.
+	jctx, stop := context.WithCancel(context.Background())
+	h.machine.hook = func(script string) (string, bool) {
+		if strings.Contains(script, "bootstrap-link") {
+			stop()
+			return "", true
+		}
+		return "", false
+	}
+	h.addBox("box_s1", "stops")
+	id := h.enqueue("box_s1", "provision", hetznertest.Token, ProvisionArgs{Name: "stops", ServerType: "cax11", Location: "fsn1", SSHKeys: keyArgs(t)})
+	j, err := h.store.Claim(context.Background(), time.Minute)
+	if err != nil || j == nil {
+		t.Fatal(err)
+	}
+	h.w.RunJob(jctx, j)
+	if entries, _ := os.ReadDir(h.w.TempDir); len(entries) != 0 {
+		t.Fatalf("the setup key outlived its job: %v", entries)
+	}
+	if !strings.Contains(h.machine.file("root/.ssh/authorized_keys"), "tiffin-stops") {
+		t.Fatal("expected the stopped job to leave the setup key's line")
+	}
+	h.exec(`update cloud_jobs set lease_until = now() - interval '1 second' where id = $1`, id)
+	if _, err := h.store.Sweep(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if b := h.box("box_s1"); b.Attention == "" || h.num(`select count(*) from cloud_jobs where box_id = 'box_s1' and kind = 'cleanup'`) != 0 {
+		t.Fatalf("box %+v", b)
+	}
+	if srv, _, _, _ := h.hz.Count(); srv != 1 {
+		t.Fatal("the installed server must stay")
 	}
 }
 
