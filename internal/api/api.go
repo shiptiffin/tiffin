@@ -133,6 +133,7 @@ func New(d Deps) *API {
 	a.registerSessions()
 	a.registerBoxMail()
 	a.registerOAuthSignIn()
+	a.registerRecovery()
 	a.registerAppearance()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {

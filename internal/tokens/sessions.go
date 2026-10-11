@@ -381,8 +381,36 @@ func (m *Manager) StrongAt(ctx context.Context, id string) (time.Time, error) {
 
 // Confirmed reports whether session id proved who is behind it within SudoWindow.
 func (m *Manager) Confirmed(ctx context.Context, id string) bool {
+	return m.strongWithin(ctx, id, SudoWindow)
+}
+
+func (m *Manager) strongWithin(ctx context.Context, id string, d time.Duration) bool {
 	at, err := m.StrongAt(ctx, id)
-	return err == nil && !at.IsZero() && m.now().Sub(at) <= SudoWindow
+	return err == nil && !at.IsZero() && m.now().Sub(at) <= d
+}
+
+// FirstPasskeyWindow is how long after a strong sign-in a person with no
+// passkey yet may add their first one without confirming it's them: the
+// owner who signs in with the hand-off link and saves a passkey a while
+// later must not be stranded (with no passkey, they have nothing to confirm
+// with).
+const FirstPasskeyWindow = time.Hour
+
+// FirstPasskeyOpen reports whether p, a dashboard session of a person with
+// no passkey (hasPasskey false), signed in strongly within
+// FirstPasskeyWindow, so it may add that first passkey as it is.
+func (m *Manager) FirstPasskeyOpen(ctx context.Context, p *Principal, hasPasskey bool) bool {
+	return p != nil && p.IsSession() && !hasPasskey && m.strongWithin(ctx, p.TokenID, FirstPasskeyWindow)
+}
+
+// RequirePasskeySudo is RequireSudo for adding a passkey: a person's first
+// passkey also passes within FirstPasskeyWindow of a strong sign-in (see
+// FirstPasskeyOpen); any later one needs SudoWindow, like everything else.
+func (m *Manager) RequirePasskeySudo(ctx context.Context, p *Principal, hasPasskey bool) error {
+	if m.FirstPasskeyOpen(ctx, p, hasPasskey) {
+		return nil
+	}
+	return m.RequireSudo(ctx, p, ErrReauthPasskey)
 }
 
 // reauthError is a refusal that asks for a recent strong sign-in: it matches
