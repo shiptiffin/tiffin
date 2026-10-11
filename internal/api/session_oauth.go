@@ -260,6 +260,23 @@ func (o OAuthClient) config(provider string) *oauth2.Config {
 	return c
 }
 
+// oauthSignInConfigured are the sign-in providers with box-wide keys set.
+func oauthSignInConfigured(ctx context.Context) []OAuthSignInProvider {
+	out := []OAuthSignInProvider{}
+	if d := dashboardOAuth(); d != nil {
+		set := map[string]bool{}
+		for _, id := range d.Configured(ctx) {
+			set[id] = true
+		}
+		for _, p := range OAuthSignInProviders {
+			if set[p.ID] {
+				out = append(out, OAuthSignInProvider{p.ID, p.Name})
+			}
+		}
+	}
+	return out
+}
+
 func (a *API) registerOAuthSignIn() {
 	api := a.api
 	a.oauth = newOAuthFlow()
@@ -268,19 +285,7 @@ func (a *API) registerOAuthSignIn() {
 		"The providers the login page offers (\"Sign in with Google\", \"Sign in with GitHub\"): those with box-wide keys set.", "system")
 	st.Security = nil
 	huma.Register(api, st, wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body OAuthSignInStatus }, error) {
-		out := OAuthSignInStatus{Providers: []OAuthSignInProvider{}}
-		if d := dashboardOAuth(); d != nil {
-			set := map[string]bool{}
-			for _, id := range d.Configured(ctx) {
-				set[id] = true
-			}
-			for _, p := range OAuthSignInProviders {
-				if set[p.ID] {
-					out.Providers = append(out.Providers, OAuthSignInProvider{p.ID, p.Name})
-				}
-			}
-		}
-		return &struct{ Body OAuthSignInStatus }{out}, nil
+		return &struct{ Body OAuthSignInStatus }{OAuthSignInStatus{Providers: oauthSignInConfigured(ctx)}}, nil
 	}))
 
 	o := op("session-oauth-start", http.MethodPost, "/v1/session/oauth/{provider}", "-", RiskWrite, "Start signing in with Google or GitHub",

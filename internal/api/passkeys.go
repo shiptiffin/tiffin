@@ -28,6 +28,19 @@ func passkeyErr(err error) error {
 	return err
 }
 
+// hasPasskey reports whether p's person has a passkey already (true when
+// that can't be told, so only the 10-minute window applies).
+func hasPasskey(ctx context.Context, m *passkeys.Manager, p *tokens.Principal) bool {
+	l, err := m.Passkeys(ctx, p)
+	return err != nil || len(l) > 0
+}
+
+// passkeySudo asks for a recent strong sign-in before adding a passkey: the
+// last 10 minutes, or the last hour for a person's first passkey.
+func (a *API) passkeySudo(ctx context.Context, m *passkeys.Manager, p *tokens.Principal) error {
+	return a.deps.Tokens.RequirePasskeySudo(ctx, p, hasPasskey(ctx, m, p))
+}
+
 // registerPasskeys adds the operations people use to manage the passkeys
 // they sign in to the dashboard with. Adding one needs a browser, so those
 // two are dashboard-only (no CLI command or MCP tool).
@@ -48,14 +61,15 @@ func (a *API) registerPasskeys() {
 		"Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. "+
 			"Any person's dashboard session; never API keys (the dashboard calls this). A passkey signs in for good, so in a dashboard session adding one "+
 			"needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes, or a confirmation with one of your passkeys "+
-			"(POST /v1/session/confirm): reauth_required otherwise.", "passkeys")
+			"(POST /v1/session/confirm): reauth_required otherwise. A person's first passkey may be added within an hour of such a sign-in "+
+			"(for the owner, also their hand-off or `tiffin login` link).", "passkeys")
 	huma.Register(api, rb, wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
 		m, err := a.passkeysMgr()
 		if err != nil {
 			return nil, err
 		}
 		p := PrincipalFrom(ctx)
-		if err := a.deps.Tokens.RequireSudo(ctx, p, tokens.ErrReauthPasskey); err != nil {
+		if err := a.passkeySudo(ctx, m, p); err != nil {
 			return nil, err
 		}
 		opts, err := m.BeginRegistration(ctx, p)
@@ -81,7 +95,7 @@ func (a *API) registerPasskeys() {
 			return nil, err
 		}
 		p := PrincipalFrom(ctx)
-		if err := a.deps.Tokens.RequireSudo(ctx, p, tokens.ErrReauthPasskey); err != nil {
+		if err := a.passkeySudo(ctx, m, p); err != nil {
 			return nil, err
 		}
 		pk, err := m.FinishRegistration(ctx, p, in.Body.Name, in.Body.Credential)

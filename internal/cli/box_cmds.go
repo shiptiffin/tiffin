@@ -526,8 +526,8 @@ func (a *app) loginCmd() *cobra.Command {
 		Short: "Get a one-time dashboard sign-in link",
 		Long: "Prints a link that signs a browser in to the box's dashboard once, within 10 minutes.\n\n" +
 			"It needs the owner token, which `tiffin up` keeps on this computer, or an owner's or admin's own sign-in: " +
-			"an API key acts for nobody and gets 403. On a ShipTiffin box, use Open your dashboard in your shiptiffin.com " +
-			"account the first time, then sign in on the box with a passkey.",
+			"an API key acts for nobody and gets 403. On the server itself, run it as root: it uses the box installed there. " +
+			"Locked out of a ShipTiffin box? With your SSH key: ssh root@<your box's domain> tiffin login",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd.Context())

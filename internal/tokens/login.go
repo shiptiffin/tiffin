@@ -135,6 +135,104 @@ func (m *Manager) closeHandoff(ctx context.Context, id string, now time.Time) er
 	return tx.Commit()
 }
 
+// CarryInto brings this box's sign-in facts into state that is about to
+// replace its own (a restore of an older backup, a box import), within that
+// state's transaction tx, so nothing reopens: a closed hand-off stays closed
+// (else a control plane could ask for a new owner sign-in link), a sign-in
+// link the incoming state holds works only if it is unused and unexpired
+// here too, a session only if it is still open here, and a token revoked
+// here stays revoked.
+func (m *Manager) CarryInto(ctx context.Context, tx *sql.Tx) error {
+	q := m.db.SQL()
+	now := m.now().UTC()
+	done, err := handoffDone(ctx, q)
+	if err != nil {
+		return err
+	}
+	links, err := stringSet(ctx, q, `SELECT hex(hash) FROM login_links WHERE used_at IS NULL AND expires_at > ?`, ts(&now))
+	if err != nil {
+		return err
+	}
+	open, err := stringSet(ctx, q, `SELECT id FROM tokens WHERE kind = ? AND revoked_at IS NULL`, KindHuman)
+	if err != nil {
+		return err
+	}
+	revoked, err := stringSet(ctx, q, `SELECT id FROM tokens WHERE revoked_at IS NOT NULL`)
+	if err != nil {
+		return err
+	}
+	if done {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO kv(ns, key, value) VALUES (?, ?, ?) ON CONFLICT(ns, key) DO NOTHING`,
+			handoffNS, handoffKey, []byte("carried "+ts(&now).(string))); err != nil {
+			return err
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT hex(hash) FROM login_links WHERE used_at IS NULL AND expires_at > ?`, ts(&now))
+	if err != nil {
+		return err
+	}
+	var endLinks []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			rows.Close()
+			return err
+		}
+		if !links[h] {
+			endLinks = append(endLinks, h)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, h := range endLinks {
+		if _, err := tx.ExecContext(ctx, `UPDATE login_links SET expires_at = ? WHERE hex(hash) = ?`, ts(&now), h); err != nil {
+			return err
+		}
+	}
+	rows, err = tx.QueryContext(ctx, `SELECT id, kind FROM tokens WHERE revoked_at IS NULL`)
+	if err != nil {
+		return err
+	}
+	var end []string
+	for rows.Next() {
+		var id, kind string
+		if err := rows.Scan(&id, &kind); err != nil {
+			rows.Close()
+			return err
+		}
+		if revoked[id] || (kind == KindHuman && !open[id]) {
+			end = append(end, id)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range end {
+		if _, err := tx.ExecContext(ctx, `UPDATE tokens SET revoked_at = ? WHERE id = ?`, ts(&now), id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stringSet(ctx context.Context, q dbtx, query string, args ...any) (map[string]bool, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out[s] = true
+	}
+	return out, rows.Err()
+}
+
 // ErrHandoffDone refuses a hand-off link once the owner has signed in.
 var ErrHandoffDone = fmt.Errorf("%w: the owner has signed in already; no more hand-off links", ErrForbidden)
 
