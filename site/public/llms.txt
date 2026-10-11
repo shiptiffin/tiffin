@@ -37,4 +37,4 @@ Every box serves an MCP server at `https://dashboard.<box domain>/mcp` (an API k
 ## Optional
 
 - [All the guides above in one file](https://shiptiffin.com/llms-full.txt)
-- [How managed boxes work](https://shiptiffin.com/managed): the short version, on the website
+- [Security](https://shiptiffin.com/security): what ShipTiffin does with your Hetzner key and what it can reach, on the website

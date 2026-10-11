@@ -1,0 +1,72 @@
+/* /compare and its pages. Kit first; these are the bits the kit doesn't have. */
+
+.compare-answer {
+  padding-bottom: clamp(40px, 6vw, 72px);
+}
+
+/* Inline code may wrap: long names would otherwise push past a phone's edge. */
+.compare-page :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A few short paragraphs under a section head. */
+.compare-prose {
+  max-width: 44em;
+}
+.compare-prose p {
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.compare-prose p + p,
+.compare-prose p + ul,
+.compare-prose ul + p {
+  margin-top: 12px;
+}
+.compare-prose ul {
+  padding-left: 1.2em;
+  color: var(--ink-2);
+}
+.compare-prose li + li {
+  margin-top: 6px;
+}
+.compare-after {
+  margin-top: 32px;
+}
+
+/* Cost tables: the totals row reads first. */
+.compare-total {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* The index: one line per comparison. */
+.compare-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 52em;
+  border-top: 1px solid var(--rule-3);
+}
+.compare-list li {
+  display: grid;
+  gap: 6px 32px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--rule-2);
+}
+@media (min-width: 760px) {
+  .compare-list li {
+    grid-template-columns: 15em 1fr;
+  }
+}
+.compare-list a {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.compare-list p {
+  color: var(--ink-2);
+  text-wrap: pretty;
+}

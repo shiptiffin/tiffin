@@ -1,0 +1,270 @@
+/* The page kit (kit.tsx). Rules, type and the tin's colours; cards only where a thing is a thing. */
+
+/* ---------- head ---------- */
+.kit-head {
+  padding-block: 40px 48px;
+}
+@media (min-width: 960px) {
+  .kit-head {
+    padding-block: 64px 72px;
+  }
+}
+.kit-title {
+  font-family: var(--font-display);
+  font-weight: 430;
+  font-size: clamp(2.4rem, 1.5rem + 3.6vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  max-width: 16em;
+}
+.kit-lede {
+  margin-top: 22px;
+  max-width: 38em;
+  font-size: clamp(1.05rem, 0.98rem + 0.3vw, 1.2rem);
+  line-height: 1.55;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.kit-lede p + p {
+  margin-top: 12px;
+}
+.kit-lede strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.kit-updated {
+  margin-top: 22px;
+  font-size: 0.88rem;
+  color: var(--ink-3);
+}
+
+.kit-crumbs {
+  margin-bottom: 20px;
+  font-size: 0.88rem;
+  color: var(--ink-3);
+}
+.kit-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.kit-crumbs li + li::before {
+  content: "/";
+  margin-right: 4px;
+  color: var(--ink-4);
+}
+.kit-crumbs a {
+  color: var(--ink-3);
+  text-decoration: none;
+}
+.kit-crumbs a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+/* ---------- sections ---------- */
+.kit-sunk {
+  background: var(--paper-sunk);
+}
+.kit-section .section-head {
+  max-width: 44em;
+}
+
+/* ---------- the short answer ---------- */
+.kit-answer {
+  display: grid;
+  gap: 6px 28px;
+  padding: 20px 0;
+  border-block: 1px solid var(--rule-2);
+  max-width: 52em;
+}
+@media (min-width: 760px) {
+  .kit-answer {
+    grid-template-columns: 7.5em 1fr;
+  }
+}
+.kit-answer-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brass-ink);
+  padding-top: 3px;
+}
+.kit-answer-body {
+  font-size: 1.08rem;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.kit-answer-body p + p {
+  margin-top: 10px;
+}
+
+/* ---------- fact tables ---------- */
+.kit-table {
+  margin: 0;
+}
+.kit-table-scroll {
+  overflow-x: auto;
+  border-top: 1px solid var(--rule-3);
+}
+.kit-table table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.97rem;
+  line-height: 1.45;
+}
+.kit-table th,
+.kit-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 12px 18px 12px 0;
+  border-bottom: 1px solid var(--rule-2);
+}
+.kit-table thead th {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding-block: 10px;
+}
+.kit-table thead th.ours {
+  color: var(--ink);
+}
+.kit-table tbody th {
+  font-weight: 600;
+  color: var(--ink);
+  width: 28%;
+}
+.kit-table td {
+  color: var(--ink-2);
+}
+.kit-table td.ours {
+  color: var(--ink);
+  background: color-mix(in oklch, var(--brass-wash) 60%, transparent);
+  padding-left: 12px;
+}
+.kit-table thead th.ours {
+  padding-left: 12px;
+  box-shadow: inset 0 -2px 0 var(--brass);
+}
+.kit-table-note {
+  margin-top: 14px;
+  font-size: 0.88rem;
+  color: var(--ink-3);
+  max-width: 52em;
+  text-wrap: pretty;
+}
+.kit-table-note a {
+  color: var(--ink-2);
+}
+
+/* Marks: a drawn tick, dash or cross, always with a word. */
+.kit-mark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.kit-mark::before {
+  content: "";
+  flex: none;
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  translate: 0 0.02em;
+}
+.kit-yes::before {
+  background: var(--enamel-leaf);
+}
+.kit-partly::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--enamel-gold);
+}
+.kit-no::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-4);
+}
+.kit-no {
+  color: var(--ink-3);
+}
+
+/* ---------- points ---------- */
+.kit-points {
+  display: grid;
+  gap: 28px 48px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+@media (min-width: 760px) {
+  .kit-points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.kit-points li {
+  border-top: 1px solid var(--rule-2);
+  padding-top: 16px;
+}
+.kit-points h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.kit-points li > div {
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.kit-points li > div p + p {
+  margin-top: 8px;
+}
+.kit-numbered {
+  counter-reset: kit;
+}
+.kit-numbered h3::before {
+  counter-increment: kit;
+  content: counter(kit) ".";
+  margin-right: 8px;
+  font-family: var(--font-display);
+  color: var(--brass-ink);
+}
+
+/* ---------- fit ---------- */
+.kit-fit {
+  display: grid;
+  gap: 28px 48px;
+}
+@media (min-width: 760px) {
+  .kit-fit {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.kit-fit h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.35rem;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule-3);
+}
+.kit-fit ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.kit-fit li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+
+/* ---------- terminal ---------- */
+.kit-terminal .kit-out {
+  color: var(--ink-3);
+}
+
+.kit-cta {
+  background: var(--paper-sunk);
+}

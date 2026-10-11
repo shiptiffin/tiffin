@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/meta";
 import Link from "next/link";
 import { EMAIL } from "../chrome";
 import { LegalPage, type Section } from "../legal";
 
 export const dynamic = "force-static";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "Privacy policy",
   description:
     "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, the sign-up list, who helps us run it, and how to have it deleted.",
-  alternates: { canonical: "/privacy" },
-};
+  path: "/privacy",
+});
 
 const mail = <a href={`mailto:${EMAIL}`}>{EMAIL}</a>;
 

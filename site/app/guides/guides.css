@@ -1,0 +1,220 @@
+/* The guides (/guides and /guides/*): a reading column of steps, with the
+   kit's head, answer, tables and terminals around it. Prefix: guide-. */
+
+.guide-intro {
+  padding-bottom: 40px;
+}
+
+.guide-layout {
+  display: grid;
+  gap: 40px;
+}
+@media (min-width: 1080px) {
+  .guide-layout {
+    grid-template-columns: minmax(0, 46em) 15em;
+    justify-content: space-between;
+    gap: 64px;
+  }
+  .guide-side {
+    order: 2;
+    position: sticky;
+    top: 96px;
+    align-self: start;
+  }
+}
+
+.guide-body {
+  min-width: 0;
+}
+
+/* ---------- steps ---------- */
+.guide-step {
+  padding-top: 8px;
+  scroll-margin-top: 88px;
+}
+.guide-step + .guide-step {
+  margin-top: 56px;
+  padding-top: 32px;
+  border-top: 1px solid var(--rule-2);
+}
+.guide-step h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.45rem, 1.25rem + 0.8vw, 1.85rem);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-wrap: balance;
+  margin-bottom: 14px;
+}
+.guide-step h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.guide-step h2 a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--rule-3);
+}
+.guide-step h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 28px 0 8px;
+}
+.guide-step p,
+.guide-step li {
+  color: var(--ink-2);
+  font-size: 1.02rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.guide-step strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.guide-step a {
+  color: var(--ink);
+}
+.guide-step p + p,
+.guide-step p + ul,
+.guide-step p + ol,
+.guide-step ul + p,
+.guide-step ol + p {
+  margin-top: 12px;
+}
+.guide-step ul,
+.guide-step ol {
+  padding-left: 1.3em;
+}
+.guide-step li + li {
+  margin-top: 6px;
+}
+.guide-step li::marker {
+  color: var(--ink-4);
+}
+/* Long commands in running text may wrap on a phone. */
+.guide-step p code,
+.guide-step li code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.guide-step .code,
+.guide-step .kit-table,
+.guide-step .kit-fit {
+  margin-block: 20px;
+}
+.guide-code pre {
+  white-space: pre;
+}
+
+/* Two ways to do one step, one after the other. */
+.guide-paths {
+  display: grid;
+  gap: 8px 40px;
+  margin-top: 8px;
+}
+.guide-paths > div {
+  min-width: 0;
+}
+.guide-paths h3 {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule-3);
+}
+
+/* A plain checklist: square boxes drawn in CSS, nothing to tick. */
+.guide-checklist {
+  list-style: none;
+  padding-left: 0 !important;
+}
+.guide-checklist li {
+  position: relative;
+  padding-left: 1.9em;
+}
+.guide-checklist li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  width: 1em;
+  height: 1em;
+  border: 1.5px solid var(--ink-4);
+  border-radius: 3px;
+}
+
+/* ---------- side: on this page, more guides ---------- */
+.guide-toc,
+.guide-more {
+  font-size: 0.92rem;
+}
+.guide-toc-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.guide-toc ol,
+.guide-more ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule-2);
+}
+.guide-toc li,
+.guide-more li {
+  border-bottom: 1px solid var(--rule);
+}
+.guide-toc a,
+.guide-more a {
+  display: block;
+  padding: 8px 0;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.guide-toc a:hover,
+.guide-more a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.guide-more {
+  margin-top: 32px;
+}
+
+/* ---------- /guides index ---------- */
+.guide-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule-3);
+  max-width: 52em;
+}
+.guide-list li {
+  border-bottom: 1px solid var(--rule-2);
+  padding: 22px 0;
+}
+.guide-list h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.3rem, 1.15rem + 0.6vw, 1.6rem);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.guide-list h2 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+.guide-list h2 a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--rule-3);
+}
+.guide-list p {
+  margin-top: 8px;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.guide-list-meta {
+  margin-top: 8px;
+  font-size: 0.86rem;
+  color: var(--ink-3);
+}

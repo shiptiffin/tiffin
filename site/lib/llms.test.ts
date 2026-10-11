@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PAGES, buildAgentFiles, setupPrompt } from "./llms";
+import { PAGES, buildAgentFiles, docDates, setupPrompt } from "./llms";
 
 const root = join(import.meta.dirname, "..");
 const files = buildAgentFiles(join(root, "..", "docs", "guide"));
@@ -10,6 +10,18 @@ describe("agent files", () => {
   test("public/ matches docs/guide (after editing a guide, run make site-llms)", () => {
     for (const [path, body] of Object.entries(files)) {
       expect(readFileSync(join(root, "public", path), "utf8"), `public/${path}`).toBe(body);
+    }
+  });
+
+  test("lib/docs-dates.json knows every guide as it is now (run make site-llms)", () => {
+    const dates = JSON.parse(readFileSync(join(root, "lib", "docs-dates.json"), "utf8"));
+    expect(docDates(join(root, "..", "docs", "guide"), dates, "never")).toEqual(dates);
+  });
+
+  test("every guide has a search description of 70 to 160 characters", () => {
+    for (const p of PAGES) {
+      expect(p.description.length, p.name).toBeGreaterThanOrEqual(70);
+      expect(p.description.length, p.name).toBeLessThanOrEqual(160);
     }
   });
 
@@ -27,8 +39,7 @@ describe("agent files", () => {
     expect(files["docs/managed.md"]).not.toContain("Running the control plane");
   });
 
-  test("every link to a guide stays on the site (the repository is private)", () => {
-    for (const [path, body] of Object.entries(files)) expect(body, path).not.toContain("github.com/shiptiffin/tiffin");
+  test("every guide the site links to is published", () => {
     for (const name of ["limits", "security", "protection", "moving", "always-on-agents"]) expect(files[`docs/${name}.md`]).toBeDefined();
   });
 

@@ -1,0 +1,12 @@
+/* /pricing: only what the kit and the homepage blocks don't cover. */
+.pricing-answer {
+  padding-bottom: 48px;
+}
+@media (min-width: 960px) {
+  .pricing-answer {
+    padding-bottom: 64px;
+  }
+}
+.pricing-sizing {
+  margin-top: 48px;
+}

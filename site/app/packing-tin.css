@@ -1,0 +1,340 @@
+/* The packing tin (packing-tin.tsx). Drawn in the brand's line style: ink outlines, steel, brass. */
+
+.pack {
+  --pk-line: var(--ink);
+  --pk-body: oklch(0.8 0.006 75);
+  --pk-lit: oklch(0.885 0.005 80);
+  --pk-hollow: oklch(0.43 0.008 70);
+  --pk-paper: oklch(0.99 0.004 85);
+  --pk-floor: oklch(0.235 0.014 60 / 0.09);
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+@media (prefers-color-scheme: dark) {
+  .pack {
+    --pk-line: oklch(0.16 0.006 65);
+    --pk-body: oklch(0.74 0.007 250);
+    --pk-lit: oklch(0.85 0.007 250);
+    --pk-hollow: oklch(0.3 0.006 65);
+    --pk-paper: oklch(0.93 0.006 85);
+    --pk-floor: oklch(0 0 0 / 0.4);
+  }
+  /* The enamel is lighter in the dark theme, so the band words go dark. */
+  .pack text.band-label {
+    fill: oklch(0.17 0.008 65);
+  }
+}
+
+.pack .o {
+  stroke: var(--pk-line);
+  stroke-width: 3.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.pack .thin {
+  fill: none;
+  stroke-width: 2.6;
+}
+.pack .body {
+  fill: var(--pk-body);
+}
+.pack .lit {
+  fill: var(--pk-lit);
+}
+.pack .hollow {
+  fill: var(--pk-hollow);
+}
+.pack .paper {
+  fill: var(--pk-paper);
+}
+.pack .brass {
+  fill: var(--brass);
+}
+.pack .dot {
+  fill: var(--pk-line);
+}
+.pack .shine {
+  fill: var(--pk-lit);
+  opacity: 0.8;
+}
+.pack .floor {
+  fill: var(--pk-floor);
+}
+.pack .speckle {
+  fill: url(#pk-speckle);
+  opacity: 0.22;
+}
+.pack #pk-speckle circle {
+  fill: var(--pk-line);
+}
+.pack .seam {
+  fill: none;
+  stroke: var(--pk-line);
+  stroke-width: 6;
+  opacity: 0.12;
+}
+.pack .none {
+  fill: none;
+}
+.pack .band {
+  fill: var(--enamel);
+}
+.pack .band-label {
+  font: 600 11.5px/1 var(--font-code);
+  letter-spacing: 0.09em;
+  fill: var(--pk-paper);
+}
+.pack .ticks {
+  fill: none;
+  stroke: var(--pk-line);
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0;
+}
+.pack .lid-top {
+  fill: var(--pk-lit);
+}
+.pack .handle-bar {
+  fill: none;
+  stroke: var(--pk-line);
+  stroke-width: 11;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pack .handle-shine {
+  fill: none;
+  stroke: var(--pk-lit);
+  stroke-width: 4.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pack .part-label {
+  font: 600 14px/1 var(--font-ui);
+  fill: var(--ink-3);
+  letter-spacing: 0.01em;
+}
+
+/* Packed: where reduced motion starts and where the animation ends. */
+.pack .part-x {
+  translate: var(--dx) 0;
+}
+.pack .part-y {
+  translate: 0 var(--dy);
+}
+.pack .part-spin {
+  scale: 0.86;
+}
+.pack .part-label {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The parts are laid out when the page paints, then fly in on arcs: x eases out, y hops then falls. */
+  .pack .part-label {
+    animation: pk-fade 140ms ease-in var(--at) both;
+  }
+  .pack .part-x {
+    animation: pk-x var(--fly) cubic-bezier(0.25, 0.7, 0.35, 1) var(--at) both;
+  }
+  .pack .part-y {
+    animation: pk-y var(--fly) linear var(--at) both;
+  }
+  .pack .part-spin {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pk-spin var(--fly) ease-in-out var(--at) both;
+  }
+  @keyframes pk-fade {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes pk-x {
+    from {
+      translate: 0 0;
+    }
+  }
+  @keyframes pk-y {
+    0% {
+      translate: 0 0;
+      animation-timing-function: cubic-bezier(0.3, 0.6, 0.6, 1);
+    }
+    28% {
+      translate: 0 -30px;
+      animation-timing-function: cubic-bezier(0.5, 0, 0.85, 0.6);
+    }
+    100% {
+      translate: 0 var(--dy);
+    }
+  }
+  @keyframes pk-spin {
+    from {
+      scale: 1;
+    }
+    50% {
+      rotate: 8deg;
+    }
+    to {
+      rotate: 0deg;
+      scale: 0.86;
+    }
+  }
+
+  /* Tiers drop on, land, give a few pixels and settle: steel, not rubber. */
+  .pack .pk-tier {
+    animation: pk-drop 520ms var(--at) both;
+  }
+  .pack .pk-tier-base {
+    animation: pk-rise 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--at) both;
+  }
+  @keyframes pk-drop {
+    0% {
+      translate: 0 -170px;
+      opacity: 0;
+      animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.5);
+    }
+    22% {
+      opacity: 1;
+    }
+    62% {
+      translate: 0 0;
+      animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
+    }
+    80% {
+      translate: 0 -5px;
+      animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.4);
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+  @keyframes pk-rise {
+    from {
+      translate: 0 24px;
+      opacity: 0;
+    }
+  }
+
+  /* The lid: in from above, seats at --click, lifts a hair and seats again. */
+  .pack .lid {
+    animation: pk-lid 480ms var(--at) both;
+  }
+  @keyframes pk-lid {
+    0% {
+      translate: 0 -150px;
+      opacity: 0;
+      animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.5);
+    }
+    25% {
+      opacity: 1;
+    }
+    70% {
+      translate: 0 0;
+      animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
+    }
+    84% {
+      translate: 0 -4px;
+      animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.4);
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+  .pack .handle {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: pk-handle 420ms
+      linear(0, 0.33 9%, 0.74 20%, 1.06 32%, 1.12 38%, 1.08 46%, 0.99 58%, 1.01 70%, 1) var(--click) both;
+  }
+  @keyframes pk-handle {
+    from {
+      scale: 1 0.12;
+    }
+    to {
+      scale: 1 1;
+    }
+  }
+  .pack .ticks {
+    animation: pk-ticks 200ms ease-out var(--click) both;
+  }
+  @keyframes pk-ticks {
+    0% {
+      opacity: 0;
+      scale: 0.7;
+    }
+    30% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      scale: 1.15;
+    }
+  }
+  .pack .ticks path {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  /* The click: the stack gives 1.5% and the floor shadow tightens, then the face. */
+  .pack .settle {
+    transform-box: view-box;
+    transform-origin: 280px 494px;
+    animation: pk-squash 260ms cubic-bezier(0.3, 0.7, 0.4, 1) var(--click) both;
+  }
+  @keyframes pk-squash {
+    35% {
+      scale: 1.012 0.985;
+    }
+  }
+  .pack .floor {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation:
+      pk-floor 380ms ease-out both,
+      pk-floor-click 260ms ease-out var(--click) both;
+  }
+  @keyframes pk-floor {
+    from {
+      scale: 0.5 1;
+      opacity: 0;
+    }
+  }
+  @keyframes pk-floor-click {
+    35% {
+      scale: 1.04 1;
+    }
+  }
+  .pack .face {
+    animation: pk-face 200ms ease-out calc(var(--click) + 140ms) both;
+  }
+  @keyframes pk-face {
+    from {
+      opacity: 0;
+    }
+  }
+  .pack .mouth {
+    transform-box: fill-box;
+    transform-origin: 50% 0;
+    animation: pk-mouth 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) calc(var(--click) + 220ms) both;
+  }
+  @keyframes pk-mouth {
+    from {
+      scale: 0.3 0;
+    }
+  }
+  .pack .eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pk-blink 160ms ease-in-out calc(var(--click) + 2600ms) 1;
+  }
+  @keyframes pk-blink {
+    50% {
+      scale: 1 0.1;
+    }
+  }
+}

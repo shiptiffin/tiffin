@@ -34,14 +34,17 @@ export function Header() {
           <span>ShipTiffin</span>
         </Link>
         <nav className="header-nav" aria-label="Main">
-          <Link href="/#replaces" className="nav-link hide-md">
-            What it replaces
-          </Link>
-          <Link href="/#pricing" className="nav-link hide-sm">
+          <Link href="/pricing" className="nav-link hide-sm">
             Pricing
           </Link>
-          <Link href="/#faq" className="nav-link hide-md">
-            Questions
+          <Link href="/docs" className="nav-link hide-sm">
+            Docs
+          </Link>
+          <Link href="/compare" className="nav-link hide-md">
+            Compare
+          </Link>
+          <Link href="/agents" className="nav-link hide-md">
+            Agents
           </Link>
           <a href="/account" className="nav-link">
             Sign in
@@ -55,24 +58,73 @@ export function Header() {
   );
 }
 
+const FOOTER: [string, [string, string][]][] = [
+  [
+    "Product",
+    [
+      ["Pricing", "/pricing"],
+      ["Compare", "/compare"],
+      ["For coding agents", "/agents"],
+      ["Security", "/security"],
+      ["Open source", "/open-source"],
+    ],
+  ],
+  [
+    "Learn",
+    [
+      ["Docs", "/docs"],
+      ["Quickstart", "/docs/quickstart"],
+      ["Guides", "/guides"],
+      ["What works today", "/docs/limits"],
+      ["llms.txt", "/llms.txt"],
+    ],
+  ],
+  [
+    "Company",
+    [
+      ["Terms of service", "/terms"],
+      ["Report abuse", "/abuse"],
+      ["GitHub", "https://github.com/shiptiffin/tiffin"],
+      ["Sign in", "/account"],
+    ],
+  ],
+];
+
 export function Footer() {
   return (
     <footer className="site-footer">
-      <div className="wrap footer-row">
+      <div className="wrap footer-grid">
         <div className="footer-brand">
-          <Mark />
-          <span>
-            © 2026 ShipTiffin · <a href={`mailto:${EMAIL}`}>{EMAIL}</a>
-          </span>
-        </div>
-        <nav className="footer-nav" aria-label="Footer">
-          <Link href="/privacy" className="footer-privacy">
-            Privacy policy
+          <Link href="/" className="wordmark" aria-label="ShipTiffin, home">
+            <Mark />
+            <span>ShipTiffin</span>
           </Link>
-          <Link href="/terms">Terms of service</Link>
-          <a href="https://github.com/shiptiffin/tiffin">GitHub</a>
-          <a href="/account">Sign in</a>
-        </nav>
+          <p className="footer-about">
+            All your apps on one server in your own Hetzner account, with everything they need already on it.
+          </p>
+          <p className="footer-legal">
+            © 2026 ShipTiffin · <a href={`mailto:${EMAIL}`}>{EMAIL}</a> ·{" "}
+            <Link href="/privacy" className="footer-privacy">
+              Privacy policy
+            </Link>
+          </p>
+        </div>
+        {FOOTER.map(([title, links]) => (
+          <nav key={title} className="footer-col" aria-label={title}>
+            <p className="footer-title">{title}</p>
+            <ul>
+              {links.map(([label, href]) => (
+                <li key={href}>
+                  {href.startsWith("/") && !href.endsWith(".txt") && href !== "/account" ? (
+                    <Link href={href}>{label}</Link>
+                  ) : (
+                    <a href={href}>{label}</a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
       </div>
     </footer>
   );

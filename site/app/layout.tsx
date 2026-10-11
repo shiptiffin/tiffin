@@ -3,23 +3,11 @@ import { Footer, Header } from "./chrome";
 import { mono, sans, serif } from "./fonts";
 import "./globals.css";
 
-const description =
-  "ShipTiffin sets up a server in your own Hetzner account with a database, auth, file storage, jobs, analytics, error tracking and backups already on it. Run all your apps on it, each with a hard limit, for $19 a month plus the server.";
-
 export const metadata: Metadata = {
   metadataBase: new URL("https://shiptiffin.com"),
-  title: { default: "ShipTiffin: all your apps, one box, one price", template: "%s · ShipTiffin" },
-  description,
+  title: { default: "ShipTiffin", template: "%s · ShipTiffin" },
   applicationName: "ShipTiffin",
-  alternates: { canonical: "/" },
-  openGraph: {
-    type: "website",
-    siteName: "ShipTiffin",
-    url: "https://shiptiffin.com",
-    title: "ShipTiffin: all your apps, one box, one price",
-    description,
-    locale: "en",
-  },
+  openGraph: { type: "website", siteName: "ShipTiffin", locale: "en_US" },
   twitter: { card: "summary_large_image" },
   formatDetection: { telephone: false, email: false, address: false },
 };

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 // the box being made, open it. Until sign-up opens (secrets set, the
 // provisioner's tables made) it shows the sign-up list instead.
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/meta";
 import Link from "next/link";
 import { after } from "next/server";
 import { confirmCheckout, drainOutbox } from "@/lib/cloud/actions";
@@ -16,11 +17,12 @@ import { PayButton, StartFlow, Steps, WaitForPayment } from "./start-flow";
 import { Waitlist } from "./waitlist";
 import "../cloud.css";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "Get started",
-  description: "Set up a Tiffin box in your own Hetzner Cloud account: $19 a month per box, $12 for the first 100 customers.",
-  alternates: { canonical: "/start" },
-};
+  description:
+    "Set up a Tiffin box in your own Hetzner Cloud account: $19 a month per box, $12 for the first 100 customers.",
+  path: "/start",
+});
 
 export const dynamic = "force-dynamic";
 

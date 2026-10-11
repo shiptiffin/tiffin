@@ -249,16 +249,7 @@ code {
   border-top: 1px solid var(--rule);
   margin-top: 0;
 }
-.footer-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px 32px;
-  padding-block: 28px 36px;
-  font-size: 0.9rem;
-  color: var(--ink-3);
-}
+
 .footer-brand {
   display: flex;
   align-items: center;
@@ -270,25 +261,6 @@ code {
 }
 .footer-brand a {
   color: var(--ink-2);
-}
-.footer-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-}
-.footer-nav a {
-  color: var(--ink-2);
-  text-decoration: none;
-}
-.footer-nav a:hover {
-  color: var(--ink);
-  text-decoration: underline;
-}
-.footer-nav a.footer-privacy {
-  color: var(--ink);
-  font-weight: 550;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 /* ---------- buttons ---------- */
@@ -400,6 +372,57 @@ code {
   .hero-grid {
     grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
     gap: 64px;
+  }
+}
+.hero-price {
+  margin-top: 14px;
+  color: var(--ink-2);
+  font-size: 1rem;
+}
+.hero-price strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.hero-art {
+  width: 100%;
+  max-width: 540px;
+  margin-inline: auto;
+}
+/* On a phone the tin packs above the headline, so the packing is seen, not played off-screen. */
+@media (max-width: 959px) {
+  .hero-art {
+    order: -1;
+    max-width: 340px;
+    margin-block: -16px 12px;
+  }
+  .hero-grid {
+    gap: 8px;
+  }
+}
+/* "One box." gets its underline when the tin's lid clicks shut (packing-tin.css, --click). */
+.hero-mark {
+  position: relative;
+  white-space: nowrap;
+}
+.hero-mark::after {
+  content: "";
+  position: absolute;
+  left: 0.02em;
+  right: 0.18em;
+  bottom: 0.02em;
+  height: 0.075em;
+  border-radius: 1px;
+  background: var(--brass);
+  transform-origin: 0 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero-mark::after {
+    animation: hero-mark 420ms cubic-bezier(0.16, 1, 0.3, 1) 2280ms both;
+  }
+  @keyframes hero-mark {
+    from {
+      scale: 0 1;
+    }
   }
 }
 .actions {
@@ -623,31 +646,6 @@ code {
     max-width: 280px;
   }
 }
-.with-art {
-  display: grid;
-  gap: 24px;
-}
-.side-art {
-  order: -1;
-  max-width: 200px;
-}
-@media (min-width: 1040px) {
-  .with-art {
-    grid-template-columns: minmax(0, 1fr) 300px;
-    gap: 64px;
-    align-items: start;
-  }
-  .with-art .parts,
-  .with-art .keys {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .side-art {
-    order: 0;
-    max-width: none;
-    position: sticky;
-    top: 96px;
-  }
-}
 
 /* how it works */
 .how-grid {
@@ -740,33 +738,6 @@ code {
 .t-p {
   color: var(--ink-4);
   user-select: none;
-}
-
-/* two statements side by side */
-.pair {
-  display: grid;
-  gap: 48px;
-}
-@media (min-width: 900px) {
-  .pair {
-    grid-template-columns: 1fr 1fr;
-    gap: 72px;
-  }
-}
-.pair .prose-lg {
-  margin-top: 20px;
-}
-@media (min-width: 900px) {
-  /* both headings share a row, so the paragraphs start level */
-  .pair {
-    grid-template-rows: auto auto;
-    row-gap: 0;
-  }
-  .pair > div {
-    display: grid;
-    grid-template-rows: subgrid;
-    grid-row: span 2;
-  }
 }
 
 /* two-column statements */
@@ -1094,7 +1065,6 @@ code {
   margin-bottom: 24px;
 }
 
-
 /* ---------- what's in the box: plain name, then the technology ---------- */
 .part-tech {
   margin-left: 6px;
@@ -1131,12 +1101,7 @@ code {
   color: var(--ink-2);
   text-wrap: pretty;
 }
-.holds-note {
-  margin-top: 16px;
-  color: var(--ink-3);
-  font-size: 0.95rem;
-  text-wrap: pretty;
-}
+
 @media (max-width: 420px) {
   .hold {
     grid-template-columns: 1fr;
@@ -1157,15 +1122,6 @@ code {
   .fit {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-}
-.fit-line {
-  margin-top: 32px;
-  max-width: 38em;
-  font-family: var(--font-display);
-  font-size: 1.2rem;
-  line-height: 1.45;
-  color: var(--ink-2);
-  text-wrap: pretty;
 }
 
 /* ---------- pricing ---------- */
@@ -2371,19 +2327,7 @@ code {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-/* a long command wraps inside its box instead of widening the column */
-.pair > div {
-  min-width: 0;
-}
-@media (min-width: 900px) {
-  .pair {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-}
-.pair .code-inline pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
+
 .agent-yours {
   margin-top: 22px;
   display: grid;
@@ -2409,4 +2353,199 @@ code {
     grid-template-columns: 1fr;
     gap: 2px;
   }
+}
+
+/* ---------- homepage, 2026-10 revamp ---------- */
+
+/* Plain facts under the hero. */
+.proof {
+  border-top: 1px solid var(--rule);
+  padding-block: 28px;
+}
+.proof-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 32px;
+}
+@media (min-width: 900px) {
+  .proof-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.proof-row dt {
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 1.1rem + 0.8vw, 1.75rem);
+  font-weight: 450;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+.proof-row dd {
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-size: 0.93rem;
+  text-wrap: pretty;
+}
+
+/* Limits: the projects as tiers of the tin, beside the words. */
+.limits-grid {
+  display: grid;
+  gap: 40px;
+  align-items: center;
+}
+@media (min-width: 960px) {
+  .limits-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+    gap: 72px;
+  }
+}
+.limits-grid .holds {
+  margin-top: 28px;
+}
+/* As the section scrolls in, the tiers settle into place one after another. Browsers
+   without scroll-driven animations, and reduced motion, see them in place. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .limits-art .tier {
+      animation: tier-in linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 40%;
+    }
+    .limits-art .tier:nth-child(2) {
+      animation-range: entry 20% cover 45%;
+    }
+    .limits-art .tier:nth-child(3) {
+      animation-range: entry 30% cover 50%;
+    }
+    .limits-art .tier:nth-child(4) {
+      animation-range: entry 40% cover 55%;
+    }
+    .limits-art .tier-room {
+      animation-range: entry 50% cover 60%;
+    }
+    .limits-art .tier-gauge span {
+      animation: gauge-in linear both;
+      animation-timeline: view();
+      animation-range: cover 30% cover 55%;
+      transform-origin: 0 50%;
+    }
+    @keyframes tier-in {
+      from {
+        opacity: 0;
+        translate: 0 28px;
+      }
+    }
+    @keyframes gauge-in {
+      from {
+        scale: 0 1;
+      }
+    }
+  }
+}
+
+.agent-more {
+  margin-top: 22px;
+  font-weight: 550;
+}
+
+/* Your server, your key, your code. */
+.yours {
+  display: grid;
+  gap: 24px 40px;
+  list-style: none;
+  margin: 0 0 48px;
+  padding: 0;
+}
+@media (min-width: 720px) {
+  .yours {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1040px) {
+  .yours {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.yours li {
+  border-top: 2px solid var(--ink);
+  padding-top: 14px;
+}
+.yours h3 {
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.yours p {
+  color: var(--ink-2);
+  font-size: 0.97rem;
+  text-wrap: pretty;
+}
+.yours-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin-top: 32px;
+  font-weight: 550;
+}
+
+/* ---------- footer, with columns ---------- */
+.footer-grid {
+  display: grid;
+  gap: 32px 40px;
+  padding-block: 48px 40px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.footer-grid .footer-brand {
+  grid-column: 1 / -1;
+  display: block;
+}
+@media (min-width: 900px) {
+  .footer-grid {
+    grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr));
+  }
+  .footer-grid .footer-brand {
+    grid-column: auto;
+  }
+}
+.footer-about {
+  margin-top: 12px;
+  max-width: 24em;
+  color: var(--ink-3);
+  font-size: 0.93rem;
+  text-wrap: pretty;
+}
+.footer-legal {
+  margin-top: 14px;
+  font-size: 0.88rem;
+  color: var(--ink-3);
+}
+.footer-legal a {
+  color: var(--ink-2);
+}
+.footer-legal a.footer-privacy {
+  color: var(--ink);
+  font-weight: 550;
+}
+.footer-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.footer-col ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  font-size: 0.95rem;
+}
+.footer-col a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.footer-col a:hover {
+  color: var(--ink);
+  text-decoration: underline;
 }

@@ -1,12 +1,21 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Link from "next/link";
+import { ENTITY, jsonLd, pageMeta } from "@/lib/meta";
 import { AgentSetup } from "./agent-setup";
 import { Art } from "./art";
+import { CopyPrompt } from "./copy-prompt";
+import { PackingTin } from "./packing-tin";
 import { Compare } from "./compare";
 import { Pricing } from "./pricing";
 
-export const metadata = { alternates: { canonical: "/" } };
+export const metadata = pageMeta({
+  title: "ShipTiffin: host all your apps on your own Hetzner server",
+  description:
+    "Run all your apps on one server in your Hetzner account, with Postgres, auth, files, jobs, analytics and backups built in. $19 a month, no usage bills.",
+  path: "/",
+  absoluteTitle: true,
+});
 export const dynamic = "force-static";
 
 /* The box, drawn: a stacked tin, one tier per project, each with its own limit.
@@ -120,15 +129,6 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     ),
   },
   {
-    q: "When is something else cheaper?",
-    a: (
-      <p>
-        One small app on a free tier can cost less. ShipTiffin pays off from the second app. And if you need servers
-        in many regions, or an app that must stay up through a hardware fault, a bigger platform is the better fit.
-      </p>
-    ),
-  },
-  {
     q: "What happens when one project gets busy?",
     a: (
       <p>
@@ -161,45 +161,12 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     ),
   },
   {
-    q: "How does email work?",
-    a: (
-      <p>
-        Your apps send through your own email provider: SendGrid, Resend, Postmark, Amazon SES or any SMTP service.
-        Connect it once in the dashboard by pasting its key, and every project on the box can send. Until then,
-        every message waits in a test inbox you can read, which is handy while you build.
-      </p>
-    ),
-  },
-  {
-    q: "How are backups done?",
-    a: (
-      <p>
-        Postgres is backed up in full every day and in part every 6 hours, and its log of changes is kept all the
-        time, so you can restore your databases to any second in the last 7 days. KV, files, email and the
-        box&rsquo;s settings come back from the nearest backup. A restore takes a safety backup first, and restore
-        drills prove a backup works without touching anything live. With ShipTiffin, every backup is also copied
-        off your server, encrypted with a key only you hold, and kept 30 days. On your own box, copy them to any
-        S3-compatible bucket.
-      </p>
-    ),
-  },
-  {
     q: "What uptime can I expect?",
     a: (
       <p>
         Your box is one server. Tiffin updates itself without stopping your apps, server restarts happen in a maintenance window you choose, and
         monitoring from outside the box tells you when something&rsquo;s wrong. A hardware fault means downtime
         until the server is back, which is why we don&rsquo;t suggest it yet for apps that must never go down.
-      </p>
-    ),
-  },
-  {
-    q: "Can I take my projects elsewhere?",
-    a: (
-      <p>
-        Yes. Export any project to a single file with its code, data and files. Everything inside is a standard
-        piece: Postgres, S3-compatible storage, a Redis-compatible store and SMTP, so it moves to any host that runs
-        them.
       </p>
     ),
   },
@@ -236,14 +203,46 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
   },
 ];
 
-/* The trust story: what happens to your Hetzner key. Keep each line true to the sign-up flow. */
-const KEY = [
-  ["A project just for ShipTiffin", "You make a separate Hetzner project for your box and a key for it, so the key can only see that project."],
-  ["Used to build, then forgotten", "We use the key to create the server, its disk and its firewall, then forget it. Resizing later asks you to paste a key again, for that one job."],
-  ["Every call listed", "Each call we make to Hetzner with your key is listed in your account."],
-  ["No SSH key left behind", "After install, our setup key is removed from the server. We keep only a one-time link for your first sign-in, until you use it (it lasts 24 hours). Updates are pulled by the box itself, and checked against our signature."],
-  ["Revoke it any time", "Delete the key in Hetzner whenever you like. Your box keeps running."],
-  ["Your data stays with you", "Your apps, databases and files live on your server. They never pass through us."],
+/* Who we are, for search engines and AI answers. No ratings: we have none to show. */
+const LD = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "ShipTiffin",
+    url: "https://shiptiffin.com",
+    logo: "https://shiptiffin.com/apple-icon.png",
+    email: "hello@shiptiffin.com",
+    description: ENTITY,
+    sameAs: ["https://github.com/shiptiffin/tiffin"],
+  },
+  { "@context": "https://schema.org", "@type": "WebSite", name: "ShipTiffin", url: "https://shiptiffin.com" },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "ShipTiffin",
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Linux (Ubuntu)",
+    description: ENTITY,
+    url: "https://shiptiffin.com",
+    license: "https://www.gnu.org/licenses/agpl-3.0.html",
+    offers: { "@type": "Offer", price: "19", priceCurrency: "USD", url: "https://shiptiffin.com/pricing" },
+  },
+];
+
+/* Plain facts under the hero, each true today. */
+const PROOF = [
+  ["About 5 minutes", "from a Hetzner key to a working box"],
+  ["12 parts", "every app needs, on one server"],
+  ["7 days", "of database history, restorable to the second"],
+  ["AGPL-3.0", "open source; run it yourself for free"],
+] as const;
+
+/* The trust story, short. The long version is /security. Keep each line true to the sign-up flow. */
+const YOURS_POINTS = [
+  ["Your Hetzner account", "The server is yours and Hetzner bills you for it. Cancel us and it keeps running."],
+  ["A key we use once", "We build the server with your key, then forget it. Every call we made is listed in your account."],
+  ["Open source", "The software on every box is on GitHub under AGPL-3.0. Read it, change it, run it yourself."],
+  ["A door out", "Export any project to one file with its code, data and files. Postgres, S3, Redis and SMTP move anywhere."],
 ] as const;
 
 const CONFIG = [
@@ -260,8 +259,6 @@ const TERMINAL = [
   `<span class="t-p">$</span> git push tiffin main`,
 ].join("\n");
 
-const MCP = `<span class="t-p">$</span> claude mcp add --transport http tiffin https://dashboard.<span class="t-s">yourname</span>.shiptiffin.app/mcp --header <span class="t-s">"Authorization: Bearer &lt;key&gt;"</span>`;
-
 /* The setup prompt, generated from docs/guide/agent-onboarding.md (site/lib/llms.ts). */
 const PROMPT = readFileSync(join(process.cwd(), "public", "agent-setup.md"), "utf8");
 
@@ -276,36 +273,53 @@ const YOURS = [
 export default function Home() {
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(LD) }} />
       <section className="hero">
         <div className="wrap hero-grid">
           <div className="hero-copy">
-            <p className="kicker">Your server, in your own Hetzner account</p>
+            <p className="kicker">Your own server, in your Hetzner account</p>
             <h1 className="display">
               All your apps.
               <br />
-              One box.
+              <span className="hero-mark">One box.</span>
               <br />
               One price.
             </h1>
             <p className="lede">
               ShipTiffin sets up a server in your Hetzner account with everything your apps need already on it:
-              a database, auth, file storage, jobs, analytics, error tracking and backups. Run all your projects on
-              it, each with a hard limit, for $19 a month plus the server, about $10 at Hetzner. No usage
-              bills from us.
+              Postgres, sign-in, files, email, jobs, analytics and backups. Run every project on it, each with a
+              hard limit.
+            </p>
+            <p className="hero-price">
+              <strong>$19 a month</strong> per box, plus about $10 for the server at Hetzner. No usage bills.
             </p>
             <div className="actions">
               <Link className="btn btn-primary" href="/start">
                 Get started
               </Link>
-              <a className="btn btn-quiet" href="#replaces">
-                See what it replaces
-              </a>
+              <CopyPrompt />
             </div>
             <p className="fine">
-              Ready in about 5 minutes. The first 100 customers pay $12 a month, locked for 24 months.
+              Works with Claude Code, Codex and Cursor. Open source, so you can also{" "}
+              <Link href="/docs/quickstart">run it yourself</Link> for free.
             </p>
           </div>
-          <BoxDrawing />
+          <div className="hero-art">
+            <PackingTin />
+          </div>
+        </div>
+      </section>
+
+      <section className="proof" aria-label="In numbers">
+        <div className="wrap">
+          <dl className="proof-row">
+            {PROOF.map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
 
@@ -322,7 +336,7 @@ export default function Home() {
               Each project gets its own, set up when you ask for it.
             </p>
           </div>
-          <div className="with-art">
+          <div>
             <dl className="parts">
               {PARTS.map(([name, tech, text]) => (
                 <div key={name} className="part">
@@ -333,12 +347,42 @@ export default function Home() {
                 </div>
               ))}
             </dl>
-            <Art
-              name="open-tin-parts"
-              className="art side-art"
-              alt="The tin opened up into its tiers, with a database, files, an envelope, a key, a clock and a chart inside."
-              sizes="(min-width: 1040px) 300px, 200px"
-            />
+          </div>
+        </div>
+      </section>
+
+      <section id="limits" className="band limits-band" aria-labelledby="limits-title">
+        <div className="wrap limits-grid">
+          <div>
+            <p className="kicker">A hard limit on every project</p>
+            <h2 id="limits-title" className="h2">
+              Ship every side project. No surprise bills.
+            </h2>
+            <div className="prose-lg limits-prose">
+              <p>
+                You pay one flat price for the box. Projects share it on their own: each grows into what&rsquo;s
+                free, and slows down rather than failing when the box is busy.
+              </p>
+              <p>
+                Give a project a limit, a share of the box or an amount of memory and CPU, and it&rsquo;s held
+                there. A side project that suddenly gets busy can&rsquo;t take the others down or run up a bill,
+                and neither can an agent that deploys all day.
+              </p>
+            </div>
+            <div className="holds">
+              <h3 className="holds-title">A limit holds everything the project uses</h3>
+              <dl>
+                {HOLDS.map(([k, v]) => (
+                  <div key={k} className="hold">
+                    <dt>{k}</dt>
+                    <dd>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+          <div className="limits-art">
+            <BoxDrawing />
           </div>
         </div>
       </section>
@@ -406,124 +450,40 @@ export default function Home() {
                 </li>
               ))}
             </ul>
+            <p className="agent-more">
+              <Link href="/agents">What an agent can and can&rsquo;t do on your box</Link>
+            </p>
           </div>
           <AgentSetup prompt={PROMPT} />
         </div>
       </section>
 
-      <section id="control" className="band" aria-labelledby="control-title">
+      <section id="yours" className="band" aria-labelledby="yours-title">
         <div className="wrap">
           <div className="section-head">
-            <h2 id="control-title" className="h2">
-              Your key, your server, your control.
+            <h2 id="yours-title" className="h2">
+              Your server, your key, your code.
             </h2>
             <p className="section-sub">
-              ShipTiffin needs a Hetzner API key to build your server. Here&rsquo;s how we handle it.
+              ShipTiffin builds the box in your Hetzner account and then gets out of the way. Everything on it is
+              open source and made of standard parts, so you can always leave.
             </p>
           </div>
-          <div className="with-art">
-            <ol className="keys">
-              {KEY.map(([k, v]) => (
-                <li key={k}>
-                  <h3>{k}</h3>
-                  <p>{v}</p>
-                </li>
-              ))}
-            </ol>
-            <Art
-              name="tin-returns-key"
-              className="art side-art"
-              alt="The ShipTiffin tin handing back a key with a tag on it."
-              sizes="(min-width: 1040px) 300px, 200px"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section id="limits" className="band" aria-labelledby="limits-title">
-        <div className="wrap two-col">
-          <div>
-            <h2 id="limits-title" className="h2">
-              Limits per project, not surprise bills.
-            </h2>
-            <div className="prose-lg limits-prose">
-              <p>
-                You pay one flat price for the box. Projects share it on their own: each grows into what&rsquo;s
-                free, and slows down rather than failing when the box is busy.
-              </p>
-              <p>
-                When you want a fixed share, give a project a limit: a share of the box, or an amount of memory and
-                CPU. A side project that suddenly gets busy can&rsquo;t take the others down, or run up a bill.
-              </p>
-            </div>
-          </div>
-          <div className="holds">
-            <h3 className="holds-title">A limit holds everything the project uses</h3>
-            <dl>
-              {HOLDS.map(([k, v]) => (
-                <div key={k} className="hold">
-                  <dt>{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className="holds-note">
-              A project at its limit is held there, and its Usage page says so. The rest of the box keeps running.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="band" aria-label="Agents and leaving">
-        <div className="wrap pair">
-          <div id="agents">
-            <h2 className="h2">Your coding agent can run it, safely.</h2>
-            <div className="prose-lg">
-              <p>
-                Claude Code and other agents connect over MCP with a key you create in the dashboard. Everything
-                you can do there is a tool they can call: make a project, deploy it, read its logs, query its
-                database.
-              </p>
-              <p>
-                Every change is planned before it runs and recorded in History with who made it and why; most can
-                be undone. Plans mark the steps that destroy data, and agents like Claude Code ask you before running them.
-              </p>
-              <div className="code code-inline" role="group" aria-label="Connect Claude Code">
-                <pre dangerouslySetInnerHTML={{ __html: MCP }} />
-              </div>
-            </div>
-          </div>
-          <div id="leave">
-            <h2 className="h2">Room to grow, and a door out.</h2>
-            <div className="prose-lg">
-              <p>
-                Move to a bigger server in a click when you need one. Export any project to a single <code>.tiffin</code>{" "}
-                file with its code, data and files, import it on another box, or move it there in one step.
-              </p>
-              <p>
-                Everything on the box is a standard piece: Postgres, S3-compatible storage, a Redis-compatible
-                store and SMTP. A project that outgrows one server can leave for any host that runs them.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="band" aria-labelledby="honest-title">
-        <div className="wrap">
-          <div className="section-head">
-            <h2 id="honest-title" className="h2">
-              What it&rsquo;s for, honestly.
-            </h2>
-          </div>
+          <ul className="yours">
+            {YOURS_POINTS.map(([k, v]) => (
+              <li key={k}>
+                <h3>{k}</h3>
+                <p>{v}</p>
+              </li>
+            ))}
+          </ul>
           <div className="fit">
             <div>
               <h3 className="fit-title">Great for</h3>
               <ul>
-                <li>Side projects, prototypes and experiments</li>
-                <li>Internal tools</li>
+                <li>Side projects, prototypes and internal tools</li>
                 <li>Apps your coding agent builds and runs for you</li>
-                <li>Running many small apps without paying for each one</li>
+                <li>Many small apps, without paying for each one</li>
               </ul>
             </div>
             <div>
@@ -536,20 +496,20 @@ export default function Home() {
             <div>
               <h3 className="fit-title">Not yet for</h3>
               <ul>
-                <li>Anything that must stay up if one server goes down: it&rsquo;s one machine</li>
+                <li>Anything that must stay up if one server fails: it&rsquo;s one machine</li>
                 <li>Work that needs a stable platform today: ShipTiffin is before version 1.0</li>
               </ul>
             </div>
           </div>
-          <p className="fit-line">
-            ShipTiffin is young and made by a small team. Your databases can go back to any second of the last
-            week, and you can leave any time with standard Postgres, S3 and Redis.
+          <p className="yours-links">
+            <Link href="/security">How we handle your key and your data</Link>
+            <Link href="/open-source">Run it yourself, free</Link>
+            <Link href="/compare">Compare with Vercel, Supabase and Coolify</Link>
           </p>
         </div>
       </section>
 
       <Pricing />
-
 
       <section id="faq" className="band" aria-labelledby="faq-title">
         <div className="wrap two-col">

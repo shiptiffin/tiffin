@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/meta";
 import Link from "next/link";
 import { EMAIL } from "../chrome";
 import { LegalPage, type Section } from "../legal";
 
 export const dynamic = "force-static";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "Terms of service",
-  description: "The rules for using ShipTiffin, in plain English: what you can run, what you own, and what we promise.",
-  alternates: { canonical: "/terms" },
-};
+  description:
+    "The rules for using ShipTiffin, in plain English: what you can run, what you own, and what we promise.",
+  path: "/terms",
+});
 
 const mail = <a href={`mailto:${EMAIL}`}>{EMAIL}</a>;
 
@@ -149,7 +151,7 @@ const sections: Section[] = [
         <p>
           You pay ShipTiffin $19 a month for each box, monthly. The founding price, for our first 100 customers, is
           $12 a month, and it does not go up for 24 months from when you subscribe. The current prices are in the{" "}
-          <Link href="/#pricing">pricing section</Link>, and the price is shown before you subscribe. There are no
+          <Link href="/pricing">pricing section</Link>, and the price is shown before you subscribe. There are no
           charges per request, per project or per person.
         </p>
         <p>Your server is billed separately, by Hetzner, to you.</p>

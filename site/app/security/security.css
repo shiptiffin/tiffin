@@ -1,0 +1,31 @@
+/* /security. Kit first; these are the bits the kit doesn't have. */
+
+/* Inline code may wrap here: long names would otherwise push past a phone's edge. */
+.sec :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sec-answer {
+  padding-bottom: clamp(40px, 6vw, 72px);
+}
+
+.sec-more {
+  margin-top: 28px;
+  font-size: 0.95rem;
+  color: var(--ink-3);
+  max-width: 44em;
+  text-wrap: pretty;
+}
+
+.sec-report {
+  max-width: 40em;
+}
+.sec-report p {
+  font-size: 1.05rem;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.sec-report p + p {
+  margin-top: 14px;
+}

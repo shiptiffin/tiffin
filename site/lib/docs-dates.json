@@ -1,0 +1,78 @@
+{
+  "agent-onboarding": {
+    "sha": "4c386cb292ee1785",
+    "updated": "2026-10-09"
+  },
+  "quickstart": {
+    "sha": "35d604ccbcec2041",
+    "updated": "2026-10-09"
+  },
+  "concepts": {
+    "sha": "594294189b702fcf",
+    "updated": "2026-10-09"
+  },
+  "agents": {
+    "sha": "156c95c13a65e982",
+    "updated": "2026-10-09"
+  },
+  "managed": {
+    "sha": "2878a1252e89de12",
+    "updated": "2026-10-09"
+  },
+  "limits": {
+    "sha": "55d3997aa3cef9bf",
+    "updated": "2026-10-09"
+  },
+  "security": {
+    "sha": "75de3467f40791c8",
+    "updated": "2026-10-07"
+  },
+  "apps": {
+    "sha": "f20e762dabe386ae",
+    "updated": "2026-10-09"
+  },
+  "data": {
+    "sha": "87ad4da92ae839c7",
+    "updated": "2026-10-09"
+  },
+  "storage": {
+    "sha": "13c32d98ffc59263",
+    "updated": "2026-10-08"
+  },
+  "email": {
+    "sha": "5f0f72e13c2f4b1b",
+    "updated": "2026-10-09"
+  },
+  "auth": {
+    "sha": "ae36f59fff7e64b7",
+    "updated": "2026-10-08"
+  },
+  "queues": {
+    "sha": "6df710d922369b4a",
+    "updated": "2026-10-08"
+  },
+  "domains": {
+    "sha": "fa6791ff58fbc1f7",
+    "updated": "2026-10-09"
+  },
+  "observe": {
+    "sha": "c5f46935b325b4c1",
+    "updated": "2026-10-07"
+  },
+  "analytics": {
+    "sha": "41dfa24e8767c67a",
+    "updated": "2026-10-09"
+  },
+  "protection": {
+    "sha": "64d967620d7d1667",
+    "updated": "2026-10-07"
+  },
+  "moving": {
+    "sha": "b27abd736d092f28",
+    "updated": "2026-10-09"
+  },
+  "always-on-agents": {
+    "sha": "783932336f454cc5",
+    "updated": "2026-10-08"
+  }
+}

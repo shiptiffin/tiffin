@@ -1,0 +1,47 @@
+/* /open-source. Kit first; these are the bits the kit doesn't have. */
+
+/* Inline code may wrap here: long names would otherwise push past a phone's edge. */
+.oss :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.oss-answer {
+  padding-bottom: clamp(40px, 6vw, 72px);
+}
+
+.oss-h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* commands with their notes, full width so the long lines show whole */
+.oss-terms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 48px;
+}
+.oss-terms > div {
+  min-width: 0;
+}
+.oss-terms > div > p {
+  color: var(--ink-2);
+  margin-bottom: 14px;
+  text-wrap: pretty;
+}
+.oss .kit-terminal {
+  box-shadow: none;
+}
+.oss .kit-terminal pre {
+  font-size: 0.8rem;
+}
+
+.oss-more,
+.oss-terms > div > p.oss-more {
+  margin-top: 28px;
+  font-size: 0.95rem;
+  color: var(--ink-3);
+  max-width: 44em;
+  text-wrap: pretty;
+}

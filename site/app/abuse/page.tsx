@@ -1,13 +1,15 @@
 // /abuse: report a <name>.shiptiffin.app address. Customers' servers run in
 // their own Hetzner accounts; the address is ours, and we remove it fast.
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/meta";
 import "../cloud.css";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMeta({
   title: "Report abuse",
-  description: "Report phishing, malware or other abuse on a shiptiffin.app address.",
-  alternates: { canonical: "/abuse" },
-};
+  description:
+    "Report phishing, malware or other abuse on a shiptiffin.app address.",
+  path: "/abuse",
+});
 
 const ERRORS: Record<string, string> = {
   missing: "Say which address, and what you saw.",

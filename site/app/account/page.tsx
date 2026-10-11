@@ -57,7 +57,7 @@ export default async function Account() {
         ))}
         {deleted.length > 0 && <DeletedList rows={deleted} invoices={invoices} />}
         <p className="cp-hint" style={{ marginTop: 32 }}>
-          How we handle your key and what we can and can&rsquo;t do on your server: <Link href="/managed">how managed boxes work</Link>. Questions:{" "}
+          How we handle your key and what we can and can&rsquo;t do on your server: <Link href="/security">security</Link>. Questions:{" "}
           <a href="mailto:hello@shiptiffin.com">hello@shiptiffin.com</a>.
         </p>
       </div>
