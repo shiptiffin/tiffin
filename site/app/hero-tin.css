@@ -1,0 +1,386 @@
+/* The hero's tin (hero-tin.tsx). Ink outlines, steel, brass, enamel bands. */
+
+.ht {
+  --pk-line: var(--ink);
+  --pk-body: oklch(0.8 0.006 75);
+  --pk-lit: oklch(0.885 0.005 80);
+  --pk-hollow: oklch(0.43 0.008 70);
+  --pk-paper: oklch(0.99 0.004 85);
+  --pk-floor: oklch(0.235 0.014 60 / 0.1);
+  position: relative;
+  aspect-ratio: var(--aspect);
+  container-type: inline-size;
+}
+@media (prefers-color-scheme: dark) {
+  .ht {
+    --pk-line: oklch(0.16 0.006 65);
+    --pk-body: oklch(0.74 0.007 250);
+    --pk-lit: oklch(0.85 0.007 250);
+    --pk-hollow: oklch(0.3 0.006 65);
+    --pk-paper: oklch(0.93 0.006 85);
+    --pk-floor: oklch(0 0 0 / 0.45);
+  }
+  .ht text.band-label {
+    fill: oklch(0.17 0.008 65);
+  }
+}
+.ht-defs {
+  position: absolute;
+}
+.ht-tin,
+.ht-squash {
+  position: absolute;
+  inset: 0;
+}
+.ht-tierset {
+  display: contents;
+}
+.ht-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Line style, shared by the tin and the parts. */
+.ht .o {
+  stroke: var(--pk-line);
+  stroke-width: 3.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ht .thin {
+  fill: none;
+  stroke-width: 2.6;
+}
+.ht .body {
+  fill: var(--pk-body);
+}
+.ht .lit {
+  fill: var(--pk-lit);
+}
+.ht .hollow {
+  fill: var(--pk-hollow);
+}
+.ht .paper {
+  fill: var(--pk-paper);
+}
+.ht .brass {
+  fill: var(--brass);
+}
+.ht .dot {
+  fill: var(--pk-line);
+}
+.ht .shine {
+  fill: var(--pk-lit);
+  opacity: 0.8;
+}
+.ht .floor {
+  fill: var(--pk-floor);
+}
+.ht .speckle {
+  fill: url(#ht-speckle);
+  opacity: 0.22;
+}
+.ht #ht-speckle circle {
+  fill: var(--pk-line);
+}
+.ht .seam {
+  fill: none;
+  stroke: var(--pk-line);
+  stroke-width: 6;
+  opacity: 0.12;
+}
+.ht .band {
+  fill: var(--enamel);
+}
+.ht .band-label {
+  font: 600 11.5px/1 var(--font-code);
+  letter-spacing: 0.09em;
+  fill: var(--pk-paper);
+}
+.ht .lid-top {
+  fill: var(--pk-lit);
+}
+.ht .handle-bar {
+  fill: none;
+  stroke: var(--pk-line);
+  stroke-width: 11;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ht .handle-shine {
+  fill: none;
+  stroke: var(--pk-lit);
+  stroke-width: 4.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A part: a point in the tin box, with its icon centred on it. */
+.ht-part {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.ht-icon {
+  position: absolute;
+  width: 23cqw;
+  height: 23cqw;
+  left: -11.5cqw;
+  top: -11.5cqw;
+  overflow: visible;
+  scale: 0.86;
+}
+.ht-label {
+  position: absolute;
+  top: 12cqw;
+  left: 0;
+  translate: -50% 0;
+  white-space: nowrap;
+  font: 600 clamp(12px, 3.6cqw, 15px) / 1 var(--font-ui);
+  color: var(--ink-3);
+  opacity: 0;
+}
+
+/* The click's lines, around the lid. */
+.ht-burst {
+  position: absolute;
+  left: 50%;
+  top: 19%;
+  width: 150%;
+  translate: -50% -50%;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+}
+.ht-burst line {
+  stroke: var(--brass);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.ht-face .ht-mouth {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+/* ---------- the motion ----------
+   Packed is the default above. Everything here runs once, on load, and ends packed. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Parts: off screen on every side, peek in at the edges, then rush in and hit their tier. */
+  .ht-peek {
+    animation: ht-peek 240ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+  @keyframes ht-peek {
+    from {
+      translate: calc(var(--fx) - var(--px)) calc(var(--fy) - var(--py));
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+  .ht-fly {
+    animation: ht-fly 600ms linear calc(var(--hit) - 420ms) both;
+  }
+  @keyframes ht-fly {
+    0% {
+      translate: var(--px) var(--py);
+      scale: 2;
+      rotate: var(--tilt);
+      animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+    }
+    70% {
+      translate: 0 0;
+      scale: 1;
+      rotate: 0deg;
+      animation-timing-function: cubic-bezier(0.2, 0.8, 0.4, 1);
+    }
+    84% {
+      translate: 0 -2.2cqw;
+      scale: 0.98;
+      animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.5);
+    }
+    100% {
+      translate: 0 0;
+      scale: 1;
+    }
+  }
+  .ht-label {
+    animation: ht-label 520ms linear calc(var(--hit) - 640ms) both;
+  }
+  @keyframes ht-label {
+    0%,
+    40% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* The base braces for what's coming; the other tiers drop from above the screen. */
+  .ht-tier-base {
+    transform-origin: 50% 90%;
+    animation: ht-brace 700ms cubic-bezier(0.3, 0.7, 0.4, 1) both;
+  }
+  @keyframes ht-brace {
+    0% {
+      scale: 1 1;
+    }
+    30% {
+      scale: 1.01 0.97;
+    }
+    100% {
+      scale: 1 1;
+    }
+  }
+  .ht-tier-mid,
+  .ht-tier-top {
+    animation: ht-drop 380ms linear calc(var(--land) - 285ms) both;
+  }
+  @keyframes ht-drop {
+    0% {
+      translate: 0 -110svh;
+      animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+    }
+    75% {
+      translate: 0 0;
+      animation-timing-function: cubic-bezier(0.2, 0.8, 0.4, 1);
+    }
+    87% {
+      translate: 0 -1.8cqw;
+      animation-timing-function: cubic-bezier(0.5, 0, 0.7, 0.5);
+    }
+    100% {
+      translate: 0 0;
+    }
+  }
+
+  /* The lid falls hard and lands on --click. */
+  .ht-lid {
+    animation: ht-lid 150ms cubic-bezier(0.6, 0, 1, 0.6) calc(var(--click) - 150ms) both;
+  }
+  @keyframes ht-lid {
+    from {
+      translate: 0 -110svh;
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+  .ht-handle {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: ht-handle 520ms
+      linear(0, 0.36 8%, 0.82 18%, 1.12 28%, 1.16 33%, 1.06 45%, 0.97 58%, 1.01 72%, 1) calc(var(--click) + 80ms)
+      both;
+  }
+  @keyframes ht-handle {
+    from {
+      scale: 1 0.1;
+    }
+    to {
+      scale: 1 1;
+    }
+  }
+
+  /* The click: hold the frame, squash, a two-step shake, gold lines thrown out. */
+  .ht-squash {
+    transform-origin: 50% 94%;
+    animation: ht-squash 440ms linear calc(var(--click) + 70ms) both;
+  }
+  @keyframes ht-squash {
+    0% {
+      scale: 1 1;
+      animation-timing-function: cubic-bezier(0.2, 0.8, 0.4, 1);
+    }
+    14% {
+      scale: 1.04 0.94;
+      animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+    }
+    40% {
+      scale: 0.99 1.02;
+    }
+    66% {
+      scale: 1.005 0.995;
+    }
+    100% {
+      scale: 1 1;
+    }
+  }
+  .ht-tin {
+    animation: ht-shake 180ms linear calc(var(--click) + 70ms) both;
+  }
+  @keyframes ht-shake {
+    0%,
+    100% {
+      translate: 0 0;
+    }
+    20% {
+      translate: 3px 1px;
+    }
+    45% {
+      translate: -3px -1px;
+    }
+    70% {
+      translate: 2px 0;
+    }
+    85% {
+      translate: -1px 0;
+    }
+  }
+  .ht-burst {
+    animation: ht-burst 260ms cubic-bezier(0.2, 0.8, 0.3, 1) calc(var(--click) + 40ms) forwards;
+  }
+  @keyframes ht-burst {
+    0% {
+      opacity: 1;
+      scale: 0.8;
+    }
+    60% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      scale: 1.18;
+    }
+  }
+  .ht-floor {
+    transform-origin: 50% 92%;
+    animation: ht-floor 440ms ease-out calc(var(--click) + 70ms) both;
+  }
+  @keyframes ht-floor {
+    14% {
+      scale: 1.08 1;
+    }
+  }
+
+  /* Then the face: eyes open, the smile draws, one blink later. */
+  .ht-face {
+    animation: ht-face 180ms ease-out calc(var(--click) + 320ms) both;
+  }
+  @keyframes ht-face {
+    from {
+      opacity: 0;
+    }
+  }
+  .ht-face .ht-mouth {
+    animation: ht-mouth 240ms cubic-bezier(0.3, 0.7, 0.4, 1) calc(var(--click) + 440ms) both;
+  }
+  @keyframes ht-mouth {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+  .ht-eyes {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: ht-blink 160ms ease-in-out calc(var(--click) + 1400ms) 1;
+  }
+  @keyframes ht-blink {
+    50% {
+      scale: 1 0.1;
+    }
+  }
+}

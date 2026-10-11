@@ -5,7 +5,7 @@ import { ENTITY, jsonLd, pageMeta } from "@/lib/meta";
 import { AgentSetup } from "./agent-setup";
 import { Art } from "./art";
 import { CopyPrompt } from "./copy-prompt";
-import { PackingTin } from "./packing-tin";
+import { HeroTin } from "./hero-tin";
 import { Compare } from "./compare";
 import { Pricing } from "./pricing";
 
@@ -274,39 +274,30 @@ export default function Home() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(LD) }} />
-      <section className="hero">
-        <div className="wrap hero-grid">
-          <div className="hero-copy">
-            <p className="kicker">Your own server, in your Hetzner account</p>
-            <h1 className="display">
-              All your apps.
-              <br />
-              <span className="hero-mark">One box.</span>
-              <br />
-              One price.
-            </h1>
-            <p className="lede">
-              ShipTiffin sets up a server in your Hetzner account with everything your apps need already on it:
-              Postgres, sign-in, files, email, jobs, analytics and backups. Run every project on it, each with a
-              hard limit.
-            </p>
-            <p className="hero-price">
-              <strong>$19 a month</strong> per box, plus about $10 for the server at Hetzner. No usage bills.
-            </p>
-            <div className="actions">
-              <Link className="btn btn-primary" href="/start">
-                Get started
-              </Link>
-              <CopyPrompt />
-            </div>
-            <p className="fine">
-              Works with Claude Code, Codex and Cursor. Open source, so you can also{" "}
-              <Link href="/docs/quickstart">run it yourself</Link> for free.
-            </p>
+      <section className="bb" aria-labelledby="bb-title">
+        <div className="wrap bb-copy bb-head">
+          <h1 id="bb-title" className="bb-title">
+            All your apps. <span className="hero-mark">One box.</span> One price.
+          </h1>
+        </div>
+        <div className="wrap bb-copy bb-body">
+          <p className="bb-lede">
+            Postgres, sign-in, files, email, jobs, analytics and backups, already on a server in your own Hetzner
+            account. Run every project on it, each with a hard limit.
+          </p>
+          <div className="actions bb-actions">
+            <Link className="btn btn-primary" href="/start">
+              Get started
+            </Link>
+            <CopyPrompt />
           </div>
-          <div className="hero-art">
-            <PackingTin />
-          </div>
+          <p className="bb-fine">
+            $19 a month per box, plus about $10 for the server at Hetzner. No usage bills. Open source:{" "}
+            <Link href="/open-source">run it yourself</Link> for free.
+          </p>
+        </div>
+        <div className="bb-stage">
+          <HeroTin />
         </div>
       </section>
 

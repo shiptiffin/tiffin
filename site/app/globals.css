@@ -356,50 +356,8 @@ code {
   color: var(--ink-2);
 }
 
-/* ---------- hero ---------- */
-.hero {
-  padding-block: 56px 72px;
-}
-.hero-grid {
-  display: grid;
-  gap: 56px;
-  align-items: center;
-}
-@media (min-width: 960px) {
-  .hero {
-    padding-block: 96px 112px;
-  }
-  .hero-grid {
-    grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-    gap: 64px;
-  }
-}
-.hero-price {
-  margin-top: 14px;
-  color: var(--ink-2);
-  font-size: 1rem;
-}
-.hero-price strong {
-  color: var(--ink);
-  font-weight: 600;
-}
-.hero-art {
-  width: 100%;
-  max-width: 540px;
-  margin-inline: auto;
-}
-/* On a phone the tin packs above the headline, so the packing is seen, not played off-screen. */
-@media (max-width: 959px) {
-  .hero-art {
-    order: -1;
-    max-width: 340px;
-    margin-block: -16px 12px;
-  }
-  .hero-grid {
-    gap: 8px;
-  }
-}
-/* "One box." gets its underline when the tin's lid clicks shut (packing-tin.css, --click). */
+/* ---------- hero (the full-bleed stage is at the end of this file) ---------- */
+/* "One box." gets its underline when the tin's lid clicks shut (hero-tin.tsx, CLICK). */
 .hero-mark {
   position: relative;
   white-space: nowrap;
@@ -417,7 +375,7 @@ code {
 }
 @media (prefers-reduced-motion: no-preference) {
   .hero-mark::after {
-    animation: hero-mark 420ms cubic-bezier(0.16, 1, 0.3, 1) 2280ms both;
+    animation: hero-mark 420ms cubic-bezier(0.16, 1, 0.3, 1) 1320ms both;
   }
   @keyframes hero-mark {
     from {
@@ -2548,4 +2506,99 @@ code {
 .footer-col a:hover {
   color: var(--ink);
   text-decoration: underline;
+}
+
+/* ---------- the hero: full-bleed, the tin centre stage (hero-tin.tsx) ---------- */
+.bb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100svh - 60px);
+  overflow: clip;
+  padding-top: clamp(28px, 5svh, 56px);
+}
+.bb-copy {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+}
+.bb-title {
+  font-family: var(--font-display);
+  font-weight: 430;
+  font-size: clamp(2.6rem, 1rem + 4.6vw, 5.1rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  margin-inline: auto;
+  max-width: 15em;
+}
+.bb-lede {
+  margin: 20px auto 0;
+  max-width: 36em;
+  font-size: clamp(1.02rem, 0.95rem + 0.3vw, 1.18rem);
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-wrap: balance;
+}
+.bb-actions {
+  justify-content: center;
+  margin-top: 24px;
+}
+.bb-fine {
+  margin-top: 14px;
+  font-size: 0.9rem;
+  color: var(--ink-3);
+  text-wrap: balance;
+}
+.bb-fine a {
+  color: var(--ink-2);
+}
+.bb-head {
+  order: 1;
+}
+.bb-body {
+  order: 2;
+}
+.bb-stage {
+  order: 3;
+  position: relative;
+  z-index: 1;
+  flex: 1 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding-top: 12px;
+}
+.bb-stage .ht {
+  height: clamp(320px, 54svh, 640px);
+  max-width: 78vw;
+}
+/* On a phone the tin packs right under the headline, where it's seen; the rest follows. */
+@media (max-width: 720px) {
+  .bb-stage {
+    order: 2;
+    padding-top: 8px;
+  }
+  .bb-body {
+    order: 3;
+    padding-block: 12px 40px;
+  }
+  .bb-stage .ht {
+    height: auto;
+    width: min(70vw, 320px);
+  }
+  .bb-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+/* The headline takes the click too: a small thud, transform only (it's painted from the start). */
+@media (prefers-reduced-motion: no-preference) {
+  .bb-title {
+    animation: bb-thud 200ms cubic-bezier(0.3, 0.7, 0.4, 1) 1320ms both;
+  }
+  @keyframes bb-thud {
+    40% {
+      scale: 1.015;
+    }
+  }
 }
