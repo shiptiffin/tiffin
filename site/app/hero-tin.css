@@ -502,6 +502,13 @@
       height: 400svh;
       view-timeline: --bb block;
     }
+    /* How far the tin comes apart, in the tin's own width (cqw). */
+    .ht {
+      --ex-mid: 36cqw;
+      --ex-top: 72cqw;
+      --ex-lid: 112cqw;
+      --lift: 19cqw;
+    }
     .bb {
       position: sticky;
       top: 60px;
@@ -600,7 +607,7 @@
       }
       38%,
       72% {
-        translate: 0 -112cqw;
+        translate: 0 calc(var(--ex-lid) * -1);
         rotate: -6deg;
       }
       84%,
@@ -628,7 +635,7 @@
       }
       38%,
       70% {
-        translate: 0 -36cqw;
+        translate: 0 calc(var(--ex-mid) * -1);
       }
       82%,
       100% {
@@ -642,7 +649,7 @@
       }
       38%,
       70% {
-        translate: 0 -72cqw;
+        translate: 0 calc(var(--ex-top) * -1);
       }
       82%,
       100% {
@@ -663,7 +670,7 @@
       }
       36%,
       42% {
-        translate: 0 -19cqw;
+        translate: 0 calc(var(--lift) * -1);
       }
       50%,
       100% {
@@ -918,28 +925,38 @@
         }
         8%,
         84% {
-          translate: 0 11svh;
-          scale: 0.6;
+          translate: 0 var(--m-y);
+          scale: var(--m-s);
         }
         86% {
-          translate: 0 11svh;
-          scale: 0.62 0.57;
+          translate: 0 var(--m-y);
+          scale: calc(var(--m-s) * 1.03) calc(var(--m-s) * 0.95);
         }
         88% {
-          translate: 0 11svh;
-          scale: 0.6;
+          translate: 0 var(--m-y);
+          scale: var(--m-s);
         }
         100% {
-          translate: 0 4svh;
-          scale: 0.8;
+          translate: 0 8svh;
+          scale: 0.96;
         }
+      }
+      .ht {
+        --ex-mid: 31cqw;
+        --ex-top: 62cqw;
+        --ex-lid: 94cqw;
+        --lift: 16cqw;
+      }
+      .bb-stage {
+        --m-y: 14svh;
+        --m-s: 0.86;
       }
       .bb-captions {
         left: var(--gutter);
         right: var(--gutter);
         width: auto;
         top: auto;
-        bottom: 40px;
+        bottom: 28px;
         translate: none;
       }
       .bb-cap {
@@ -973,10 +990,14 @@
         }
       }
       .bb-cap-title {
-        font-size: 1.6rem;
+        font-size: 1.45rem;
+      }
+      .bb-cap-step {
+        margin-bottom: 8px;
       }
       .bb-cap-text {
-        font-size: 0.98rem;
+        margin-top: 8px;
+        font-size: 0.94rem;
       }
       .bb-rail {
         right: 8px;

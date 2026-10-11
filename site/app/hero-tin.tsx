@@ -105,7 +105,6 @@ function TierFront({ t }: { t: Tier }) {
         </textPath>
       </text>
       <path className="o thin" d={band} />
-      <path className="shine" d={`M${CX - W + 24} ${y + 48}v${D - 34}q7 5 15 8v${-(D - 34)}q-8-3-15-8z`} />
       <path className="seam" d={`M${CX - W} ${y + 11}A${W} ${RY} 0 0 0 ${CX + W} ${y + 11}`} />
       <path
         className="o lit"
