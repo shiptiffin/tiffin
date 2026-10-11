@@ -229,6 +229,14 @@ const LD = [
   },
 ];
 
+/* The hero's second act, shown as you scroll (hero-tin.css). */
+const ACT = [
+  ["Open it up.", "One server in your own Hetzner account, already packed with what every app needs."],
+  ["Everything an app needs.", "Postgres, KV, files, sign-in, email, jobs, analytics and domains, set up for each project when you ask."],
+  ["Every project gets a limit.", "A project that gets busy is held at its limit. The others keep running, and nothing is billed by usage."],
+  ["Packed. One box, one price.", "$19 a month per box, plus about $10 for the server at Hetzner."],
+] as const;
+
 /* Plain facts under the hero, each true today. */
 const PROOF = [
   ["About 5 minutes", "from a Hetzner key to a working box"],
@@ -274,7 +282,8 @@ export default function Home() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(LD) }} />
-      <section className="bb" aria-labelledby="bb-title">
+      <section className="bb-track" aria-labelledby="bb-title">
+        <div className="bb">
         <div className="wrap bb-copy bb-head">
           <h1 id="bb-title" className="bb-title">
             All your apps. <span className="hero-mark">One box.</span> One price.
@@ -298,6 +307,22 @@ export default function Home() {
         </div>
         <div className="bb-stage">
           <HeroTin />
+        </div>
+        {/* Act two, scrolled: the tin opens, its tiers become projects with limits, and it packs again. */}
+        <ol className="bb-captions" aria-label="What's inside, as you scroll">
+          {ACT.map(([title, text], i) => (
+            <li key={title} className={`bb-cap bb-cap-${i + 1}`}>
+              <p className="bb-cap-step">
+                {i + 1} of {ACT.length}
+              </p>
+              <h2 className="bb-cap-title">{title}</h2>
+              <p className="bb-cap-text">{text}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="bb-rail" aria-hidden="true">
+          <span />
+        </div>
         </div>
       </section>
 

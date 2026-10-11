@@ -59,6 +59,13 @@ const BANDS: Record<Tier, { label: string; enamel: string }> = {
   base: { label: "SIGN-IN · EMAIL · ANALYTICS", enamel: "plum" },
 };
 
+/* Act two (scrolling): each tier becomes a project with its own limit. Illustrative projects. */
+const PROJECTS: Record<Tier, { name: string; limit: string; fill: number; held?: boolean }> = {
+  top: { name: "shop", limit: "Up to 40% of the box", fill: 1, held: true },
+  mid: { name: "guestbook", limit: "512 MB of memory", fill: 0.45 },
+  base: { name: "reports", limit: "Up to 10% of the box", fill: 0.3 },
+};
+
 const ms = (n: number) => `${n}ms`;
 const vars = (o: Record<string, string | number>) => o as CSSProperties;
 const pct = (n: number, of: number) => `${((n / of) * 100).toFixed(3)}%`;
@@ -92,6 +99,11 @@ function TierFront({ t }: { t: Tier }) {
           {BANDS[t].label}
         </textPath>
       </text>
+      <text className="band-label band-project">
+        <textPath href={`#ht-arc-${t}`} startOffset="50%" textAnchor="middle">
+          {PROJECTS[t].name.toUpperCase()}
+        </textPath>
+      </text>
       <path className="o thin" d={band} />
       <path className="shine" d={`M${CX - W + 24} ${y + 48}v${D - 34}q7 5 15 8v${-(D - 34)}q-8-3-15-8z`} />
       <path className="seam" d={`M${CX - W} ${y + 11}A${W} ${RY} 0 0 0 ${CX + W} ${y + 11}`} />
@@ -115,7 +127,7 @@ function PartEl({ p }: { p: Part }) {
   const hit = HIT[p.tier];
   return (
     <div
-      className="ht-part"
+      className={`ht-part ht-part-${p.land < 0 ? "l" : p.land > 0 ? "r" : "c"}`}
       style={vars({
         left: pct(CX + p.land, VW),
         top: pct(RIM[p.tier] + 30, VH),
@@ -127,13 +139,16 @@ function PartEl({ p }: { p: Part }) {
         "--hit": ms(hit),
       })}
     >
-      <div className="ht-peek">
-        <div className="ht-fly">
-          <svg className="ht-icon" viewBox="-40 -40 80 80" aria-hidden="true">
-            <Icon id={p.id} />
-          </svg>
-          <span className="ht-label">{p.label}</span>
+      <div className="ht-lift">
+        <div className="ht-peek">
+          <div className="ht-fly">
+            <svg className="ht-icon" viewBox="-40 -40 80 80" aria-hidden="true">
+              <Icon id={p.id} />
+            </svg>
+            <span className="ht-label">{p.label}</span>
+          </div>
         </div>
+        <span className="ht-tag-label">{p.label}</span>
       </div>
     </div>
   );
@@ -196,7 +211,7 @@ export function HeroTin() {
         </Layer>
         <div className="ht-squash">
           {tiers.map((t) => (
-            <div key={t} className="ht-tierset">
+            <div key={t} className={`ht-tierset ht-set-${t}`}>
               <Layer className={`ht-tier ht-tier-${t}`} style={vars({ "--land": ms(TIER_LAND[t]) })}>
                 <TierBack t={t} />
               </Layer>
@@ -206,18 +221,41 @@ export function HeroTin() {
               <Layer className={`ht-tier ht-tier-${t}`} style={vars({ "--land": ms(TIER_LAND[t]) })}>
                 <TierFront t={t} />
               </Layer>
+              <div
+                className={`ht-gauge${PROJECTS[t].held ? " ht-held" : ""}`}
+                style={vars({ top: pct(RIM[t] + 46, VH), "--fill": PROJECTS[t].fill })}
+                aria-hidden="true"
+              >
+                <span className="ht-gauge-limit">
+                  <span className="ht-gauge-name">{PROJECTS[t].name}</span> {PROJECTS[t].limit}
+                </span>
+                <span className="ht-gauge-bar">
+                  <span />
+                </span>
+                {PROJECTS[t].held ? <span className="ht-gauge-held">Held at its limit</span> : null}
+              </div>
             </div>
           ))}
-          <Layer className="ht-lid">
-            <Lid />
-          </Layer>
-          <Layer className="ht-face">
-            <g className="ht-eyes">
-              <circle cx={CX - 26} cy={RIM.mid + 70} r="6.5" className="dot" />
-              <circle cx={CX + 26} cy={RIM.mid + 70} r="6.5" className="dot" />
-            </g>
-            <path className="o thin ht-mouth" pathLength="1" d={`M${CX - 11} ${RIM.mid + 86}q11 9 22 0`} />
-          </Layer>
+          <div className="ht-lidset">
+            <Layer className="ht-lid">
+              <Lid />
+            </Layer>
+            <div className="ht-price" style={vars({ top: pct(LID_TOP - 62, VH) })} aria-hidden="true">
+              <span className="ht-price-string" />
+              <span className="ht-price-tag">
+                <strong>$19</strong> a month
+              </span>
+            </div>
+          </div>
+          <div className="ht-faceset">
+            <Layer className="ht-face">
+              <g className="ht-eyes">
+                <circle cx={CX - 26} cy={RIM.mid + 70} r="6.5" className="dot" />
+                <circle cx={CX + 26} cy={RIM.mid + 70} r="6.5" className="dot" />
+              </g>
+              <path className="o thin ht-mouth" pathLength="1" d={`M${CX - 11} ${RIM.mid + 86}q11 9 22 0`} />
+            </Layer>
+          </div>
         </div>
       </div>
     </div>

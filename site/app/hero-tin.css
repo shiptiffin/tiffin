@@ -32,9 +32,6 @@
   position: absolute;
   inset: 0;
 }
-.ht-tierset {
-  display: contents;
-}
 .ht-layer {
   position: absolute;
   inset: 0;
@@ -381,6 +378,609 @@
   @keyframes ht-blink {
     50% {
       scale: 1 0.1;
+    }
+  }
+}
+
+/* ---------- act two, scrolled: open it, see inside, projects with limits, packed again ----------
+   Only where scroll-driven animations exist and motion is welcome. Elsewhere the hero is just the
+   packed tin and none of this shows. Each beat is a range of the pinned track (page.tsx, .bb-track). */
+.ht-tierset,
+.ht-lidset,
+.ht-faceset {
+  position: absolute;
+  inset: 0;
+}
+.ht-tag-label,
+.ht-gauge,
+.ht-price,
+.ht .band-project {
+  opacity: 0;
+}
+/* Names beside the lifted parts: outward for the side ones, above for the middle one. */
+.ht-tag-label {
+  position: absolute;
+  top: -19cqw;
+  left: 0;
+  translate: -50% 0;
+  white-space: nowrap;
+  font: 600 5.2cqw / 1 var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  padding: 0.35em 0.7em;
+}
+.ht-part-l .ht-tag-label {
+  top: -3cqw;
+  left: -12cqw;
+  translate: -100% 0;
+}
+.ht-part-r .ht-tag-label {
+  top: -3cqw;
+  left: 12cqw;
+  translate: 0 0;
+}
+.ht-gauge {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  display: grid;
+  gap: 1.4cqw;
+  padding: 2cqw 2.8cqw 2.4cqw;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-2);
+  border-radius: 1.6cqw;
+  font: 600 5.4cqw / 1.1 var(--font-ui);
+  color: var(--ink);
+}
+.ht-gauge-name {
+  font-family: var(--font-code);
+  font-weight: 500;
+  margin-right: 0.4em;
+}
+.ht-gauge-bar {
+  display: block;
+  height: 3cqw;
+  border-radius: 1.5cqw;
+  background: var(--rule-2);
+  overflow: hidden;
+}
+.ht-gauge-bar span {
+  display: block;
+  height: 100%;
+  background: var(--brass);
+  transform-origin: 0 50%;
+  scale: var(--fill) 1;
+}
+.ht-held .ht-gauge-bar span {
+  background: var(--enamel-plum);
+}
+.ht-gauge-held {
+  font-size: 4.6cqw;
+  color: var(--enamel-plum);
+}
+.ht-price {
+  position: absolute;
+  left: 63%;
+  transform-origin: 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.ht-price-string {
+  display: block;
+  width: 0.5cqw;
+  height: 9cqw;
+  margin-left: 3cqw;
+  background: var(--ink-3);
+}
+.ht-price-tag {
+  display: block;
+  white-space: nowrap;
+  padding: 1.4cqw 2.6cqw;
+  background: var(--brass);
+  color: var(--on-brass);
+  border-radius: 1.2cqw 1.2cqw 1.2cqw 0.4cqw;
+  font: 500 6cqw / 1 var(--font-ui);
+  box-shadow: 0 0.8cqw 0 oklch(0.3 0.04 70 / 0.18);
+}
+.ht-price-tag strong {
+  font-family: var(--font-display);
+  font-size: 1.5em;
+  font-weight: 500;
+}
+
+.bb-captions,
+.bb-rail {
+  display: none;
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .bb-track {
+      height: 400svh;
+      view-timeline: --bb block;
+    }
+    .bb {
+      position: sticky;
+      top: 60px;
+      height: calc(100svh - 60px);
+      min-height: 0;
+    }
+    @media (max-width: 720px) {
+      .bb-track {
+        height: 320svh;
+      }
+    }
+
+    /* Every scrolled piece: linear over its range of the track; the easing lives in the keyframes. */
+    .bb-head,
+    .bb-body,
+    .bb-stage,
+    .ht-lidset,
+    .ht-set-mid,
+    .ht-set-top,
+    .ht-lift,
+    .ht-tag-label,
+    .ht-gauge,
+    .ht-gauge-bar span,
+    .ht-gauge-held,
+    .ht-faceset,
+    .ht-price,
+    .bb-cap,
+    .bb-rail span {
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: --bb;
+    }
+
+    /* 0-8%: the words step aside. */
+    .bb-head,
+    .bb-body {
+      animation-name: bb-out;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 8%;
+    }
+    @keyframes bb-out {
+      to {
+        opacity: 0;
+        translate: 0 -5svh;
+        visibility: hidden;
+      }
+    }
+
+    /* The tin moves to the middle and makes room, then comes back for the price. */
+    .bb-stage {
+      transform-origin: 50% 100%;
+      animation-name: bb-stage;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes bb-stage {
+      0% {
+        translate: 0 0;
+        scale: 1;
+      }
+      8%,
+      84% {
+        translate: 10vw -7svh;
+        scale: 0.68;
+      }
+      86% {
+        translate: 10vw -7svh;
+        scale: 0.7 0.65;
+      }
+      88% {
+        translate: 10vw -7svh;
+        scale: 0.68;
+      }
+      100% {
+        translate: 10vw -14svh;
+        scale: 0.86;
+      }
+    }
+
+    /* 8-38%: the lid lifts off and tilts; 70-84%: it goes back on. */
+    .ht-lidset {
+      transform-origin: 20% 20%;
+      animation-name: ht-s-lid;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-lid {
+      0%,
+      8% {
+        translate: 0 0;
+        rotate: 0deg;
+      }
+      20% {
+        translate: 0 -38cqw;
+        rotate: -9deg;
+      }
+      38%,
+      72% {
+        translate: 0 -112cqw;
+        rotate: -6deg;
+      }
+      84%,
+      100% {
+        translate: 0 0;
+        rotate: 0deg;
+      }
+    }
+
+    /* 20-38%: the tiers come apart; 70-82%: they stack again. */
+    .ht-set-mid {
+      animation-name: ht-s-mid;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    .ht-set-top {
+      animation-name: ht-s-top;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-mid {
+      0%,
+      20% {
+        translate: 0 0;
+      }
+      38%,
+      70% {
+        translate: 0 -36cqw;
+      }
+      82%,
+      100% {
+        translate: 0 0;
+      }
+    }
+    @keyframes ht-s-top {
+      0%,
+      20% {
+        translate: 0 0;
+      }
+      38%,
+      70% {
+        translate: 0 -72cqw;
+      }
+      82%,
+      100% {
+        translate: 0 0;
+      }
+    }
+
+    /* 22-38%: the parts rise out with their names; 42-50%: back in, to make way for the projects. */
+    .ht-lift {
+      animation-name: ht-s-lift;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-lift {
+      0%,
+      22% {
+        translate: 0 0;
+      }
+      36%,
+      42% {
+        translate: 0 -19cqw;
+      }
+      50%,
+      100% {
+        translate: 0 0;
+      }
+    }
+    .ht-tag-label {
+      animation-name: ht-s-tag;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-tag {
+      0%,
+      28% {
+        opacity: 0;
+      }
+      34%,
+      42% {
+        opacity: 1;
+      }
+      46%,
+      100% {
+        opacity: 0;
+      }
+    }
+
+    /* 44-66%: each tier becomes a project; its band shows the name, its gauge fills, one is held. */
+    .ht .band-project {
+      animation: ht-s-proj linear both;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-proj {
+      0%,
+      44% {
+        opacity: 0;
+      }
+      50%,
+      68% {
+        opacity: 1;
+      }
+      74%,
+      100% {
+        opacity: 0;
+      }
+    }
+    .ht-gauge {
+      animation-name: ht-s-gauge;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-gauge {
+      0%,
+      46% {
+        opacity: 0;
+        translate: 0 2cqw;
+      }
+      52%,
+      68% {
+        opacity: 1;
+        translate: 0 0;
+      }
+      72%,
+      100% {
+        opacity: 0;
+        translate: 0 0;
+      }
+    }
+    .ht-gauge-bar span {
+      animation-name: ht-s-fill;
+      animation-timeline: --bb;
+      animation-range: contain 52% contain 64%;
+    }
+    @keyframes ht-s-fill {
+      from {
+        scale: 0 1;
+      }
+      to {
+        scale: var(--fill) 1;
+      }
+    }
+    .ht-gauge-held {
+      animation-name: ht-s-held;
+      animation-timeline: --bb;
+      animation-range: contain 62% contain 66%;
+    }
+    @keyframes ht-s-held {
+      from {
+        opacity: 0;
+      }
+    }
+
+    /* The face steps back while the projects show, and comes back when it's packed. */
+    .ht-faceset {
+      animation-name: ht-s-face;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-face {
+      0%,
+      6% {
+        opacity: 1;
+      }
+      12%,
+      84% {
+        opacity: 0;
+      }
+      90%,
+      100% {
+        opacity: 1;
+      }
+    }
+
+    /* 86-100%: the price swings on the handle. */
+    .ht-price {
+      animation-name: ht-s-price;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes ht-s-price {
+      0%,
+      86% {
+        opacity: 0;
+        rotate: -50deg;
+      }
+      89% {
+        opacity: 1;
+        rotate: 14deg;
+      }
+      92% {
+        rotate: -7deg;
+      }
+      95% {
+        rotate: 3deg;
+      }
+      100% {
+        opacity: 1;
+        rotate: 0deg;
+      }
+    }
+
+    /* Captions and a gold rail that says how far along you are. */
+    .bb-captions {
+      display: block;
+      position: absolute;
+      z-index: 3;
+      left: max(var(--gutter), calc((100vw - var(--wrap)) / 2));
+      top: 50%;
+      translate: 0 -50%;
+      width: min(24rem, 34vw);
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      pointer-events: none;
+    }
+    .bb-cap {
+      position: absolute;
+      inset: auto 0 auto 0;
+      top: 0;
+      translate: 0 -50%;
+      opacity: 0;
+      animation-name: bb-cap;
+      animation-timeline: --bb;
+    }
+    .bb-cap-1 {
+      animation-range: contain 8% contain 22%;
+    }
+    .bb-cap-2 {
+      animation-range: contain 24% contain 44%;
+    }
+    .bb-cap-3 {
+      animation-range: contain 46% contain 76%;
+    }
+    .bb-cap-4 {
+      animation-name: bb-cap-last;
+      animation-range: contain 86% contain 96%;
+    }
+    @keyframes bb-cap {
+      0% {
+        opacity: 0;
+        translate: 0 calc(-50% + 16px);
+      }
+      20%,
+      80% {
+        opacity: 1;
+        translate: 0 -50%;
+      }
+      100% {
+        opacity: 0;
+        translate: 0 calc(-50% - 16px);
+      }
+    }
+    @keyframes bb-cap-last {
+      0% {
+        opacity: 0;
+        translate: 0 calc(-50% + 16px);
+      }
+      100% {
+        opacity: 1;
+        translate: 0 -50%;
+      }
+    }
+    .bb-cap-step {
+      font: 500 0.82rem/1 var(--font-code);
+      color: var(--brass-ink);
+      margin-bottom: 12px;
+    }
+    .bb-cap-title {
+      font-family: var(--font-display);
+      font-weight: 450;
+      font-size: clamp(1.7rem, 1.2rem + 1.6vw, 2.6rem);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+    .bb-cap-text {
+      margin-top: 12px;
+      color: var(--ink-2);
+      font-size: 1.05rem;
+      text-wrap: pretty;
+    }
+    .bb-rail {
+      display: block;
+      position: absolute;
+      z-index: 3;
+      right: var(--gutter);
+      top: 18%;
+      bottom: 18%;
+      width: 2px;
+      background: var(--rule-2);
+    }
+    .bb-rail span {
+      display: block;
+      height: 100%;
+      background: var(--brass);
+      transform-origin: 50% 0;
+      animation-name: bb-rail;
+      animation-timeline: --bb;
+      animation-range: contain 0% contain 100%;
+    }
+    @keyframes bb-rail {
+      from {
+        scale: 1 0;
+      }
+    }
+
+    /* Phones: the tin stays centred and higher; captions sit in a strip at the bottom. */
+    @media (max-width: 720px) {
+      @keyframes bb-stage {
+        0% {
+          translate: 0 0;
+          scale: 1;
+        }
+        8%,
+        84% {
+          translate: 0 11svh;
+          scale: 0.6;
+        }
+        86% {
+          translate: 0 11svh;
+          scale: 0.62 0.57;
+        }
+        88% {
+          translate: 0 11svh;
+          scale: 0.6;
+        }
+        100% {
+          translate: 0 4svh;
+          scale: 0.8;
+        }
+      }
+      .bb-captions {
+        left: var(--gutter);
+        right: var(--gutter);
+        width: auto;
+        top: auto;
+        bottom: 40px;
+        translate: none;
+      }
+      .bb-cap {
+        top: auto;
+        bottom: 0;
+        translate: 0 0;
+      }
+      @keyframes bb-cap {
+        0% {
+          opacity: 0;
+          translate: 0 12px;
+        }
+        20%,
+        80% {
+          opacity: 1;
+          translate: 0 0;
+        }
+        100% {
+          opacity: 0;
+          translate: 0 -12px;
+        }
+      }
+      @keyframes bb-cap-last {
+        0% {
+          opacity: 0;
+          translate: 0 12px;
+        }
+        100% {
+          opacity: 1;
+          translate: 0 0;
+        }
+      }
+      .bb-cap-title {
+        font-size: 1.6rem;
+      }
+      .bb-cap-text {
+        font-size: 0.98rem;
+      }
+      .bb-rail {
+        right: 8px;
+      }
     }
   }
 }
