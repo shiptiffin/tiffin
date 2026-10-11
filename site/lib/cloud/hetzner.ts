@@ -1,6 +1,7 @@
 // The Hetzner key check on /start: is the key real and read & write, what
-// does the project already hold, and what can it order where, at the
-// customer's own prices and stock. Read-only calls, plus one write that
+// does the project already hold (servers, and SSH keys the owner may want on
+// the new box), and what can it order where, at the customer's own prices
+// and stock. Read-only calls, plus one write that
 // creates nothing (an SSH key with no key in it, which Hetzner refuses with
 // 400 for a read & write key and 403 for a read-only one). Every call is
 // recorded for the customer. Creating the server is the provisioner's job
@@ -36,8 +37,21 @@ export type Option = {
   monthlyGross: number;
 };
 
+/** An SSH key already in the Hetzner project (Hetzner's fingerprint is MD5; the page shows its own SHA256). */
+export type HetznerKey = { name: string; public_key: string; fingerprint: string };
+
 export type CheckResult =
-  | { ok: true; readWrite: true; currency: string; usdRate: number | null; vatRate: string; servers: number; options: Option[]; suggested: Option | null }
+  | {
+      ok: true;
+      readWrite: true;
+      currency: string;
+      usdRate: number | null;
+      vatRate: string;
+      servers: number;
+      options: Option[];
+      suggested: Option | null;
+      sshKeys: HetznerKey[];
+    }
   | { ok: false; message: string };
 
 type Price = { net: string; gross: string };
@@ -160,16 +174,46 @@ export async function checkToken(token: string, record: (c: Call) => Promise<voi
   if (locs.status !== 200 || pricing.status !== 200) return { ok: false, message: "Hetzner didn't send prices just now. Try again in a minute." };
   const options = buildOptions(st.json?.server_types ?? [], locs.json?.locations ?? [], pricing.json?.pricing ?? {});
   const currency: string = pricing.json?.pricing?.currency ?? "EUR";
+  const [rate, sshKeys] = await Promise.all([usdRate(currency), projectKeys(call)]);
   return {
     ok: true,
     readWrite: true,
     currency,
-    usdRate: await usdRate(currency),
+    usdRate: rate,
     vatRate: pricing.json?.pricing?.vat_rate ?? "",
     servers: Number(servers.json?.meta?.pagination?.total_entries ?? servers.json?.servers?.length ?? 0),
     options,
     suggested: suggest(options),
+    sshKeys,
   };
+}
+
+/** Pages of SSH keys read at most (50 each). */
+const KEY_PAGES = 10;
+
+/**
+ * The project's SSH keys, for "From Hetzner" on /start: every page, without
+ * the setup keys we make ourselves (labelled shiptiffin-box). A failure
+ * leaves the list short or empty, never fails the check: the owner can
+ * still paste a key.
+ */
+export async function projectKeys(call: ReturnType<typeof hetznerClient>): Promise<HetznerKey[]> {
+  const out: HetznerKey[] = [];
+  for (let page = 1; page <= KEY_PAGES; page++) {
+    let r;
+    try {
+      r = await call("GET", `/ssh_keys?per_page=50&page=${page}`);
+    } catch {
+      break;
+    }
+    if (r.status !== 200) break;
+    for (const k of (r.json?.ssh_keys ?? []) as { name?: unknown; public_key?: unknown; fingerprint?: unknown; labels?: Record<string, string> }[]) {
+      if (typeof k.public_key !== "string" || k.labels?.["shiptiffin-box"] !== undefined) continue;
+      out.push({ name: String(k.name ?? "").slice(0, 128), public_key: k.public_key.slice(0, 16_384), fingerprint: String(k.fingerprint ?? "") });
+    }
+    if (!r.json?.meta?.pagination?.next_page) break;
+  }
+  return out;
 }
 
 // We show every price in dollars. Hetzner bills most accounts in euros, so

@@ -275,8 +275,8 @@ export function BoxActions({ box }: { box: BoxView }) {
       <Dialog open={open === "forget"} onClose={close} title="Sign in on the box instead?" busy={busy}>
         <p className="cp-dialog-text">
           We drop the sign-in link we hold and never ask your box for another, so Open dashboard takes you to the box&rsquo;s own sign-in page. Sign in there
-          with your passkey. Without one, open the server&rsquo;s console at Hetzner, run{" "}
-          <code>tiffin login --home /var/lib/tiffin/platform</code> and open the path it prints on your dashboard&rsquo;s address.
+          with your passkey. Without one, run <code>{`ssh root@${addr} tiffin login`}</code> on a computer with your SSH key, or{" "}
+          <code>tiffin login</code> in the server&rsquo;s console at Hetzner, and open the link it prints.
         </p>
         <Status msg={msg} />
         <DialogButtons busy={busy} onBack={close}>
@@ -419,7 +419,7 @@ function CancelDialog({
               <input type="radio" name={`${id}-choice`} value="delete" checked={choice === "delete"} onChange={() => setChoice("delete")} />
               <b>Delete the server</b>
               <ul className="cp-dialog-list">
-                <li>The server is deleted now, with its data if you choose, and {box.domain ?? "its address"} is removed.</li>
+                <li>The server is deleted now, with its data unless you choose to keep it, and {box.domain ?? "its address"} is removed.</li>
                 <li>The subscription ends now. The month already paid isn&rsquo;t refunded.</li>
                 <li>Next, you paste a Hetzner token and type the box&rsquo;s name.</li>
               </ul>
@@ -481,7 +481,8 @@ function DeleteForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
   const id = useId();
   const [typed, setTyped] = useState("");
   const [token, setToken] = useState("");
-  const [data, setData] = useState(false);
+  // Ticked by default: a deleted box's volume would sit in the project, billed, holding data nothing uses.
+  const [data, setData] = useState(true);
   const ready = typed.trim() === name && tokenOk(token);
   return (
     <form
@@ -496,13 +497,17 @@ function DeleteForm({ name, addr, price, busy, msg, act, onBack }: FormProps) {
         <li>
           Then the server and its firewall are deleted: only what carries this box&rsquo;s <span className="cp-mono">shiptiffin-box</span> label.
         </li>
-        <li>The data volume stays unless you tick the box below.</li>
-        <li>Off-site backups are deleted after 7 days.</li>
+        <li>The data volume goes too, unless you untick the box below.</li>
       </ul>
       <TokenInput id={`${id}-token`} value={token} onChange={setToken} hint="We delete only with a token you paste now; it is used for this, then forgotten." />
       <label className="cp-check">
-        <input type="checkbox" checked={data} onChange={(e) => setData(e.target.checked)} />
-        <span>Also delete the data volume: everything your apps stored. This can&rsquo;t be undone.</span>
+        <input type="checkbox" checked={data} onChange={(e) => setData(e.target.checked)} aria-describedby={`${id}-data`} />
+        <span>
+          Also delete the data volume: everything your apps stored. This can&rsquo;t be undone.
+          <span className="cp-hint cp-check-note" id={`${id}-data`}>
+            Your data is also kept in off-site backups for 7 days.
+          </span>
+        </span>
       </label>
       <Money price={price} />
       <TypeName id={`${id}-name`} name={name} value={typed} onChange={setTyped} />
@@ -566,6 +571,83 @@ export function PastInvoices() {
           {err}
         </span>
       )}
+    </>
+  );
+}
+
+/** Text to copy (a command, known_hosts lines), shown in full so it can be selected by hand too. */
+export function CopyText({ text, label = "Copy", block = false }: { text: string; label?: string; block?: boolean }) {
+  const [state, setState] = useState<"" | "ok" | "failed">("");
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setState("ok");
+    } catch {
+      setState("failed");
+    }
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState(""), 2400);
+  }
+  return (
+    <div className="cp-copy" data-block={block ? "" : undefined}>
+      {block ? <pre className="cp-mono">{text}</pre> : <code>{text}</code>}
+      <button type="button" className="btn btn-quiet btn-sm" onClick={copy} aria-live="polite">
+        {state === "ok" ? "Copied" : state === "failed" ? "Select and copy" : label}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Open SSH on a box set up without it: a Hetzner token, used once to add the
+ * one port-22 rule to the box's firewall. The server takes keys only.
+ */
+export function OpenSSH({ id, name }: { id: string; name: string }) {
+  const { msg, setMsg, busy, setBusy } = useAct(id);
+  const [open, setOpen] = useState(false);
+  const [token, setToken] = useState("");
+  const fid = useId();
+  const close = () => {
+    if (busy) return;
+    setOpen(false);
+    setMsg(null);
+    setToken("");
+  };
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy || !tokenOk(token)) return;
+    setBusy(true);
+    setMsg(null);
+    const r = await post(`/api/cloud/boxes/${id}/ssh`, { token: token.trim() });
+    setMsg({ ok: r.ok, text: r.message ?? (r.ok ? "Done." : "That didn't work.") });
+    if (r.ok) setTimeout(() => window.location.reload(), 1600);
+    else setBusy(false);
+  }
+  return (
+    <>
+      <div className="cp-row">
+        <button type="button" className="btn btn-quiet btn-sm" onClick={() => setOpen(true)}>
+          Open SSH…
+        </button>
+      </div>
+      <Dialog open={open} onClose={close} title={`Open SSH on ${name}`} busy={busy}>
+        <form className="cp-dialog-form" onSubmit={submit}>
+          <ul className="cp-dialog-list">
+            <li>We add one rule to your box&rsquo;s firewall in Hetzner: port 22, from anywhere.</li>
+            <li>The server takes SSH keys only, so only someone holding a key on it gets in. Add yours in your dashboard, under Settings › Server access.</li>
+            <li>Failed attempts are slowed down, and addresses that keep trying are banned.</li>
+          </ul>
+          <TokenInput id={`${fid}-token`} value={token} onChange={setToken} hint="Used to open SSH, then forgotten." />
+          <Status msg={msg} />
+          <DialogButtons busy={busy} onBack={close}>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !tokenOk(token)}>
+              {busy ? "Opening…" : "Open SSH"}
+            </button>
+          </DialogButtons>
+        </form>
+      </Dialog>
     </>
   );
 }

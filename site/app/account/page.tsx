@@ -17,7 +17,9 @@ export const metadata: Metadata = { title: "Your account", robots: { index: fals
 export const dynamic = "force-dynamic";
 
 // ?signin=asked#<box> (from Open dashboard): that box's card says a new sign-in link is on its way.
-export default async function Account() {
+// ?ssh=<box> (from the box's Settings › Server access): that box's Server access opens; ?ssh=1, every box's.
+export default async function Account({ searchParams }: { searchParams: Promise<{ ssh?: string }> }) {
+  const { ssh } = await searchParams;
   const acct = await currentAccount();
   if (!acct) redirect("/sign-in?next=/account");
   const ready = await tablesReady();
@@ -53,7 +55,7 @@ export default async function Account() {
         </div>
         {all.length === 0 && <p className="cp-sub">No boxes yet.</p>}
         {detail.map(({ b, calls, job }) => (
-          <BoxCard key={b.id} b={b} calls={calls} job={job} />
+          <BoxCard key={b.id} b={b} calls={calls} job={job} openAccess={ssh === "1" || ssh === b.id} />
         ))}
         {deleted.length > 0 && <DeletedList rows={deleted} invoices={invoices} />}
         <p className="cp-hint" style={{ marginTop: 32 }}>

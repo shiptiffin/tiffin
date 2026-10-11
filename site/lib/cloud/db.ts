@@ -27,7 +27,7 @@ export async function tablesReady(): Promise<boolean> {
   try {
     // The worker applies the schema; this build needs its newest columns too.
     const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_outbox') is not null
-      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'offsite_purged_at') as ok`;
+      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'ssh_open') as ok`;
     tablesSeen = Boolean(r?.ok);
   } catch {
     return false;
@@ -109,8 +109,17 @@ export type BoxRow = {
   /** When the box's off-site folder is emptied (7 days after it was deleted or released), and when it was. */
   offsite_purge_after: Date | null;
   offsite_purged_at: Date | null;
+  /** The owner's SSH keys installed at setup (public keys' facts only), as the worker recorded them. */
+  ssh_keys: InstalledKey[];
+  /** The server's host keys seen during setup, as known_hosts lines (for <name>.shiptiffin.app and the IPv4). */
+  host_keys: string | null;
+  /** Whether the box's firewall lets port 22 in (to keys only): set at setup with keys, or by the open-ssh job. */
+  ssh_open: boolean;
   created_at: Date;
 };
+
+/** One of cloud_boxes.ssh_keys: what the box was given, never a private key. */
+export type InstalledKey = { type: string; fingerprint: string; bits?: number; source: string; added: string };
 
 export type JobRow = {
   id: number;
@@ -228,7 +237,8 @@ export function pgOutbox(): OutboxStore {
         claimed as (update cloud_outbox o set next_attempt_at = now() + interval '10 minutes' from due where o.id = due.id returning o.*)
         select c.id::int as id, c.box_id, c.kind, c.key, c.params, c.attempts, coalesce(b.email, '') as email, b.name, b.last_heartbeat_at, b.extras_paused_at,
           b.kill_reason, b.stripe_subscription_id, b.status as box_status,
-          b.deleted_at, b.founding, b.first_paid_at, b.refunded_at, b.last_charge_cents, b.last_charge_currency, b.last_charge_at, b.plan_ended_at, c.created_at from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
+          b.deleted_at, b.founding, b.first_paid_at, b.refunded_at, b.last_charge_cents, b.last_charge_currency, b.last_charge_at, b.plan_ended_at, b.ssh_keys,
+          c.created_at from claimed c left join cloud_boxes b on b.id = c.box_id order by c.id`;
     },
     async done(id) {
       await s`update cloud_outbox set status = 'done', done_at = now(), attempts = attempts + 1, last_error = null where id = ${id}`;

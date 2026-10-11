@@ -5,6 +5,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { boxDomain, dashboardUrl, ZONE } from "../lib/cloud/names";
 import { NO_REFUND } from "../lib/cloud/money";
+import { keyKind, sourceWords } from "../lib/cloud/sshkey";
 import { READY } from "./theme";
 import { A, Code, Cta, Eyebrow, Facts, H1, Layout, LinkOut, P, Panel, Picture, Rule, Steps } from "./ui";
 
@@ -14,6 +15,8 @@ export type BoxCtx = {
   id?: string;
   /** https://shiptiffin.com, or SITE_URL. */
   site: string;
+  /** The SSH keys put on the server at setup (the ready email lists them, so an unexpected one is seen). */
+  sshKeys?: { type: string; fingerprint: string; bits?: number; source: string }[];
 };
 
 export type Built = { subject: string; element: ReactElement };
@@ -59,6 +62,7 @@ function Notice({ b, title, preview, children, why }: { b: BoxCtx; title: string
 
 export function Ready({ b }: { b: BoxCtx }) {
   const name = b.name ?? "your-box";
+  const keys = b.sshKeys ?? [];
   const dash = dashboardUrl(name);
   const open = b.id ? `${b.site}/api/cloud/boxes/${encodeURIComponent(b.id)}/open` : account(b);
   return (
@@ -117,15 +121,48 @@ export function Ready({ b }: { b: BoxCtx }) {
           },
         ]}
       />
+      <WayIn b={b} />
       <Panel
         title="What we did"
         items={[
           "Built the server, its firewall and its data volume in your own Hetzner project.",
-          "Removed our access: our setup key is off the server and SSH is closed.",
+          keys.length
+            ? `Removed our access: our setup key is off the server, and SSH lets in only ${keys.length === 1 ? "your key" : "your keys"}.`
+            : "Removed our access: our setup key is off the server and SSH is closed.",
           "Forgot your Hetzner key. The server is yours to keep.",
         ]}
       />
     </Layout>
+  );
+}
+
+/** The way back in: the SSH keys on the server and the one line that uses them, or (with none) the passkey. */
+function WayIn({ b }: { b: BoxCtx }) {
+  const keys = b.sshKeys ?? [];
+  const name = b.name ?? "your-box";
+  if (!keys.length) {
+    return (
+      <P quiet>
+        SSH is closed to everyone. Your passkey (Touch ID on a Mac) is your way back into the dashboard, so add one when you first sign in. You can add an
+        SSH key later, in the dashboard under Settings › Server access.
+      </P>
+    );
+  }
+  return (
+    <>
+      <Panel
+        title={keys.length === 1 ? "The SSH key on your server" : "The SSH keys on your server"}
+        items={keys.map((k) => (
+          <>
+            {keyKind(k.type, k.bits)} <Code>{k.fingerprint}</Code>, {sourceWords(k.source)}
+          </>
+        ))}
+      />
+      <P quiet>
+        Signed out of your dashboard? On a computer with {keys.length === 1 ? "this key" : "one of these keys"}, run <Code>{`ssh root@${name}.${ZONE} tiffin login`}</Code>{" "}
+        and open the link it prints. Don&rsquo;t recognise a key? Remove it in the dashboard, under Settings › Server access.
+      </P>
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 // A whole setup's steps as the provisioner writes them (internal/cloud/worker.go,
 // the Hetzner provider's Ensure, internal/install), with typical gaps between
-// them: the tests read it, and so can a local preview of the progress screen.
+// them, for an owner who added an SSH key: the tests read it, and so can a
+// local preview of the progress screen.
 import type { Step } from "./progress";
 
 const T0 = Date.parse("2026-10-08T12:00:00Z");
@@ -24,8 +25,8 @@ const RAW: [number, string][] = [
   [110, "provisioning system services (first run installs packages; later runs are quick)"],
   [232, "starting tiffin (rolls back automatically if unhealthy)"],
   [244, "Making your one-time sign-in link (it works once, for 24 hours)"],
-  [246, "Removing the setup key from your server"],
-  [248, "Closing SSH and deleting the setup key from your Hetzner project"],
+  [246, "Adding your SSH key and removing the setup key from your server"],
+  [248, "Closing setup access in your Hetzner project (SSH stays open to your key only)"],
   [255, "Forgot your Hetzner key (only its fingerprint SHA256:Xk3… stays)"],
   [256, "Waiting for https://dashboard.acme.shiptiffin.app to answer over HTTPS with a valid certificate"],
   [291, "Your box is ready"],

@@ -22,9 +22,22 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "Can ShipTiffin staff log in to my server?",
     a: (
       <p>
-        Not after setup. The setup SSH key is removed and port 22 is closed, and once you&rsquo;ve signed in we have no
-        way into your dashboard. If you want us to look at the server, write to hello@shiptiffin.com: you add a
-        temporary SSH key and open port 22 for us, and remove both afterwards. There is no button for it yet.
+        Not after setup. The setup SSH key is removed, port 22 is closed to everyone but your own key (if you add
+        one), and once you&rsquo;ve signed in we have no way into your dashboard. If you want us to look at the server,
+        write to hello@shiptiffin.com: you add a temporary SSH key for us in your dashboard (Settings › Server access),
+        and remove it afterwards.
+      </p>
+    ),
+  },
+  {
+    q: "What do I trust ShipTiffin with?",
+    a: (
+      <p>
+        During setup, this site and our setup worker see your Hetzner token and act as root on the new server, as any
+        installer does. The SSH keys put on it are listed in the &ldquo;ready&rdquo; email and in your account, so one
+        you don&rsquo;t recognise stands out. After setup we hold no key, no sign-in link and no token. Updates are
+        signed releases your box pulls itself: whoever holds our release key is trusted, as with any software you
+        install.
       </p>
     ),
   },
@@ -129,7 +142,7 @@ export default function Security() {
             [
               "Your server over SSH",
               <No key="a" />,
-              "After install, the setup key is removed from the server and from your project, and port 22 is closed to everyone.",
+              "After install, the setup key is removed from the server and from your project. Port 22 is closed to everyone but your own key, if you add one.",
             ],
             [
               "Your dashboard",
@@ -294,8 +307,8 @@ export default function Security() {
             [
               "Network",
               <p key="n">
-                The firewall lets in only the edge&rsquo;s ports (and SSH on a box you run yourself). App ports answer only
-                the box, and apps can&rsquo;t send mail straight out on port 25.
+                The firewall lets in only the edge&rsquo;s ports, and SSH for keys only (on a managed box, once you add
+                your key). App ports answer only the box, and apps can&rsquo;t send mail straight out on port 25.
               </p>,
             ],
             [

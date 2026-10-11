@@ -1,6 +1,7 @@
 // One box on /account, as a card: name, address and status; one main
 // button; a few facts; what needs your attention; the everyday changes
-// and the way out (Cancel subscription); and the Hetzner activity.
+// and the way out (Cancel subscription); server access (the SSH keys, the
+// way back in, the server's identity); and the Hetzner activity.
 // A box being deleted is a live progress card instead (deleting.tsx); a
 // deleted one, a quiet row under "Deleted" (DeletedRow). Pure (no
 // database): the page passes the rows in.
@@ -9,7 +10,9 @@ import { DNS_GRACE_DAYS, ENDED, extrasOn, UNMANAGED } from "@/lib/cloud/billing"
 import type { BoxRow, CallRow, JobRow } from "@/lib/cloud/db";
 import { family, RESIZE_TYPES } from "@/lib/cloud/hetzner";
 import { boxDomain, dashboardUrl } from "@/lib/cloud/names";
-import { BoxActions, PastInvoices, type BoxView } from "./account-actions";
+import { BoxActions, CopyText, OpenSSH, PastInvoices, type BoxView } from "./account-actions";
+import { hostFingerprints, knownHosts, recoveryCommand } from "@/lib/cloud/hostkeys";
+import { keyKind, sourceWords } from "@/lib/cloud/sshkey";
 import { Deleting } from "./deleting";
 import { goneLines, releasedLine } from "./words";
 import { dayWords, endedWords, priceWords } from "@/lib/cloud/money";
@@ -139,7 +142,81 @@ function DeletedRow({ b }: { b: BoxRow }) {
   );
 }
 
-export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls: CallRow[]; job: JobRow | null; now?: Date }) {
+/** "Open to your key", "Open to your 2 keys", "Closed": port 22 at the box's firewall. */
+function sshWords(b: BoxRow): string {
+  const n = (b.ssh_keys ?? []).length;
+  if (!b.ssh_open) return "Closed";
+  return n === 0 ? "Open to keys only" : n === 1 ? "Open to your key" : `Open to your ${n} keys`;
+}
+
+/**
+ * Server access: the keys put on the server at setup, how to get back into
+ * the dashboard with one, the server's identity as setup saw it, and (when
+ * SSH was skipped) a way to open it. Keys added later live in the dashboard.
+ */
+function ServerAccessFold({ b, name, open }: { b: BoxRow; name: string; open: boolean }) {
+  const keys = b.ssh_keys ?? [];
+  const lines = knownHosts(b.host_keys);
+  const prints = hostFingerprints(lines);
+  return (
+    <details className="cp-fold" id={`${b.id}-ssh`} open={open || undefined}>
+      <summary>
+        Server access <span className="cp-count">SSH {sshWords(b).toLowerCase()}</span>
+      </summary>
+      {keys.length > 0 ? (
+        <>
+          <p className="cp-hint">Keys put on the server at setup. Add or remove keys in your dashboard, under Settings › Server access.</p>
+          <ul className="cp-keys">
+            {keys.map((k) => (
+              <li key={k.fingerprint}>
+                <b>{keyKind(k.type, k.bits)}</b> <span className="cp-mono">{k.fingerprint}</span>
+                <span className="cp-muted">
+                  {sourceWords(k.source)}
+                  {k.added ? `, ${day(new Date(k.added))}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="cp-hint">No SSH key was added at setup. Add one in your dashboard, under Settings › Server access.</p>
+      )}
+      {b.ssh_open ? (
+        <div className="cp-recover">
+          <p>Signed out of your dashboard? On a computer with your key, run this and open the link it prints:</p>
+          <CopyText text={recoveryCommand(name)} />
+        </div>
+      ) : (
+        <div className="cp-recover">
+          <p>SSH is closed at your server&rsquo;s firewall. Open it to let in the keys on your server, and no one else.</p>
+          <OpenSSH id={b.id} name={name} />
+        </div>
+      )}
+      {lines.length > 0 && (
+        <details className="cp-fold cp-identity">
+          <summary>Server identity</summary>
+          <p className="cp-hint">
+            Recorded during setup. The first time you connect, ssh shows the server&rsquo;s fingerprint: it should be one of these. If ssh ever warns that the
+            key changed, stop and write to us.
+          </p>
+          <ul className="cp-keys">
+            {prints.map((p) => (
+              <li key={p.fingerprint}>
+                <b>{p.kind}</b> <span className="cp-mono">{p.fingerprint}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="cp-hint">
+            Or add these lines to <code>~/.ssh/known_hosts</code> on your computer, and ssh checks for you:
+          </p>
+          <CopyText text={lines.join("\n")} label="Copy lines" block />
+        </details>
+      )}
+    </details>
+  );
+}
+
+export function BoxCard({ b, calls, job, now = new Date(), openAccess = false }: { b: BoxRow; calls: CallRow[]; job: JobRow | null; now?: Date; openAccess?: boolean }) {
   if (b.status === "deleting" || b.status === "deleted") {
     // While it's deleted (and right after, until the page is next loaded): the live card.
     const j = job?.kind === "delete_server" ? job : null;
@@ -224,6 +301,8 @@ export function BoxCard({ b, calls, job, now = new Date() }: { b: BoxRow; calls:
       )}
 
       <BoxActions box={view} />
+
+      {b.name && (b.status === "active" || b.status === "cert_pending") && <ServerAccessFold b={b} name={b.name} open={openAccess} />}
 
       <details className="cp-fold">
         <summary>
