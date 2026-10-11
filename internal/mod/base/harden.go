@@ -70,7 +70,7 @@ PermitEmptyPasswords no
 PermitRootLogin prohibit-password
 AuthenticationMethods publickey
 AuthorizedKeysFile .ssh/authorized_keys ` + sshkeys.Dir + `/%u
-MaxAuthTries 3
+MaxAuthTries 6
 LoginGraceTime 30
 X11Forwarding no
 LogLevel VERBOSE

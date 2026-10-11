@@ -1472,6 +1472,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/me/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your ways back in
+         * @description How you can sign in again when this session ends: your passkeys, the server's SSH keys, sign-in by email and by Google or GitHub. People only (dashboard sessions, or the owner token); never API keys.
+         */
+        get: operations["me-recovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/monitor": {
         parameters: {
             query?: never;
@@ -1863,7 +1883,7 @@ export interface paths {
         put?: never;
         /**
          * Start adding a passkey
-         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never API keys (the dashboard calls this). A passkey signs in for good, so in a dashboard session adding one needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes, or a confirmation with one of your passkeys (POST /v1/session/confirm): reauth_required otherwise.
+         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never API keys (the dashboard calls this). A passkey signs in for good, so in a dashboard session adding one needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes, or a confirmation with one of your passkeys (POST /v1/session/confirm): reauth_required otherwise. A person's first passkey may be added within an hour of such a sign-in (for the owner, also their hand-off or `tiffin login` link).
          */
         post: operations["passkey-register-begin"];
         delete?: never;
@@ -5323,6 +5343,26 @@ export interface paths {
          * @description Revokes the current session token and clears the cookie.
          */
         delete: operations["session-delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/session/box": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which box is this?
+         * @description Whether ShipTiffin set this box up, and its domain, so the login page can say how to get back in. Never anyone's passkeys or keys.
+         */
+        get: operations["session-box"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -11347,6 +11387,27 @@ export interface components {
             type: string;
             value: string;
         };
+        Recovery: {
+            /** @description The box sends mail, so it can email a sign-in link */
+            email: boolean;
+            /** @description You have no passkey and signed in within the last hour: you can add your first one without confirming it's you */
+            firstPasskeyOpen: boolean;
+            /**
+             * Format: int64
+             * @description Your passkeys
+             */
+            passkeys: number;
+            /**
+             * Format: int64
+             * @description Sign-in providers (Google, GitHub) with keys set
+             */
+            providers: number;
+            /**
+             * Format: int64
+             * @description SSH keys that log in to the server as root (they make a new sign-in link with tiffin login)
+             */
+            sshKeys: number;
+        };
         Redirect: {
             destination: string;
             source: string;
@@ -12215,6 +12276,12 @@ export interface components {
         "Session-passkeyRequest": {
             /** @description The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded */
             credential: unknown;
+        };
+        SessionBox: {
+            /** @description The box's domain: its dashboard is dashboard.<host>, and it's the name to ssh to */
+            host: string;
+            /** @description ShipTiffin set this box up (its owner gets back in with ssh root@<host> tiffin login) */
+            managed: boolean;
         };
         SessionConfirmed: {
             /**
@@ -19742,6 +19809,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RenderedConfig"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "me-recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Recovery"];
                 };
             };
             /** @description Bad Request */
@@ -37622,6 +37754,71 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-box": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionBox"];
+                };
             };
             /** @description Bad Request */
             400: {

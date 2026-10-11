@@ -33,7 +33,7 @@ func TestUnattendedConfig(t *testing.T) {
 // such; an older drop-in (before Server access) reads back as out of date.
 func TestSSHDConfigReadsBack(t *testing.T) {
 	for _, want := range []string{"AuthenticationMethods publickey\n", "AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys.d/%u\n",
-		"MaxAuthTries 3\n", "LogLevel VERBOSE\n"} {
+		"MaxAuthTries 6\n", "LogLevel VERBOSE\n"} {
 		if !strings.Contains(sshdConfig, want) {
 			t.Errorf("sshd config lacks %q", want)
 		}

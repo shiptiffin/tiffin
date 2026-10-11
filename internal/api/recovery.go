@@ -12,7 +12,7 @@ import (
 )
 
 // ServerKeysFile is the SSH key file Tiffin manages for root (tests point
-// it elsewhere).
+// it elsewhere). A box on a server serves it as Deps.ServerKeys.
 var ServerKeysFile = sshkeys.File
 
 // SessionBox is what the login page may know about the box before anyone

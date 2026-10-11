@@ -20,10 +20,6 @@ import (
 // a recent strong sign-in; every change is in the audit log and emailed to
 // the owner.
 
-// ServerKeysFile is the managed key file sshd reads (tests point it at a
-// temp dir). A box on a server serves it as Deps.ServerKeys.
-var ServerKeysFile = sshkeys.File
-
 // ServerKey is one SSH key that logs in to the server as root.
 type ServerKey struct {
 	Type        string    `json:"type" doc:"The key type: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256, ssh-rsa..."`
