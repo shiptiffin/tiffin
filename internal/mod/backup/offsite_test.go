@@ -234,6 +234,7 @@ func TestAdoptState(t *testing.T) {
 	exec(live, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, created_at) VALUES ('tok_live', 'owner', 'owner', X'01', '[]', '[]', ?)`, at)
 	_ = live.KVPut(ctx, nsSets, "bk_live", []byte(`{"id":"bk_live"}`))
 	_ = live.KVPut(ctx, "box", "domain", []byte(`{"domain":"new.example"}`))
+	_ = live.KVPut(ctx, "tokens", "handoff_done", []byte("tok_s1")) // the owner has signed in
 	c := &OffsiteConfig{Endpoint: "https://e", Bucket: "b", Prefix: "tiffin", AccessKeyID: "AK", State: OffsiteForeign, SetAt: time.Now()}
 	if err := saveOffsite(ctx, p, c, &offsiteSecrets{SecretAccessKey: "sk", Passphrase: "pp"}); err != nil {
 		t.Fatal(err)
@@ -269,6 +270,9 @@ func TestAdoptState(t *testing.T) {
 	_ = got.SQL().QueryRowContext(ctx, `SELECT count(*) FROM tokens WHERE id IN ('tok_live', 'tok_old')`).Scan(&n)
 	if n != 2 {
 		t.Fatalf("tokens: %d of 2", n)
+	}
+	if done, err := tokens.NewManager(got).HandoffDone(ctx); err != nil || !done {
+		t.Fatalf("a backup from before the owner signed in reopened the hand-off: %v %v", done, err)
 	}
 	if sets, _ := got.KVList(ctx, nsSets); len(sets) != 1 || sets["bk_live"] == nil {
 		t.Fatalf("this box's backups must stay: %v", sets)

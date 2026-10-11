@@ -20,6 +20,7 @@ import (
 	"github.com/shiptiffin/tiffin/internal/mod/datakit"
 	"github.com/shiptiffin/tiffin/internal/platform"
 	"github.com/shiptiffin/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 // offsiteStage is where a restore from the bucket downloads a set.
@@ -207,7 +208,8 @@ var keptNamespaces = []string{"backup", nsSets, nsDrills, nsOffsite, "box"}
 // adoptState adapts a backup's state database (path, with its box key at
 // keyPath) to this box before it is swapped in: this box's owner tokens keep
 // working, its backups, domain and off-box destination stay (the
-// destination's secrets sealed again to the incoming key), and nothing of
+// destination's secrets sealed again to the incoming key), no sign-in it
+// has closed or spent opens again, and nothing of
 // the old box's running apps or resources' status is taken as fact.
 func adoptState(ctx context.Context, p *platform.Platform, path, keyPath string) error {
 	raw, err := os.ReadFile(keyPath)
@@ -255,6 +257,12 @@ func adoptState(ctx context.Context, p *platform.Platform, path, keyPath string)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r[:]...); err != nil {
 			return fmt.Errorf("keep this box's owner token: %w", err)
 		}
+	}
+
+	// Sign-ins don't go back in time: a closed hand-off stays closed, and
+	// links and sessions spent or ended since the backup stay that way.
+	if err := tokens.NewManager(live).CarryInto(ctx, tx); err != nil {
+		return fmt.Errorf("keep this box's sign-ins: %w", err)
 	}
 
 	// 2. This box's backups, drills, off-box destination and domain.

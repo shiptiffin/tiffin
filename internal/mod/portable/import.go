@@ -26,6 +26,7 @@ import (
 	"github.com/shiptiffin/tiffin/internal/mod/postgres"
 	"github.com/shiptiffin/tiffin/internal/platform"
 	"github.com/shiptiffin/tiffin/internal/state"
+	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
 func pendingDir(p *platform.Platform) string { return filepath.Join(dir(p), "pending") }
@@ -668,6 +669,12 @@ func fixState(ctx context.Context, path string, live *state.DB, man *boxfile.Man
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r[:]...); err != nil {
 			return fmt.Errorf("keep this box's owner token: %w", err)
 		}
+	}
+
+	// Sign-ins don't reopen: a closed hand-off stays closed, and only links
+	// and sessions that work on this box keep working.
+	if err := tokens.NewManager(live).CarryInto(ctx, tx); err != nil {
+		return fmt.Errorf("keep this box's sign-ins: %w", err)
 	}
 
 	// 2. Backups belong to this box's own repository.
