@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shiptiffin/tiffin/internal/sshkeys"
 )
 
 //go:embed schema.sql
@@ -75,6 +76,17 @@ type ServerInfo struct {
 	MAC        string
 }
 
+// Access is what a setup left of the owner's way into the server.
+type Access struct {
+	// SSHKeys are the owner's keys as read back from the server.
+	SSHKeys []sshkeys.Key
+	// HostKeys are known_hosts lines (the box's name and IPv4) for the host
+	// keys the setup saw.
+	HostKeys string
+	// SSHOpen: the firewall lets port 22 in from anywhere, for those keys.
+	SSHOpen bool
+}
+
 // Resources are the IDs of what we made in the customer's project.
 type Resources struct {
 	Server, Volume, Firewall, SSHKey int64
@@ -100,6 +112,10 @@ type Store interface {
 	SetDNS(ctx context.Context, l Lease, boxID, state string) error
 	SetFingerprint(ctx context.Context, l Lease, boxID, fp string) error
 	SetSignin(ctx context.Context, l Lease, boxID, code string, expires time.Time) error
+	// SetAccess records the owner's way in as the setup left it.
+	SetAccess(ctx context.Context, l Lease, boxID string, a Access) error
+	// SetSSHOpen records whether the firewall lets port 22 in for the owner's keys.
+	SetSSHOpen(ctx context.Context, l Lease, boxID string, open bool) error
 	// Deleted marks a box deleted for good (its address, server and
 	// firewall are gone; its data volume too when dataDeleted) and queues
 	// the "deleted" email, keyed by the job, in the same transaction.
@@ -347,7 +363,10 @@ func nullID(n int64) *int64 {
 
 func (s *PG) NextGeneration(ctx context.Context, l Lease, boxID string) (int64, error) {
 	var g int64
-	err := s.Pool.QueryRow(ctx, `update cloud_boxes set generation = generation + 1, updated_at = now() where id = $1`+fmt.Sprintf(fence, l.JobID, l.Gen)+` returning generation`, boxID).Scan(&g)
+	// A new setup starts with no owner access recorded: what an earlier one
+	// left describes a server that is gone.
+	err := s.Pool.QueryRow(ctx, `update cloud_boxes set generation = generation + 1, ssh_keys = '[]', host_keys = null, ssh_open = false, updated_at = now()
+		where id = $1`+fmt.Sprintf(fence, l.JobID, l.Gen)+` returning generation`, boxID).Scan(&g)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrLeaseLost
 	}
@@ -385,6 +404,23 @@ func (s *PG) SetSignin(ctx context.Context, l Lease, boxID, code string, expires
 		exp = &expires
 	}
 	return s.fenced(ctx, l, `update cloud_boxes set signin_code = $2, signin_expires_at = $3, updated_at = now() where id = $1`, boxID, nullable(code), exp)
+}
+
+func (s *PG) SetAccess(ctx context.Context, l Lease, boxID string, a Access) error {
+	keys := a.SSHKeys
+	if keys == nil {
+		keys = []sshkeys.Key{}
+	}
+	raw, err := json.Marshal(keys)
+	if err != nil {
+		return err
+	}
+	return s.fenced(ctx, l, `update cloud_boxes set ssh_keys = $2::jsonb, host_keys = $3, ssh_open = $4, updated_at = now() where id = $1`,
+		boxID, string(raw), nullable(a.HostKeys), a.SSHOpen)
+}
+
+func (s *PG) SetSSHOpen(ctx context.Context, l Lease, boxID string, open bool) error {
+	return s.fenced(ctx, l, `update cloud_boxes set ssh_open = $2, updated_at = now() where id = $1`, boxID, open)
 }
 
 // runningKinds are the emails about a box that runs; a deleted box gets none
