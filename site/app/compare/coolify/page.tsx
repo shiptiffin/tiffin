@@ -244,7 +244,7 @@ export default function CompareCoolify() {
               "“I always worry about security”",
               <>
                 The box allows SSH keys only, opens only SSH, HTTP and HTTPS, bans brute-force IPs with CrowdSec and rate
-                limits every app. On a managed box, SSH is closed to everyone once setup ends.{" "}
+                limits every app. On a managed box, SSH is closed to everyone but your own key, if you add one.{" "}
                 <Link href="/security">Your key, your server, your data</Link>.
               </>,
             ],

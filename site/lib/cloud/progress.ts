@@ -74,7 +74,12 @@ const RULES: Rule[] = [
   { re: /^starting tiffin/i, stage: "pack", say: "Starting Tiffin for the first time" },
   { re: /^Making your one-time sign-in link/, stage: "pack", say: "Making your one-time sign-in link" },
 
+  // The sign-in link above is made first (it needs our login); then the lock.
+  { re: /^Adding your SSH key and removing the setup key from your server/, stage: "lock", say: "Adding your SSH key and removing our login" },
   { re: /^Removing the setup key from your server/, stage: "lock", say: "Removing our login from your server" },
+  { re: /^Closing setup access in your Hetzner project \(SSH stays open to your key only\)/, stage: "lock", say: "Closing our access. SSH stays open to your key only" },
+  { re: /^Closing setup access in your Hetzner project/, stage: "lock", say: "Closing our access in the firewall" },
+  // Older jobs: SSH closed to everyone.
   { re: /^Closing SSH/, stage: "lock", say: "Closing SSH in the firewall" },
   // Older jobs, from when a token could be kept: the same final step.
   { re: /^Kept your Hetzner (key|API token)/, stage: "lock", say: "Forgetting your Hetzner API token" },

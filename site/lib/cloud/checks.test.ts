@@ -82,10 +82,32 @@ describe("checkToken", () => {
     if (!r.ok) return;
     expect(r.servers).toBe(2);
     expect(r.suggested?.serverType).toBe("cx23");
-    expect(seen.filter((k) => !k.startsWith("GET /latest"))).toHaveLength(5); // plus the exchange rate, not a Hetzner call
-    expect(calls).toHaveLength(5);
+    expect(seen.filter((k) => !k.startsWith("GET /latest"))).toHaveLength(6); // plus the exchange rate, not a Hetzner call
+    expect(calls).toHaveLength(6);
     expect(calls.map((c) => c.path)).toContain("/v1/ssh_keys");
+    expect(r.sshKeys).toEqual([]); // the project's key list didn't answer: none offered, the check still passes
     expect(JSON.stringify(calls)).not.toContain(token);
+  });
+
+  test("the project's SSH keys, every page, without our own setup keys", async () => {
+    const key = (name: string, labels: Record<string, string> = {}) => ({ id: 1, name, fingerprint: "b7:2f:00", public_key: `ssh-ed25519 AAAA ${name}`, labels });
+    const seen = fake({
+      "GET /server_types?per_page=50": [200, { server_types: TYPES }],
+      "GET /locations": [200, { locations: LOCS }],
+      "GET /pricing": [200, { pricing: PRICING }],
+      "GET /servers?per_page=1": [200, { servers: [] }],
+      "POST /ssh_keys": [400, { error: { code: "invalid_input" } }],
+      "GET /ssh_keys?per_page=50&page=1": [200, { ssh_keys: [key("laptop"), key("acme-setup", { "shiptiffin-box": "box_1" })], meta: { pagination: { next_page: 2 } } }],
+      "GET /ssh_keys?per_page=50&page=2": [200, { ssh_keys: [key("desktop")], meta: { pagination: { next_page: null } } }],
+    });
+    const r = await checkToken(token, () => {}, "https://api.example/v1");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sshKeys).toEqual([
+      { name: "laptop", public_key: "ssh-ed25519 AAAA laptop", fingerprint: "b7:2f:00" },
+      { name: "desktop", public_key: "ssh-ed25519 AAAA desktop", fingerprint: "b7:2f:00" },
+    ]);
+    expect(seen.filter((k) => k.startsWith("GET /ssh_keys"))).toHaveLength(2);
   });
 
   test("a read-only key is refused with how to fix it", async () => {

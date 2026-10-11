@@ -13,10 +13,10 @@ export const ACCOUNT = `${SITE}/account`;
 
 export type Mail = { to: string; subject: string; text: string; html?: string };
 
-/** The box an email is about. `id` sends "Open your dashboard" through the account. */
-type Box = { email: string; name: string | null; id?: string };
+/** The box an email is about. `id` sends "Open your dashboard" through the account; ssh_keys, the keys put on it at setup. */
+type Box = { email: string; name: string | null; id?: string; ssh_keys?: BoxCtx["sshKeys"] | null };
 
-const ctx = (b: Box): BoxCtx => ({ name: b.name, id: b.id, site: SITE });
+const ctx = (b: Box): BoxCtx => ({ name: b.name, id: b.id, site: SITE, sshKeys: Array.isArray(b.ssh_keys) ? b.ssh_keys : [] });
 
 async function build(to: string, e: Built): Promise<Mail> {
   const { html, text } = await renderEmail(e.element);

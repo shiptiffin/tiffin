@@ -13,6 +13,11 @@ const at = new Date("2026-10-08T14:32:00Z");
 
 export const samples: Sample[] = [
   { id: "ready", build: () => mails.ready(box) },
+  {
+    id: "ready-ssh",
+    build: () =>
+      mails.ready({ ...box, ssh_keys: [{ type: "ssh-ed25519", fingerprint: "SHA256:7oJ928ukdFrY45owr81fVRyRDiHgQDndpc0H7aU96zY", source: "github:sam" }] }),
+  },
   { id: "paid", build: () => mails.paid(box) },
   { id: "setup-failed", build: () => mails.setup_failed(box, "Hetzner answered 403: the token can't create servers in this project") },
   { id: "setup-failed-unnamed", build: () => mails.setup_failed(unnamed, "") },

@@ -12,6 +12,7 @@ import { decide, fromBox, probe, type MonitorBox } from "./monitor";
 import { drain, RUNNING_ONLY } from "./outbox";
 import { fingerprint, seal, tokenAAD } from "./seal";
 import type { Account } from "./session";
+import { checkKeyArgs, KeyError } from "./sshkey";
 import { FOUNDING_LIMIT, StripeError, stripeClient } from "./stripe";
 
 export class ActionError extends Error {
@@ -154,7 +155,11 @@ export async function checkKey(acct: Account, boxId: string, token: string) {
   return checkToken(token, (c) => q.recordCall(box.id, "check", c));
 }
 
-export type CreateInput = { token: string; name: string; serverType: string; location: string };
+/** sshKeys: the owner's public keys for the server, as the page showed them ({key, source}, at most 10). */
+export type CreateInput = { token: string; name: string; serverType: string; location: string; sshKeys?: unknown };
+
+/** A key the parser refused, as one sentence for the page. */
+const keyProblem = (e: KeyError) => `That SSH key won't work: ${e.message}.`;
 
 export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<void> {
   const box = await ownBox(acct, boxId);
@@ -169,6 +174,13 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
   if (!TYPES.has(input.serverType) || !LOCATIONS.has(input.location)) throw new ActionError("Pick one of the sizes and places listed.");
   const token = String(input.token ?? "").trim();
   if (!/^[A-Za-z0-9]{20,128}$/.test(token)) throw new ActionError("Paste your Hetzner token again.");
+  let sshKeys;
+  try {
+    sshKeys = checkKeyArgs(input.sshKeys);
+  } catch (e) {
+    if (e instanceof KeyError) throw new ActionError(keyProblem(e));
+    throw e;
+  }
   if (await q.jobsBusy(box.id)) throw new ActionError("Setup or its clean-up is still running. Try again in a minute.", 409);
   const sealed = seal(sealPublic(), token, tokenAAD(box.id));
   try {
@@ -179,7 +191,14 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
       if (rows.length === 0) throw new ActionError("This box changed meanwhile; reload the page.", 409);
       // The box's owner starts with the account's name when it has a real one (the box asks otherwise).
       const owner = ownerName(acct.name, acct.email);
-      await q.enqueue(box.id, "provision", { name, serverType: input.serverType, location: input.location, ...(owner ? { ownerName: owner } : {}) }, sealed, tx);
+      // The owner's SSH keys go as they were reviewed; the worker checks them again before it touches Hetzner.
+      await q.enqueue(
+        box.id,
+        "provision",
+        { name, serverType: input.serverType, location: input.location, ...(owner ? { ownerName: owner } : {}), ...(sshKeys.length ? { sshKeys } : {}) },
+        sealed,
+        tx,
+      );
     });
   } catch (e: any) {
     if (e?.code === "23505") throw new ActionError(`${boxDomain(name)} is taken. Try another name.`, 409);
@@ -268,7 +287,11 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       return "Done. We no longer hold a sign-in link for your box and won't ask it for another; sign in on the box itself.";
     case "new-signin":
       if (box.status !== "active") throw new ActionError("The box isn't ready yet.");
-      if (box.handoff_closed_at) throw new ActionError("Your box says you signed in already, so it makes no more links for us: sign in on the box itself with your passkey (without one, run tiffin login --home /var/lib/tiffin/platform in the server's console at Hetzner).");
+      if (box.handoff_closed_at) {
+        throw new ActionError(
+          `Your box says you signed in already, so it makes no more links for us: sign in on the box itself with your passkey (without one, run ssh root@${boxDomain(box.name ?? "")} tiffin login with your SSH key, or tiffin login in the server's console at Hetzner).`,
+        );
+      }
       await s`update cloud_boxes set signin_requested_at = now() where id = ${box.id} and handoff_closed_at is null`;
       return "Asked your box for a new one-time sign-in link. It makes it at its next check-in (within about ten minutes); then click Open dashboard.";
     case "resize": {
@@ -328,6 +351,22 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       return "Done. We no longer manage this box; the server runs on in your Hetzner account. Its off-site backups in our storage are deleted after 7 days.";
     }
   }
+}
+
+/**
+ * Opens SSH on a box set up without it: the open-ssh job adds the one port-22
+ * rule to the box's own firewall, with a token pasted now (then forgotten).
+ * The server takes keys only, so this lets in nobody without a key on it.
+ */
+export async function openSSH(acct: Account, boxId: string, rawToken: unknown): Promise<string> {
+  const box = await ownBox(acct, boxId);
+  if (box.status !== "active") throw new ActionError(UNMANAGED.has(box.status) ? "We no longer manage this box: change its firewall in the Hetzner console." : "The box isn't ready yet.");
+  if (box.ssh_open) throw new ActionError("SSH is already open on this box (to keys only).");
+  const token = String(rawToken ?? "").trim();
+  if (!/^[A-Za-z0-9]{20,128}$/.test(token)) throw new ActionError("Paste a Hetzner token to open SSH: we use it for this, then forget it.");
+  if (await q.jobsBusy(box.id)) throw new ActionError("Something is already running for this box.", 409);
+  await q.enqueue(box.id, "open-ssh", {}, seal(sealPublic(), token, tokenAAD(box.id)));
+  return "Opening SSH: the firewall lets port 22 in within a minute. Only keys on the server get in.";
 }
 
 // ---- box check-in ----

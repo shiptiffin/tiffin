@@ -27,6 +27,8 @@ export type OutboxRow = {
   box_status: string | null;
   /** For the "deleted" email: when, and the money (lib/cloud/money.ts). */
   deleted_at?: Date | null;
+  /** For the "ready" email: the SSH keys put on the server at setup. */
+  ssh_keys?: { type: string; fingerprint: string; bits?: number; source: string }[] | null;
 } & Partial<MoneyRow> & {
   created_at: Date;
 };

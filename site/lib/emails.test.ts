@@ -56,6 +56,29 @@ describe("your box is ready", () => {
     const m = await mails.ready({ email: "sam@example.com", name: "shop" });
     expect(m.text).toContain("Open your dashboard: https://shiptiffin.com/account");
   });
+  test("the SSH keys put on the server are listed, with the line that gets you back in", async () => {
+    const ssh_keys = [
+      { type: "ssh-ed25519", fingerprint: "SHA256:7oJ928ukdFrY45owr81fVRyRDiHgQDndpc0H7aU96zY", source: "github:sam", added: "2026-10-11T00:00:00Z" },
+      { type: "ssh-rsa", bits: 4096, fingerprint: "SHA256:FwJsYzRPU99vUTD2bbFuobuy8b06NDyG+WOk8nCp+Gg", source: "pasted", added: "2026-10-11T00:00:00Z" },
+    ];
+    const m = await mails.ready({ email: "sam@example.com", name: "shop", id: "box_1", ssh_keys });
+    for (const part of [m.html!, m.text]) {
+      expect(part).toContain("SHA256:7oJ928ukdFrY45owr81fVRyRDiHgQDndpc0H7aU96zY");
+      expect(part).toContain("from GitHub (@sam)");
+      expect(part).toContain("RSA 4096");
+      expect(part).toContain("ssh root@shop.shiptiffin.app tiffin login");
+      expect(part).toContain("SSH lets in only your keys");
+      expect(part).not.toContain("SSH is closed");
+    }
+  });
+  test("without SSH keys: SSH is closed, and the passkey is the way back", async () => {
+    for (const ssh_keys of [undefined, []]) {
+      const m = await mails.ready({ email: "sam@example.com", name: "shop", id: "box_1", ssh_keys });
+      expect(m.text).toContain("SSH is closed to everyone");
+      expect(m.text).toContain("Touch ID");
+      expect(m.text).not.toContain("tiffin login");
+    }
+  });
 });
 
 test("values from outside are escaped in the HTML and left as they are in the text", async () => {

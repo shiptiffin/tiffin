@@ -71,13 +71,17 @@ export function Progress({ box, status, job, now: fixedNow }: { box: Box; status
 
   if (r.ready || status === "active") {
     const took = r.firstAt != null && r.lastAt != null && r.lastAt > r.firstAt ? duration(r.lastAt - r.firstAt) : null;
+    const withKey = steps.some((s) => s.text.startsWith("Adding your SSH key"));
     return (
       <div className="cp-card pg pg-ready">
         <Scene id="ready" name={box.name ?? ""} className="pg-scene" />
         <div aria-live="polite">
           <p className="pg-eyebrow">{domain}</p>
           <h2 className="pg-title">Up and running</h2>
-          <p className="pg-say">{took ? `Made in ${took}. ` : ""}It runs on your own server, and our setup key is gone from it. We hold only the sign-in link below, until you use it.</p>
+          <p className="pg-say">
+            {took ? `Made in ${took}. ` : ""}It runs on your own server. Our setup key is gone from it, and SSH {withKey ? "lets in only your key" : "is closed"}. We
+            hold only the sign-in link below, until you use it.
+          </p>
         </div>
         <div className="cp-row">
           <a className="btn btn-primary pg-open" href={`/api/cloud/boxes/${box.id}/open`}>

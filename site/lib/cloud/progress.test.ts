@@ -15,7 +15,9 @@ describe("progress stages", () => {
     expect(stageOf(upTo("Waiting for the server to start"))).toBe("address");
     expect(stageOf(upTo("formatting"))).toBe("pack"); // an unmatched line stays where it was
     expect(stageOf(upTo("provisioning system services"))).toBe("pack");
-    expect(stageOf(upTo("Removing the setup key"))).toBe("lock");
+    expect(stageOf(upTo("Making your one-time sign-in link"))).toBe("pack");
+    expect(stageOf(upTo("Adding your SSH key"))).toBe("lock");
+    expect(stageOf(upTo("Closing setup access"))).toBe("lock");
     expect(stageOf(upTo("Forgot your Hetzner key"))).toBe("lock");
     expect(stageOf(upTo("Waiting for https://"), "cert_pending")).toBe("cert");
   });
@@ -25,15 +27,40 @@ describe("progress stages", () => {
     expect(readSteps(upTo("creating the 40 GB"), "provisioning").say).toBe("Adding a 40 GB data disk");
     expect(readSteps(upTo("Pointing"), "provisioning").say).toBe("Pointing acme.shiptiffin.app at it");
     expect(readSteps(upTo("provisioning system services"), "provisioning").say).toMatch(/system packages/);
-    const lock = readSteps(upTo("Removing the setup key"), "provisioning").say;
-    expect(lock).toBe("Removing our login from your server");
+    expect(readSteps(upTo("Adding your SSH key"), "provisioning").say).toBe("Adding your SSH key and removing our login");
+    expect(readSteps(upTo("Closing setup access"), "provisioning").say).toBe("Closing our access. SSH stays open to your key only");
     for (const s of STAGES) expect(`${s.title} ${s.blurb}`).not.toMatch(/\bkey\b/i);
     // An older job that kept the token: the same last step.
     const old = [
-      ...upTo("Closing SSH"),
+      ...upTo("Closing setup access"),
       { at: "2026-10-08T12:04:15Z", text: "Kept your Hetzner key, sealed, for one-click resizes (remove it any time)" },
     ];
     expect(readSteps(old, "provisioning").say).toBe("Forgetting your Hetzner API token");
+  });
+
+  test("without an SSH key, and in older jobs: the same lock stage, in order", () => {
+    const head = upTo("Making your one-time sign-in link");
+    const t = (s: number) => new Date(Date.parse(head.at(-1)!.at) + s * 1000).toISOString();
+    const noKey = [
+      ...head,
+      { at: t(2), text: "Removing the setup key from your server" },
+      { at: t(4), text: "Closing setup access in your Hetzner project" },
+    ];
+    expect(readSteps(noKey.slice(0, -1), "provisioning").say).toBe("Removing our login from your server");
+    expect(readSteps(noKey, "provisioning")).toMatchObject({ stage: STAGES.findIndex((s) => s.id === "lock"), say: "Closing our access in the firewall" });
+    const older = [
+      ...head,
+      { at: t(2), text: "Removing the setup key from your server" },
+      { at: t(4), text: "Closing SSH and deleting the setup key from your Hetzner project" },
+    ];
+    expect(readSteps(older, "provisioning").say).toBe("Closing SSH in the firewall");
+    // The sign-in link is made before the lock: the stages still only move forward.
+    let last = 0;
+    for (let n = 1; n <= noKey.length; n++) {
+      const i = readSteps(noKey.slice(0, n), "provisioning").stage;
+      expect(i).toBeGreaterThanOrEqual(last);
+      last = i;
+    }
   });
 
   test("a reworded or unknown step never moves backwards", () => {
@@ -46,7 +73,7 @@ describe("progress stages", () => {
   });
 
   test("the box status knows more than the steps", () => {
-    expect(stageOf(upTo("Closing SSH"), "cert_pending")).toBe("cert");
+    expect(stageOf(upTo("Closing setup access"), "cert_pending")).toBe("cert");
     expect(readSteps(upTo("Pointing"), "active").ready).toBe(true);
   });
 
@@ -108,7 +135,7 @@ describe("progress stages", () => {
 
 test("installed but the last steps failed: flagged for a person", () => {
   const steps = [
-    ...upTo("Removing the setup key"),
+    ...upTo("Adding your SSH key"),
     {
       at: "2026-10-08T12:04:10Z",
       text: "Tiffin is installed, but the last setup steps didn't finish (x). Your server and its data are kept; we look at it and email you.",

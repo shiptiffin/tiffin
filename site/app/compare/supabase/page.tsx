@@ -284,9 +284,9 @@ export default function CompareSupabase() {
               <>
                 Every project already has its own Postgres; add extensions such as pgvector in{" "}
                 <code>tiffin.config.ts</code>. On a box you set up with <code>tiffin up</code>,{" "}
-                <code>tiffin db tunnel</code> lets you load a <code>pg_dump</code> from your computer. A managed box closes
-                SSH after setup, so the tunnel doesn&rsquo;t reach it. <Link href="/docs/data#from-your-computer">From your
-                computer</Link>.
+                <code>tiffin db tunnel</code> lets you load a <code>pg_dump</code> from your computer. On a managed box,
+                SSH is closed to everyone but your own key, if you add one, and the tunnel doesn&rsquo;t reach it.{" "}
+                <Link href="/docs/data#from-your-computer">From your computer</Link>.
               </>,
             ],
             [

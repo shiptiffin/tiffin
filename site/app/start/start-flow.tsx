@@ -1,10 +1,12 @@
 "use client";
 // The steps of /start that happen in the browser: pay, connect Hetzner (the
-// key stays in this page's memory until "Create"), choose, watch, open.
-import { useEffect, useMemo, useRef, useState } from "react";
+// key stays in this page's memory until "Create"), choose (name, size, place
+// and a way into the server), watch, open.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nameProblem, ZONE } from "@/lib/cloud/names";
-import type { CheckResult, Option } from "@/lib/cloud/hetzner";
+import type { CheckResult, HetznerKey, Option } from "@/lib/cloud/hetzner";
 import { Progress, Stopped, type Job } from "./progress";
+import { ServerAccess, type Access } from "./server-access";
 
 const STEPS = ["Account", "Pay", "Connect Hetzner", "Create", "Open"];
 
@@ -211,6 +213,8 @@ export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job:
   );
 }
 
+const NO_KEYS: HetznerKey[] = [];
+
 function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string; r: Extract<CheckResult, { ok: true }>; onStarted: (name: string) => void; onBack: () => void }) {
   const [name, setName] = useState(box.name ?? "");
   // Whether the typed name is free, asked of the server a moment after typing stops.
@@ -218,6 +222,8 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
   const [pick, setPick] = useState(r.suggested ? `${r.suggested.serverType}@${r.suggested.location}` : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [access, setAccess] = useState<Access>({ keys: [], skipped: false, blocked: null });
+  const onAccess = useCallback((a: Access) => setAccess(a), []);
   const why = name ? nameProblem(name) : null;
   // Answers already given, so going back to a name doesn't ask again.
   const asked = useRef(new Map<string, { name: string; available: boolean; message: string }>());
@@ -253,7 +259,9 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
     const [serverType, location] = pick.split("@");
     setBusy(true);
     setError("");
-    const res = await post(`/api/cloud/boxes/${box.id}/create`, { token, name, serverType, location });
+    // Exactly the keys the owner reviewed above, as they were shown.
+    const sshKeys = access.keys.map(({ key, source }) => ({ key, source }));
+    const res = await post(`/api/cloud/boxes/${box.id}/create`, { token, name, serverType, location, sshKeys });
     if (res.ok || (await started())) onStarted(name);
     else {
       setError(res.message ?? "Setup couldn't start.");
@@ -297,69 +305,83 @@ function Choose({ box, token, r, onStarted, onBack }: { box: Box; token: string;
       </fieldset>
     );
 
+  const accessReady = !access.blocked && (access.skipped || access.keys.length > 0);
   return (
-    <form className="cp-card" onSubmit={create}>
-      <div className="cp-row spread">
-        <h2>Name, size and place</h2>
-        <button type="button" className="cp-link" onClick={onBack}>
-          Use another key
-        </button>
-      </div>
-      <p className="cp-ok">Key checked: read &amp; write, prices from your account.</p>
-      {r.servers > 0 && (
-        <p className="cp-hint">
-          This project already has {r.servers} server{r.servers > 1 ? "s" : ""}. We only ever touch what we create for this box (labelled
-          shiptiffin-box with its id), but a new, empty project keeps the key away from everything else.
-        </p>
-      )}
-      <div className="cp-field">
-        <label htmlFor="box-name">Name</label>
-        <div className="cp-name">
-          <input
-            id="box-name"
-            type="text"
-            value={name}
-            readOnly={Boolean(box.name)}
-            onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-            placeholder="your-name"
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={30}
-          />
-          <span>.{ZONE}</span>
+    <form onSubmit={create}>
+      <div className="cp-card">
+        <div className="cp-row spread">
+          <h2>Name, size and place</h2>
+          <button type="button" className="cp-link" onClick={onBack}>
+            Use another key
+          </button>
         </div>
-        {why ? (
-          <p className="cp-err">{why}</p>
-        ) : taken ? (
-          <p className="cp-err">{free.message}</p>
-        ) : (
+        <p className="cp-ok">Key checked: read &amp; write, prices from your account.</p>
+        {r.servers > 0 && (
           <p className="cp-hint">
-            {free?.name === name && free.available ? `${free.message} ` : ""}Your dashboard will be dashboard.{name || "your-name"}.{ZONE}; apps go under it.
-            Add your own domain any time.
+            This project already has {r.servers} server{r.servers > 1 ? "s" : ""}. We only ever touch what we create for this box (labelled
+            shiptiffin-box with its id), but a new, empty project keeps the key away from everything else.
+          </p>
+        )}
+        <div className="cp-field">
+          <label htmlFor="box-name">Name</label>
+          <div className="cp-name">
+            <input
+              id="box-name"
+              type="text"
+              value={name}
+              readOnly={Boolean(box.name)}
+              onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+              placeholder="your-name"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={30}
+            />
+            <span>.{ZONE}</span>
+          </div>
+          {why ? (
+            <p className="cp-err">{why}</p>
+          ) : taken ? (
+            <p className="cp-err">{free.message}</p>
+          ) : (
+            <p className="cp-hint">
+              {free?.name === name && free.available ? `${free.message} ` : ""}Your dashboard will be dashboard.{name || "your-name"}.{ZONE}; apps go under it.
+              Add your own domain any time.
+            </p>
+          )}
+        </div>
+        {group("Europe", eu)}
+        {group("United States", us)}
+        {r.options.length === 0 && <p className="cp-err">Hetzner offers none of our sizes to this account right now. Try again later.</p>}
+        <p className="cp-hint">
+          Prices are Hetzner&rsquo;s, from your account, before VAT: the server, its IPv4 address and a 40 GB data volume. Hetzner bills
+          you directly
+          {r.currency.toUpperCase() !== "USD" && r.usdRate != null
+            ? `, in ${r.currency.toUpperCase()}; the dollar amounts are approximate, at today's exchange rate`
+            : ""}
+          .
+        </p>
+      </div>
+      <ServerAccess hetzner={r.sshKeys ?? NO_KEYS} onChange={onAccess} />
+      <div className="cp-create">
+        <div className="cp-row">
+          <button className="btn btn-primary" disabled={busy || !name || Boolean(why) || taken || !pick || !accessReady}>
+            {busy ? "Starting…" : "Create my box"}
+          </button>
+          <span className="cp-hint">
+            {access.blocked ??
+              (access.keys.length
+                ? `With ${access.keys.length === 1 ? "your SSH key" : `${access.keys.length} SSH keys`}.`
+                : access.skipped
+                  ? "Without SSH."
+                  : "Add a key above, or continue without SSH.")}
+          </span>
+        </div>
+        {error && (
+          <p className="cp-err" role="alert">
+            {error}
           </p>
         )}
       </div>
-      {group("Europe", eu)}
-      {group("United States", us)}
-      {r.options.length === 0 && <p className="cp-err">Hetzner offers none of our sizes to this account right now. Try again later.</p>}
-      <p className="cp-hint">
-        Prices are Hetzner&rsquo;s, from your account, before VAT: the server, its IPv4 address and a 40 GB data volume. Hetzner bills
-        you directly
-        {r.currency.toUpperCase() !== "USD" && r.usdRate != null
-          ? `, in ${r.currency.toUpperCase()}; the dollar amounts are approximate, at today's exchange rate`
-          : ""}
-        .
-      </p>
-      <div className="cp-row">
-        <button className="btn btn-primary" disabled={busy || !name || Boolean(why) || taken || !pick}>
-          {busy ? "Starting…" : "Create my box"}
-        </button>
-      </div>
-      {error && (
-        <p className="cp-err" role="alert">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

@@ -1,6 +1,6 @@
-// POST /api/cloud/boxes/:id/create {token, name, serverType, location}:
+// POST /api/cloud/boxes/:id/create {token, name, serverType, location, sshKeys}:
 // queues the setup. The key travels sealed with the job and is forgotten
-// when it ends.
+// when it ends; the owner's SSH public keys (up to 10) travel as they are.
 import { ActionError, createBox, type CreateInput } from "@/lib/cloud/actions";
 import { actionLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";
@@ -12,7 +12,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const acct = await currentAccount({ fresh: true });
   if (!acct) return problem(401, "Sign in first.");
   if (!actionLimit(acct.id)) return problem(429, "Too many tries. Wait a few minutes.");
-  const body = await readJson<CreateInput>(request);
+  const body = await readJson<CreateInput>(request, 40_000);
   if (!body) return problem(400, "Bad request.");
   try {
     await createBox(acct, (await params).id, body);
