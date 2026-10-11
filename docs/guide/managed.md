@@ -75,14 +75,31 @@ and your coding agent with an API key: see
 
 ## What ShipTiffin can and can't do on your server
 
-- **No login after setup.** Setup logs in as root with an SSH key made for that one job,
-  through a firewall rule that lets only the worker's own address reach port 22. After the
-  install it deletes the key's line from `/root/.ssh/authorized_keys`, deletes the SSH key
-  object from your project, removes the firewall's SSH rule, checks all three are gone, and
-  deletes the private key (a worker that stops mid-setup deletes leftover keys when it
-  starts again, and the failed setup is cleaned up). Port 22 is then closed to everyone;
-  HTTP, HTTPS and ping stay open. (Hetzner's cloud-init adds keys only on a server's first
-  boot, so a reboot or a resize does not bring the key back.)
+- **No login for us after setup.** Setup logs in as root with an SSH key made for that
+  one job, through a firewall rule that lets only the worker's own address reach port 22.
+  After the install, in one command on the server, it writes your own SSH keys (if you
+  added any) to `/etc/ssh/authorized_keys.d/root`, deletes the setup key's line from
+  `/root/.ssh/authorized_keys` and reads both back. Then it deletes the setup key object
+  from your project and leaves the firewall with exactly one SSH rule (port 22 from
+  anywhere, for your keys) or, without your keys, none. It checks the result, and deletes
+  the private key (a worker that stops mid-setup deletes leftover keys when it starts
+  again, and the failed setup is cleaned up). A failure making your sign-in link doesn't
+  skip this. HTTP, HTTPS and ping stay open. (Hetzner's cloud-init adds keys only on a
+  server's first boot, so a reboot or a resize does not bring the setup key back.)
+- **Your own SSH key, if you add one.** At setup you can add your computer's public key:
+  from your GitHub username (your browser reads `api.github.com/users/<you>/keys`, the
+  public halves you gave GitHub; ShipTiffin never contacts GitHub, and you pick which keys
+  from the list), pasted, or one already in your Hetzner project. Keys are checked (ed25519,
+  security keys, ECDSA, or RSA of at least 3072 bits; no options or certificates) and
+  written by the worker itself, so nothing else from the page reaches the file. They're
+  copied once: a key you later remove on GitHub stays on the server until you remove it
+  in **Settings › Server access**. With a key, SSH stays open for key login only: no
+  passwords, root by key only, failed attempts slowed down by OpenSSH and banned by
+  CrowdSec and the box's firewall. The keys and the server's host keys recorded during
+  setup are listed in your account and the ready email, so an unexpected key is visible.
+  Getting back in is then one line: `ssh root@<name>.shiptiffin.app tiffin login` prints a
+  one-time sign-in link. Skipped it? **Open SSH** in your account opens port 22 again
+  (it asks for a Hetzner token once), then add a key in the dashboard.
 - **One-time sign-in links, until you sign in.** ShipTiffin never holds your box's owner
   token: it stays on the box. Your box makes one-time owner sign-in links and we keep only
   the newest. Your box enforces them: a link works once, and the box refuses it 24 hours
@@ -104,7 +121,9 @@ and your coding agent with an API key: see
   after a backup, or at a time you set ([Tiffin's own
   updates](quickstart.md#tiffins-own-updates)); ShipTiffin never
   connects to it to install anything. The only inbound requests from ShipTiffin are the monitor's: `GET
-  https://dashboard.<name>.shiptiffin.app/v1/health` every five minutes.
+  https://dashboard.<name>.shiptiffin.app/v1/health` every five minutes. A signed release runs as root like any software you install, so whoever holds
+  Tiffin's release key is trusted: that, not a login, is the one way new code from us
+  reaches your server.
 - **The check-in.** Every six hours the box posts its Tiffin version, uptime, the
   *names* of any failing status checks and whether its owner has signed in yet to
   shiptiffin.com, with its licence (an ed25519-signed token naming the box and its setup;
