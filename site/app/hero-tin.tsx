@@ -250,10 +250,10 @@ export function HeroTin() {
           <div className="ht-faceset">
             <Layer className="ht-face">
               <g className="ht-eyes">
-                <circle cx={CX - 26} cy={RIM.mid + 70} r="6.5" className="dot" />
-                <circle cx={CX + 26} cy={RIM.mid + 70} r="6.5" className="dot" />
+                <circle cx={CX - 26} cy={RIM.mid + 79} r="6.5" className="dot" />
+                <circle cx={CX + 26} cy={RIM.mid + 79} r="6.5" className="dot" />
               </g>
-              <path className="o thin ht-mouth" pathLength="1" d={`M${CX - 11} ${RIM.mid + 86}q11 9 22 0`} />
+              <path className="o thin ht-mouth" pathLength="1" d={`M${CX - 11} ${RIM.mid + 95}q11 9 22 0`} />
             </Layer>
           </div>
         </div>
