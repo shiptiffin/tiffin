@@ -1,14 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RenameSelf } from "@/components/name-ask";
 import { useState, type ReactNode } from "react";
-import { ApiError, api, isProblem, notOnBox, type Invite, type Passkey, type Person, type Role } from "@/api/client";
+import { api, notOnBox, type Invite, type Passkey, type Person, type Role } from "@/api/client";
 import { q } from "@/api/queries";
 import { ActorMark } from "@/components/actor";
 import { Confirm } from "@/components/confirm";
-import { ConfirmItsYou } from "@/components/confirm-its-you";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { ProblemNote, sentence } from "@/components/problem";
+import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Radio, RadioGroup } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,7 +16,10 @@ import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { roleCopy, useMe } from "@/lib/me";
 import { expiry, relative } from "@/lib/time";
-import { createCredential, passkeyError, passkeyWords, webauthnSupported } from "@/lib/webauthn";
+import { passkeyWords, webauthnSupported } from "@/lib/webauthn";
+import { deviceName, PasskeyConfirm, usePasskeySetup } from "@/components/passkey-setup";
+import { aq } from "@/api/access";
+import { noWayBack } from "@/lib/recovery";
 import { NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { accessCrumbs, Facts, Group, Rows } from "@/components/health-kit";
 import { countWords } from "@/lib/format";
@@ -32,35 +34,25 @@ import { Link } from "@tanstack/react-router";
 export function PasskeysPage() {
   const words = passkeyWords();
   useTitle(words.title);
-  const qc = useQueryClient();
   const keys = useQuery(q.passkeys);
   const { name: me } = useMe();
   const [label, setLabel] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Passkey | null>(null);
   // Sudo mode: a passkey signs in for good, so adding one needs a sign-in
   // from the last 10 minutes; the box says reauth_required and we ask.
-  const [confirm, setConfirm] = useState<"ask" | "done" | null>(null);
+  const setup = usePasskeySetup();
+  const qc = useQueryClient();
+  const recovery = useQuery({ ...aq.recovery, enabled: !!removing });
+  // Removing the last passkey when nothing else can sign this person in again.
+  const lastWayIn = !!recovery.data && noWayBack({ ...recovery.data, passkeys: recovery.data.passkeys - 1 });
 
   if (keys.isError && notOnBox(keys.error)) return <NotOnBox what="Passkeys" />;
 
   const add = async () => {
-    setAdding(true);
-    setError(null);
-    try {
-      const options = await api.beginPasskey();
-      const credential = await createCredential(options);
-      await api.addPasskey(label.trim() || defaultName(), credential);
-      setLabel("");
-      qc.invalidateQueries({ queryKey: ["passkeys"] });
-    } catch (e) {
-      if (isProblem(e, "reauth_required")) setConfirm("ask");
-      else setError(e instanceof ApiError ? sentence(e.problem.detail ?? e.message) : passkeyError(e));
-    } finally {
-      setAdding(false);
-    }
+    if (await setup.add(label)) setLabel("");
   };
+  const adding = setup.busy;
+  const error = setup.error;
 
   const list = keys.data ?? [];
   return (
@@ -112,7 +104,7 @@ export function PasskeysPage() {
             void add();
           }}
         >
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={defaultName()} maxLength={64} aria-label="Device name" />
+          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={deviceName()} maxLength={64} aria-label="Device name" />
           <Button type="submit" variant={list.length ? "secondary" : "primary"} size="lg" className="h-9" disabled={adding || !webauthnSupported()}>
             {adding ? `Waiting for ${words.button}…` : "Set up this device"}
           </Button>
@@ -126,67 +118,33 @@ export function PasskeysPage() {
         )}
       </Group>
 
-      <Dialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
-        <DialogContent className="max-w-md">
-          {confirm === "ask" && (
-            <ConfirmItsYou
-              why="A passkey signs in as you from now on, so Tiffin checks it’s really you first: adding one needs a sign-in from the last 10 minutes."
-              back="/settings/passkeys"
-              onBack={() => setConfirm(null)}
-              onConfirmed={() => setConfirm("done")}
-              noPasskeyNote="With Google, GitHub or an emailed link you ask for; the owner can also use a fresh tiffin login. A link someone else made doesn’t count."
-            />
-          )}
-          {confirm === "done" && (
-            <>
-              <DialogHeader>
-                <DialogTitle>It’s you</DialogTitle>
-                <DialogDescription>For the next 10 minutes you can add passkeys. Your browser asks for {words.how} next.</DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button type="button" variant="ghost" onClick={() => setConfirm(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setConfirm(null);
-                    void add();
-                  }}
-                >
-                  Set up this device
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <PasskeyConfirm
+        state={setup.confirm}
+        onClose={() => setup.setConfirm(null)}
+        onConfirmed={() => setup.setConfirm("done")}
+        retry={() => void add()}
+        again="Set up this device"
+        back="/settings/passkeys"
+      />
 
       <Confirm
         open={!!removing}
         onClose={() => setRemoving(null)}
         title={`Remove ${removing?.name ?? "this device"}?`}
-        body="It can’t sign you in any more. You can set it up again later."
+        body={
+          lastWayIn
+            ? "It can’t sign you in any more, and it’s your only way back in. Once this session ends, you’d need a new sign-in link from the owner or the server."
+            : "It can’t sign you in any more. You can set it up again later."
+        }
         action="Remove device"
         run={() => api.deletePasskey(removing!.id)}
-        done={() => qc.invalidateQueries({ queryKey: ["passkeys"] })}
+        done={() => {
+          void qc.invalidateQueries({ queryKey: ["passkeys"] });
+          void qc.invalidateQueries({ queryKey: ["recovery"] });
+        }}
       />
     </Page>
   );
-}
-
-function defaultName() {
-  const ua = navigator.userAgent;
-  const os = /Mac/.test(ua)
-    ? "Mac"
-    : /iPhone|iPad/.test(ua)
-      ? "iPhone"
-      : /Android/.test(ua)
-        ? "Android phone"
-        : /Windows/.test(ua)
-          ? "Windows PC"
-          : "This device";
-  return os;
 }
 
 // ---------------------------------------------------------------- people

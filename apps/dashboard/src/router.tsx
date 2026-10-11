@@ -44,6 +44,7 @@ function Loading() {
   );
 }
 const LoginPage = lz<{ reason?: string; next?: string }>(() => import("@/routes/login"), "LoginPage");
+const WelcomePasskeyPage = lz<{ next?: string }>(() => import("@/routes/welcome"), "WelcomePasskeyPage");
 const GatePage = lz<{ host?: string; next?: string }>(() => import("@/routes/gate"), "GatePage");
 const BoxPage = lz(() => import("@/routes/box"), "BoxPage");
 const BoxUsagePage = lz(() => import("@/routes/box-usage"), "BoxUsagePage");
@@ -69,6 +70,7 @@ const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPa
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
 const SignInsPage = lz(() => import("@/routes/sign-ins"), "SignInsPage");
+const ServerAccessPage = lz(() => import("@/routes/server-access"), "ServerAccessPage");
 const FilesPage = lz<{ project: string; isNew?: boolean }>(() => import("@/routes/files"), "FilesPage");
 const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/files"), "BucketPage");
 const InboxPage = lz<{ project: string; q?: string; m?: string; status?: string }>(() => import("@/routes/email"), "InboxPage");
@@ -128,6 +130,20 @@ const login = createRoute({
   component: function Login() {
     const { reason, next } = login.useSearch();
     return <LoginPage reason={reason} next={next} />;
+  },
+});
+
+// Right after a sign-in with a link, for someone with no passkey yet: the step that offers one, then `next`.
+const welcomePasskey = createRoute({
+  getParentRoute: () => root,
+  path: "/welcome/passkey",
+  validateSearch: (s: Record<string, unknown>): { next?: string } => ({
+    ...(typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? { next: s.next } : {}),
+  }),
+  loader: () => void WelcomePasskeyPage.preload(),
+  component: function Welcome() {
+    const { next } = welcomePasskey.useSearch();
+    return <WelcomePasskeyPage next={next} />;
   },
 });
 
@@ -755,6 +771,8 @@ const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passk
   component: PasskeysPage });
 const signIns = createRoute({ getParentRoute: () => app, path: "/settings/sign-ins", loader: () => void SignInsPage.preload(),
   component: SignInsPage });
+const serverAccess = createRoute({ getParentRoute: () => app, path: "/settings/server-access", loader: () => void ServerAccessPage.preload(),
+  component: ServerAccessPage });
 
 /** No such page: the mascot has lifted its lid on an empty tin. */
 function NotFound() {
@@ -805,6 +823,7 @@ function RouteError({ error }: ErrorComponentProps) {
 
 const tree = root.addChildren([
   login,
+  welcomePasskey,
   gate,
   app.addChildren([
     box,
@@ -876,6 +895,7 @@ const tree = root.addChildren([
     people,
     passkeys,
     signIns,
+    serverAccess,
   ]),
 ]);
 

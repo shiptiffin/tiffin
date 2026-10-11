@@ -11,7 +11,10 @@ import { setNavigator, useConfirmRequest } from "@/lib/staged";
 import { rememberProject } from "@/lib/recent";
 import { PART_PAGE, partsOf, type Part, type ProjectPage } from "@/lib/sections";
 import { listen, useShortcut } from "@/lib/shortcuts";
-import { passkeyWords } from "@/lib/webauthn";
+import { passkeyWords, webauthnSupported } from "@/lib/webauthn";
+import { aq } from "@/api/access";
+import { useMe } from "@/lib/me";
+import { noWayBack } from "@/lib/recovery";
 import { useFavicon } from "./favicon";
 import { Logo } from "./logo";
 import { rememberClick, WhoTrigger } from "./shell-triggers";
@@ -125,6 +128,7 @@ export function Shell() {
       {/* The page: a panel inset on the sidebar's ground (a phone gets the plain page). */}
       <div className="flex min-w-0 flex-col lg:my-2 lg:mr-2 lg:min-h-[calc(100dvh-16px)] lg:rounded-[12px] lg:bg-paper lg:shadow-[0_0_0_1px_var(--rule-2),0_1px_3px_oklch(0_0_0/0.05)]">
         <AttackBanner />
+        <NoWayBackBanner />
         <MobileBar onMenu={() => setNavOpen(true)} onSearch={() => setPaletteOpen(true)} switcher={switcher("bar")} />
         <main id="main" className="min-w-0 flex-1">
           <Outlet />
@@ -246,7 +250,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 // ───────────────────────── sidebar ─────────────────────────
 
 // Settings has its own sidebar (Back, then its pages), so the main one never grows a third level.
-const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/sign-ins", "/settings/passkeys", "/protect"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/server-access", "/settings/sign-ins", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/requests", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
@@ -267,6 +271,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
   // A laptop dev server (no --box) has no backups or shield.
   const passkeys = useQuery({ ...q.passkeys, retry: false });
   const onBox = !notOnBox(passkeys.error);
+  const { role } = useMe();
   const icon = "size-4 text-ink-3";
 
   return (
@@ -301,6 +306,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
           {onBox && <NavItem to="/settings/dns" label="DNS" />}
           {onBox && <NavItem to="/protect" label="Shield" aside={<AttackBadge />} />}
           <NavItem to="/settings/people" label="People" />
+          {onBox && role === "owner" && <NavItem to="/settings/server-access" label="Server access" />}
           <NavHeading>You</NavHeading>
           <NavItem to="/settings/sign-ins" label="Sign-ins" />
           <NavItem to="/settings/passkeys" label={passkeyWords().title} />
@@ -437,6 +443,39 @@ function AttackBadge() {
 }
 
 // ───────────────────────── banners ─────────────────────────
+
+/**
+ * While the box knows no way to sign this person in again (no passkey, SSH
+ * key, emailed link, Google or GitHub), every page says so, until there is
+ * one: the box's state decides, not a dismissed flag. Not on the pages that
+ * add one.
+ */
+function NoWayBackBanner() {
+  const recovery = useQuery(aq.recovery).data;
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const { role } = useMe();
+  if (!noWayBack(recovery) || path === "/settings/passkeys" || path === "/settings/server-access") return null;
+  const link = "shrink-0 font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink";
+  return (
+    <div role="status" className="relative z-20 border-b border-rule">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm sm:px-8 lg:px-12">
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warn" />
+        <span className="text-ink-2">You have no way back in when this session ends.</span>
+        {webauthnSupported() ? (
+          <Link to="/welcome/passkey" search={path === "/" ? {} : { next: path }} className={cn("ml-auto", link)}>
+            Add {passkeyWords().button}
+          </Link>
+        ) : (
+          role === "owner" && (
+            <Link to="/settings/server-access" className={cn("ml-auto", link)}>
+              Add an SSH key
+            </Link>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** The alarm state: while under-attack mode is on, every page says so. */
 function AttackBanner() {
