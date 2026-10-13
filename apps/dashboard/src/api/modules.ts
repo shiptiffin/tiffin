@@ -462,9 +462,9 @@ export const dnsApi = {
   records: (name: string) => request<ZoneRecords>("GET", `/v1/dns/records${qs({ name })}`),
   /** Each name and type ends up with exactly these values: send every value you want to keep. */
   setRecords: (records: DnsRecordInput[]) => request<S["Dns-records-setResponse"]>("PUT", "/v1/dns/records", { records } satisfies S["Dns-records-setRequest"]),
-  /** Deletes exactly these (name, type, value); 409 for records the box relies on. */
-  deleteRecords: (records: DnsRecordInput[]) =>
-    request<S["Dns-records-deleteResponse"]>("POST", "/v1/dns/records/delete", { records } satisfies S["Dns-records-deleteRequest"]),
+  /** Deletes these: with a value, exactly that record; without, every record of that type at that name. 409 for records the box relies on. */
+  deleteRecords: (records: S["DomainsRecordRef"][]) =>
+    request<S["DomainsRecordsDeleted"]>("POST", "/v1/dns/records/delete", { records } satisfies S["Dns-records-deleteRequest"]),
   /** What public DNS answers now (the box's resolvers). */
   lookup: (name: string, type: DnsLookupType) => request<DnsLookup>("GET", `/v1/dns/lookup${qs({ name, type })}`),
 };

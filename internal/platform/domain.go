@@ -157,6 +157,39 @@ type DNSManager interface {
 	DeleteRecords(ctx context.Context, recs []dnskit.Record, by string) error
 }
 
+// DNSCleaner is the part of Platform.DNS (the domains module) that tidies
+// DNS when names stop being served (domains remove, projects destroy), so
+// no record keeps pointing at this box's address after it is gone.
+type DNSCleaner interface {
+	// ProjectHosts are the names outside the box's own that project serves
+	// (its domains, and the www names it redirects).
+	ProjectHosts(ctx context.Context, project string) []string
+	// CleanupDNS works out what happens to the records of hosts: those the
+	// box created that still point here are deleted (unless keep), the rest
+	// that point here are listed to delete by hand. It reads the DNS
+	// provider each time. With apply it deletes; a provider that fails never
+	// fails the caller: the records are listed under ByHand instead.
+	CleanupDNS(ctx context.Context, hosts []string, keep, apply bool, by string) *DNSCleanup
+}
+
+// DNSCleanup is what happens to the DNS records of names that stop being
+// served: in a plan, what will happen; after the change, what did.
+type DNSCleanup struct {
+	Hosts   []string        `json:"hosts" doc:"The names that stop being served."`
+	Delete  []dnskit.Record `json:"delete,omitempty" doc:"In a plan: records the box created (createRecords) that still point at this box. They are deleted through the connected DNS provider once the change is applied."`
+	Deleted []dnskit.Record `json:"deleted,omitempty" doc:"After the change: the records the box deleted."`
+	ByHand  []dnskit.Record `json:"byHand,omitempty" doc:"Records that point these names at this box but that the box did not create (or that it could not delete): delete these at your DNS host."`
+	Kept    []dnskit.Record `json:"kept,omitempty" doc:"Records the box created that it leaves alone: they point elsewhere now (you changed them), or keepDns was set."`
+	KeepDNS bool            `json:"keepDns,omitempty" doc:"keepDns was set: no record is deleted."`
+	Error   string          `json:"error,omitempty" doc:"Why the DNS provider could not be read or refused a deletion; those records are listed under byHand."`
+	Summary string          `json:"summary"`
+}
+
+// Empty reports whether there is nothing to say about DNS.
+func (c *DNSCleanup) Empty() bool {
+	return c == nil || len(c.Delete)+len(c.Deleted)+len(c.ByHand)+len(c.Kept) == 0 && c.Error == ""
+}
+
 // DashboardHost is the dashboard's host ("dashboard.<domain>" by default),
 // always under the box domain.
 func (p *Platform) DashboardHost() string {

@@ -218,6 +218,27 @@ type Provider struct {
 	// Calls counts calls by method.
 	Calls map[string]int
 	mu    sync.Mutex
+	// failOn: SetFail with methods makes only those fail.
+	failOn map[string]error
+}
+
+// SetFail makes calls fail with err (nil: succeed again): every call, or
+// with methods only those (e.g. "DeleteRecords"). Safe while serving.
+func (p *Provider) SetFail(err error, methods ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.failOn = nil
+	if len(methods) == 0 {
+		p.Fail = err
+		return
+	}
+	p.Fail = nil
+	if err != nil {
+		p.failOn = map[string]error{}
+		for _, m := range methods {
+			p.failOn[m] = err
+		}
+	}
 }
 
 // NewProvider returns a provider for the server's zones.
@@ -225,8 +246,11 @@ func NewProvider(s *Server) *Provider { return &Provider{S: s, Calls: map[string
 
 func (p *Provider) call(name string) error {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.Calls[name]++
-	p.mu.Unlock()
+	if err := p.failOn[name]; err != nil {
+		return err
+	}
 	return p.Fail
 }
 

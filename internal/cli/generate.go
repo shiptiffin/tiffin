@@ -165,6 +165,13 @@ var switchFlags = map[string]struct{ flag, suffix, usage string }{
 var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql", "kv-get": "key", "monitor-set": "url",
 	"server-key-add": "keys", "server-key-remove": "fingerprint"}
 
+// examples replace a generated command's example where a sample reads
+// better than the bare command (a JSON body, say).
+var examples = map[string]string{
+	"dns-records-delete": "  tiffin dns records delete --records '[{\"type\":\"A\",\"name\":\"old.example.com\"}]'\n" +
+		"  tiffin dns records delete --records '[{\"type\":\"TXT\",\"name\":\"example.com\",\"value\":\"google-site-verification=abc\"}]'",
+}
+
 type bodyFlag struct {
 	name string
 	kind string // string | integer | boolean | array | json (any JSON, as text)
@@ -273,6 +280,9 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 			return nil
 		},
 		Example: "  tiffin " + strings.Join(example, " "),
+	}
+	if ex, ok := examples[o.OperationID]; ok {
+		cmd.Example = ex
 	}
 	query := map[string]*string{}
 	for _, p := range queryParams {

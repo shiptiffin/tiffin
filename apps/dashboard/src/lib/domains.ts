@@ -12,6 +12,8 @@ export type RecordCheck = S["DomainsRecordCheck"];
 export type DnsRecord = S["Record"];
 export type Providers = S["DomainsProviders"];
 export type ConnectedProvider = S["DomainsConnectedProvider"];
+/** What removing a domain or deleting a project does to DNS records. */
+export type DnsCleanup = S["DNSCleanup"];
 
 const enc = encodeURIComponent;
 const projectPath = (p: string) => `/v1/projects/${enc(p)}/domains`;
@@ -100,8 +102,26 @@ export async function planAddDomain(project: string, body: AddBody): Promise<{ h
   }
 }
 
-export const removeDomain = (project: string, domain: string) =>
-  planned((confirm) => request<DomainChange>("POST", `${projectPath(project)}/${enc(domain)}/remove`, confirm ? { confirm, intent: `Stop serving ${domain}` } : {}));
+/**
+ * Removes a domain. With `reviewed` (the hash from planRemoveDomain), that
+ * plan is applied. The answer's dns says which records the box deleted.
+ */
+export const removeDomain = (project: string, domain: string, reviewed?: string) =>
+  planned(
+    (confirm) => request<DomainChange>("POST", `${projectPath(project)}/${enc(domain)}/remove`, confirm ? { confirm, intent: `Stop serving ${domain}` } : {}),
+    reviewed,
+  );
+
+/** What removing a domain would do, without doing it: the plan's hash and what happens to its DNS records. */
+export async function planRemoveDomain(project: string, domain: string): Promise<{ hash?: string; dns?: DnsCleanup }> {
+  try {
+    await request<DomainChange>("POST", `${projectPath(project)}/${enc(domain)}/remove`, {});
+    return {};
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 428) throw e;
+    return { hash: (e.problem.plan as Plan | undefined)?.hash, dns: e.problem.dns ?? undefined };
+  }
+}
 
 // ───────────────────────── words ─────────────────────────
 

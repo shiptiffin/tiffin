@@ -198,14 +198,60 @@ func sentenceCase(s string) string {
 }
 
 // renderPlanRecords prints the DNS records a planned change needs (the
-// 428 answer of domains add), before anything changed.
+// 428 answer of domains add), or what it does to DNS records (domains
+// remove, projects destroy), before anything changed.
 func (a *app) renderPlanRecords(out io.Writer, raw []byte) {
 	var p struct {
 		Records []dnsRecord `json:"records"`
+		DNS     *dnsCleanup `json:"dns"`
 	}
-	if json.Unmarshal(raw, &p) != nil || len(p.Records) == 0 {
+	if json.Unmarshal(raw, &p) != nil {
 		return
 	}
-	fmt.Fprintln(out, "DNS records to add at your DNS host (you can add them now; the box watches for them):")
-	printRecords(out, p.Records)
+	if len(p.Records) > 0 {
+		fmt.Fprintln(out, "DNS records to add at your DNS host (you can add them now; the box watches for them):")
+		printRecords(out, p.Records)
+	}
+	a.renderDNSCleanup(out, p.DNS)
+}
+
+// dnsCleanup is what a change does to DNS records (platform.DNSCleanup).
+type dnsCleanup struct {
+	Delete  []dnsRecord `json:"delete"`
+	Deleted []dnsRecord `json:"deleted"`
+	ByHand  []dnsRecord `json:"byHand"`
+	Kept    []dnsRecord `json:"kept"`
+	KeepDNS bool        `json:"keepDns"`
+	Error   string      `json:"error"`
+}
+
+// renderDNSCleanup prints what happens (or happened) to the DNS records of
+// the names a change stops serving.
+func (a *app) renderDNSCleanup(out io.Writer, c *dnsCleanup) {
+	if c == nil {
+		return
+	}
+	if len(c.Delete) > 0 {
+		fmt.Fprintln(out, "DNS records the box created for these names, deleted once applied (--keep-dns keeps them):")
+		printRecords(out, c.Delete)
+	}
+	if len(c.Deleted) > 0 {
+		fmt.Fprintf(out, "%s Deleted the DNS records the box created:\n", a.paint("✓", green))
+		printRecords(out, c.Deleted)
+	}
+	if c.Error != "" {
+		fmt.Fprintf(out, "%s The DNS provider failed: %s\n", a.paint("!", amber), c.Error)
+	}
+	if len(c.ByHand) > 0 {
+		fmt.Fprintf(out, "%s Delete these at your DNS host, or they keep pointing at this box's address:\n", a.paint("!", amber))
+		printRecords(out, c.ByHand)
+	}
+	if len(c.Kept) > 0 {
+		if c.KeepDNS {
+			fmt.Fprintln(out, "Kept, as asked (--keep-dns):")
+		} else {
+			fmt.Fprintln(out, "Left alone, as they point elsewhere now:")
+		}
+		printRecords(out, c.Kept)
+	}
 }
