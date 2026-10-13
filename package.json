@@ -2,10 +2,16 @@
   "name": "tiffin-monorepo",
   "private": true,
   "license": "AGPL-3.0-only",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "devDependencies": {
     "@types/bun": "latest",
     "@shiptiffin/sdk": "workspace:*",
     "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "next": "16.3.8"
   }
 }
