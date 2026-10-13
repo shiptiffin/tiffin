@@ -128,13 +128,14 @@ func kept(d *Deploy) bool {
 // its build is kept. spec nil: the app is gone.
 func (r *rt) present(d *Deploy, spec *manifest.App) {
 	if spec == nil || spec.Role == manifest.RoleWorker {
-		d.URL, d.AppURL, d.Retention = "", "", ""
+		d.URL, d.AppURL, d.OtherURLs, d.Retention = "", "", nil, ""
 		return
 	}
-	d.AppURL = r.deployURL(d, spec)
+	d.AppURL, d.OtherURLs = r.deployURL(d, spec), nil
 	if d.Preview != "" {
 		return
 	}
+	d.AppURL, d.OtherURLs = r.siteURLs(d.Project, d.App, spec)
 	d.URL, d.Retention = "", ""
 	switch {
 	case !d.Terminal():

@@ -56,7 +56,9 @@ type Deploy struct {
 	Digest      string `json:"digest,omitempty" doc:"Image manifest digest"`
 	URL         string `json:"url,omitempty" doc:"The deploy's own address (web apps): d-<short id>--<app address> for a production deploy, which serves that version for as long as it is kept (an old version wakes on its first request and reads the database read-only); a preview's address for a preview deploy. Absent once the version was cleaned up."`
 	// AppURL is the app's own address (where the live deploy serves).
-	AppURL string `json:"appUrl,omitempty" doc:"The app's address, where whichever deploy is live serves (a preview's address for a preview). Open this for the live site; url opens this exact version."`
+	AppURL string `json:"appUrl,omitempty" doc:"The app's address, where whichever deploy is live serves: its own domain once that is live (tiffin domains add), else its first address on the box; a preview's address for a preview. Open this for the live site; url opens this exact version."`
+	// OtherURLs are the app's other working addresses (production).
+	OtherURLs []string `json:"otherUrls,omitempty" doc:"Production: the app's other addresses that answer too, such as <project>.<apps domain> once its own domain is appUrl. An own domain still waiting for DNS is not listed."`
 	// Retention says whether a production deploy's build is still kept.
 	Retention   string     `json:"retention,omitempty" enum:"kept,cleaned," doc:"Production deploys of web apps: kept (its address serves it and it can be rolled back to) or cleaned (its image was removed; its address says so and links to the live site). Absent for previews, workers and deploys that never went live."`
 	Error       string     `json:"error,omitempty" doc:"Why the deploy failed"`
