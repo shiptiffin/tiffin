@@ -43,7 +43,7 @@ func TestSessionKeyOutlivesItsSession(t *testing.T) {
 	req := allFull
 	req.Name, req.TTL = "year", 365*24*time.Hour
 	year, k, err := m.CreateKey(ctx, p, req)
-	if err != nil || k.ExpiresAt == nil || k.ExpiresAt.Sub(time.Now()) < 364*24*time.Hour {
+	if err != nil || k.ExpiresAt == nil || time.Until(*k.ExpiresAt) < 364*24*time.Hour {
 		t.Fatalf("1-year key is capped: %v %v", k, err)
 	}
 
@@ -136,7 +136,7 @@ func TestSessionKeyNeedsRecentStrongSignIn(t *testing.T) {
 		t.Fatalf("confirmed with Bob's passkey: %v", err)
 	}
 	until, err := m.ConfirmSession(ctx, link, ann.ID)
-	if err != nil || until.Sub(time.Now()) > SudoWindow+time.Second {
+	if err != nil || time.Until(until) > SudoWindow+time.Second {
 		t.Fatalf("confirm: %v %v", until, err)
 	}
 	if _, _, err := m.CreateKey(ctx, link, full(0)); err != nil {
@@ -186,7 +186,7 @@ func TestKeyMadeByKeyIsCapped(t *testing.T) {
 		}
 	}
 	_, k, _ := m.CreateKey(ctx, pp, KeyRequest{Name: "short", Projects: Projects{"shop"}, Access: LevelRead, TTL: 24 * time.Hour})
-	if k.ExpiresAt == nil || k.ExpiresAt.After(*pp.ExpiresAt) || k.ExpiresAt.Sub(time.Now()) > 25*time.Hour {
+	if k.ExpiresAt == nil || k.ExpiresAt.After(*pp.ExpiresAt) || time.Until(*k.ExpiresAt) > 25*time.Hour {
 		t.Fatalf("shorter child: %v", k.ExpiresAt)
 	}
 }

@@ -291,9 +291,6 @@ func (w *Worker) keepLease(ctx context.Context, cancel context.CancelCauseFunc, 
 	}
 }
 
-// leaseHeld: the job's context was not cancelled for a lost lease.
-func leaseHeld(ctx context.Context) bool { return !errors.Is(context.Cause(ctx), ErrLeaseLost) }
-
 func (w *Worker) handle(ctx context.Context, job *Job) error {
 	box, err := w.Store.Box(ctx, job.BoxID)
 	if err != nil {

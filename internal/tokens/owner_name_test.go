@@ -11,7 +11,7 @@ func TestCleanName(t *testing.T) {
 		"  Bilal  Tahir ":       "Bilal Tahir",
 		"Ann\nSmith":            "Ann Smith",
 		"Ann\x00\x07Smith\t":    "Ann Smith",
-		"Ann‮Smith":             "AnnSmith", // a direction override is formatting, not a letter
+		"Ann\u202eSmith":        "AnnSmith", // a direction override is formatting, not a letter
 		"Zoë Ångström":          "Zoë Ångström",
 		"":                      "",
 		" \n\t ":                "",

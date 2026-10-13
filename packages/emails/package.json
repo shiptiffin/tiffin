@@ -15,10 +15,10 @@
   "dependencies": {
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-email": "6.11.0"
+    "react-email": "6.11.1"
   },
   "devDependencies": {
-    "@react-email/ui": "6.11.0",
+    "@react-email/ui": "6.11.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "css-tree": "3.2.1"

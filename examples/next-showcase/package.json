@@ -8,14 +8,14 @@
     "start": "bun --bun next start"
   },
   "dependencies": {
-    "geist": "1.5.1",
+    "geist": "1.7.2",
     "next": "16.3.8",
-    "postgres": "3.4.7",
+    "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@types/node": "24.19.0",
+    "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.2.3",
     "typescript": "5.9.3"
