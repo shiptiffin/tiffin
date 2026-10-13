@@ -362,6 +362,21 @@ The box adds nothing for LLMs:
   served after a switch get no redirect. A wildcard certificate does not cover the domain
   itself, so it gets its own over HTTP-01 on its first visit; a box whose port 80 is closed
   to the internet cannot get it.
+- **Registrar parking is recognised for five registrars.** Namecheap, GoDaddy, Porkbun,
+  Squarespace and Gandi's known parking and forwarding records are named, with what to
+  delete; Cloudflare, Hostinger, IONOS, Dynadot and Name.com are recognised by their
+  nameservers only (where to click). Any other parking page shows as "points to
+  <address>, not this box". A registrar that changes its parking addresses needs a new
+  release to be recognised again.
+- **No CNAME shortcut for a project subdomain when apps live on a domain of their own.**
+  Only `dashboard.<domain>` and `*.<apps domain>` must point at the box then, and neither
+  is a safe CNAME target (the dashboard's host can move; a name under a shared apps domain
+  can belong to another box), so `shop.example.com` gets A and AAAA records.
+- **Domains are checked every 30 seconds only for 30 minutes** after they are added, their
+  DNS answer changes or someone checks by hand. A record that shows up later is seen
+  within the backoff (up to 30 minutes) unless you check by hand.
+- **`tiffin deploy` names the first live domain of the app's routes.** With several own
+  domains it picks the first that is live, in route order.
 - **`tiffin.config.ts` sees no environment** on your computer or the box (`process.env` is
   empty) and imports only files of its repository. Values that differ per environment
   belong in secrets or `env`.
