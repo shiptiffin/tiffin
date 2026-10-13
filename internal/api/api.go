@@ -247,6 +247,13 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 		// On a server, the address the owner's CLI uses is never banned.
 		a.deps.Platform.OwnerSeen(ctx.Context(), callerIP(ctx))
 	}
+	// Changes record the path they came in by: the dashboard, or the
+	// command this operation is (`tiffin domains add`). See change.Via.
+	via := change.ViaDashboard
+	if !byCookie {
+		via = "tiffin " + strings.Join(CLIPath(ctx.Operation()), " ")
+	}
+	ctx = huma.WithContext(ctx, change.WithVia(ctx.Context(), via))
 	next(huma.WithValue(ctx, ctxKey{}, p))
 }
 
@@ -360,12 +367,29 @@ func (ManifestJSON) Schema(huma.Registry) *huma.Schema {
 
 type planBody struct {
 	Manifest ManifestJSON `json:"manifest" required:"true"`
+	Source   string       `json:"source,omitempty" enum:"config,edit" doc:"Where the manifest comes from. config (the default with an API key): a config file such as tiffin.config.ts, so the plan marks ops that would delete or revert changes made outside it (op.drift) and warns. edit (the dashboard's default): the project's current manifest (GET /v1/projects/{project}/manifest), edited; nothing is marked."`
 }
 
 type applyBody struct {
-	Manifest ManifestJSON `json:"manifest" required:"true"`
-	Confirm  string       `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428."`
-	Intent   string       `json:"intent,omitempty" maxLength:"500" doc:"Why you are making this change, in one sentence. Shown in the activity timeline."`
+	Manifest     ManifestJSON `json:"manifest" required:"true"`
+	Source       string       `json:"source,omitempty" enum:"config,edit" doc:"Where the manifest comes from, as for plan: config (the default with an API key) or edit (the project's current manifest, edited)."`
+	Confirm      string       `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428."`
+	DiscardDrift bool         `json:"discardDrift,omitempty" doc:"Also needed, with confirm, when the plan has ops with drift: it deletes or reverts changes made outside the config file (a domain added with tiffin domains add, a dashboard edit). Without it such a plan is refused with 428 (code drift). Prefer tiffin pull (GET /v1/projects/{project}/manifest) to keep those changes."`
+	Intent       string       `json:"intent,omitempty" maxLength:"500" doc:"Why you are making this change, in one sentence. Shown in the activity timeline."`
+}
+
+// fromConfig reports whether a plan or apply's manifest is a config file
+// (source config, the default except in the dashboard), and the via its
+// change records.
+func fromConfig(ctx context.Context, source string) (bool, string) {
+	dashboard := change.ViaFrom(ctx) == change.ViaDashboard
+	switch {
+	case source == "config", source == "" && !dashboard:
+		return true, change.ViaConfig
+	case dashboard:
+		return false, change.ViaDashboard
+	}
+	return false, change.ViaAPI
 }
 
 type undoBody struct {
@@ -618,6 +642,9 @@ func (a *API) register() {
 	huma.Register(api, op("plan", http.MethodPost, "/v1/plan", "plan", RiskRead, "Plan a manifest",
 		"Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. "+
 			"`warnings` lists things the manifest probably did not mean (auth without email, env that replaces what the box sets): fix them before applying. "+
+			"Drift: when a config file's plan would delete or revert changes made outside it (a domain added with domains add, an edit in the dashboard), "+
+			"those ops carry `drift` (who, when, how) and the first warning lists them. Don't apply that over a live change: run `tiffin pull` "+
+			"(or GET /v1/projects/{project}/manifest) to bring them into the config, then plan again; applying it anyway needs discardDrift. "+
 			"A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.", "changes"),
 		wrap(func(ctx context.Context, in *struct{ Body planBody }) (*struct{ Body *change.Plan }, error) {
 			m, desired, older, err := a.parseManifest(ctx, in.Body.Manifest)
@@ -637,12 +664,19 @@ func (a *API) register() {
 			p.Warnings = append(manifest.Warnings(m), older...)
 			a.boxWarnings(ctx, p, desired)
 			a.failedWarning(ctx, p)
+			if cfg, _ := fromConfig(ctx, in.Body.Source); cfg {
+				if err := a.deps.Engine.MarkDrift(ctx, p); err != nil {
+					return nil, err
+				}
+			}
 			return &struct{ Body *change.Plan }{p}, nil
 		}))
 
 	ap := op("apply", http.MethodPost, "/v1/apply", "apply", RiskDestructive, "Apply a manifest",
 		"Plans the manifest and applies it if `confirm` matches the plan hash. "+
 			"Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. "+
+			"A plan whose ops carry `drift` (they delete or revert changes made outside the config file) also needs discardDrift, else 428 with code drift: "+
+			"usually run `tiffin pull` instead, to keep those changes. "+
 			"Applying needs a key with full access to the project; a read key can only plan.", "changes")
 	ap.Errors = append(ap.Errors, 409, 428)
 	ap.Extensions[ExtConfirm] = true
@@ -665,7 +699,14 @@ func (a *API) register() {
 			}
 			plan.Warnings = append(manifest.Warnings(m), older...)
 			a.boxWarnings(ctx, plan, desired)
-			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent)
+			cfg, via := fromConfig(ctx, in.Body.Source)
+			if cfg {
+				if err := a.deps.Engine.MarkDrift(ctx, plan); err != nil {
+					return nil, err
+				}
+			}
+			return a.applyWith(ctx, p, change.ApplyRequest{Plan: plan, Confirm: in.Body.Confirm, Intent: in.Body.Intent,
+				Via: via, DiscardDrift: in.Body.DiscardDrift})
 		}))
 
 	de := op("project-destroy", http.MethodPost, "/v1/projects/{project}/destroy", "projects destroy", RiskDestructive, "Destroy a project",
@@ -1039,9 +1080,14 @@ func (a *API) Status(ctx context.Context, started time.Time) StatusReport {
 }
 
 func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan, confirm, intent string) (*struct{ Body ApplyResult }, error) {
-	c, err := a.deps.Engine.Apply(ctx, change.ApplyRequest{
-		Plan: plan, Confirm: confirm, Actor: p.Actor(), Intent: intent, Authorize: p.Authorizer(),
-	})
+	return a.applyWith(ctx, p, change.ApplyRequest{Plan: plan, Confirm: confirm, Intent: intent})
+}
+
+// applyWith applies r as p (its actor and authorizer are set here).
+func (a *API) applyWith(ctx context.Context, p *tokens.Principal, req change.ApplyRequest) (*struct{ Body ApplyResult }, error) {
+	plan := req.Plan
+	req.Actor, req.Authorize = p.Actor(), p.Authorizer()
+	c, err := a.deps.Engine.Apply(ctx, req)
 	if err != nil {
 		return nil, err
 	}
