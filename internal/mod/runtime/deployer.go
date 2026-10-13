@@ -357,7 +357,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	if err := r.promote(ctx, d, modeDeploy, log); err != nil {
 		return err
 	}
-	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(r.deployURL(d, spec)))
+	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(r.liveURL(d, spec)))
 	if d.Preview == "" {
 		_ = r.syncCrons(ctx, d.Project, d.App, log)
 		r.refreshIconLater(d.Project, d.App, d.ID)

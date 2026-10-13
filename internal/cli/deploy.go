@@ -10,8 +10,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -467,12 +469,56 @@ func (a *app) checkURL(ctx context.Context, c *client, u string) string {
 		return "error: " + err.Error()
 	}
 	req.Header.Set("User-Agent", "tiffin-cli/"+version.Version)
-	res, err := (&http.Client{Transport: c.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+	noFollow := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := (&http.Client{Transport: c.transport, CheckRedirect: noFollow}).Do(req)
 	if err != nil {
-		return "error: " + err.Error()
+		// A domain that just went live is often not in this computer's DNS
+		// yet (a cached "no such name", or no IPv6 route here). Ask the box
+		// directly, at the address the CLI already talks to, for that name.
+		var opErr *net.OpError
+		var dnsErr *net.DNSError
+		if !errors.As(err, &opErr) && !errors.As(err, &dnsErr) {
+			return "error: " + err.Error()
+		}
+		tr := viaBox(c.base, c.transport)
+		if tr == nil {
+			return "error: " + err.Error()
+		}
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		req2.Header = req.Header
+		res2, err2 := (&http.Client{Transport: tr, CheckRedirect: noFollow}).Do(req2)
+		if err2 != nil {
+			return "error: " + err.Error()
+		}
+		res2.Body.Close()
+		return "HTTP " + strconv.Itoa(res2.StatusCode) + ", checked at the box: this computer can't reach " + req.URL.Hostname() + " yet (DNS still updating here)"
 	}
 	res.Body.Close()
 	return "HTTP " + strconv.Itoa(res.StatusCode)
+}
+
+// viaBox is a transport that connects to the box's own address (the host of
+// base, the API the CLI talks to) whatever name a request is for, keeping
+// that name for TLS. nil when base has no host.
+func viaBox(base string, tr http.RoundTripper) http.RoundTripper {
+	b, err := url.Parse(base)
+	if err != nil || b.Hostname() == "" {
+		return nil
+	}
+	t, ok := tr.(*http.Transport)
+	if !ok || t == nil {
+		t = http.DefaultTransport.(*http.Transport)
+	}
+	t = t.Clone()
+	var d net.Dialer
+	t.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		return d.DialContext(ctx, network, net.JoinHostPort(b.Hostname(), port))
+	}
+	return t
 }
 
 func (a *app) say(format string, args ...any) {

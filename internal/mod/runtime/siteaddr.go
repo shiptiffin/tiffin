@@ -72,3 +72,13 @@ func (r *rt) siteURLs(project, app string, spec *manifest.App) (main string, oth
 	}
 	return main, others
 }
+
+// liveURL is the address a finished deploy's log names: a preview's own,
+// else the app's main address (its live primary or own domain).
+func (r *rt) liveURL(d *Deploy, spec *manifest.App) string {
+	if d.Preview != "" || spec.Role == manifest.RoleWorker {
+		return r.deployURL(d, spec)
+	}
+	main, _ := r.siteURLs(d.Project, d.App, spec)
+	return main
+}
