@@ -98,6 +98,11 @@ type Route struct {
 	NextCache bool
 	// RedirectTo permanently redirects (308, path and query kept) to this
 	// host over HTTPS instead of serving: "www.example.com" → "example.com".
+	// Without a PathPrefix the redirect takes the whole host: the host's
+	// other routes are dropped (an app's old addresses once its primary
+	// domain is live), plain HTTP goes to the target in one hop, and a
+	// chain of such redirects (www.old.com → old.com → new.com) goes
+	// straight to its end.
 	RedirectTo string
 	// Rules are the site's own headers, redirects and rewrites (rewrites,
 	// cleanUrls and trailingSlash apply to file roots only).
@@ -361,8 +366,17 @@ func (c Config) normalized() (Config, error) {
 	}
 	routes := make([]Route, 0, len(c.Routes))
 	c.paths = append([]Route(nil), c.paths...) // normalized twice keeps them
+	redirected := map[string]bool{}            // hosts a whole-host redirect takes
+	for _, r := range c.Routes {
+		if r.RedirectTo != "" && r.PathPrefix == "" {
+			redirected[strings.ToLower(strings.TrimSpace(r.Host))] = true
+		}
+	}
 	for _, r := range c.Routes {
 		r.Host = strings.ToLower(strings.TrimSpace(r.Host))
+		if redirected[r.Host] && r.RedirectTo == "" {
+			continue // the redirect wins (see Route.RedirectTo)
+		}
 		if r.Host == "" {
 			// A box path: the same path on every app host, ahead of the app.
 			if !strings.HasPrefix(r.PathPrefix, "/") || strings.HasSuffix(r.PathPrefix, "/") || len(r.upstreams()) == 0 || r.FileRoot != "" || r.RedirectTo != "" {
@@ -411,6 +425,7 @@ func (c Config) normalized() (Config, error) {
 		seen[key] = true
 		routes = append(routes, r)
 	}
+	flattenRedirects(routes)
 	// Same host: longer path prefixes first, so /api wins over the catch-all.
 	sort.SliceStable(routes, func(i, j int) bool {
 		if routes[i].Host != routes[j].Host {
@@ -420,6 +435,57 @@ func (c Config) normalized() (Config, error) {
 	})
 	c.Routes = routes
 	return c, nil
+}
+
+// flattenRedirects points every redirect at the end of its chain of
+// whole-host redirects, so visitors take one hop. A loop is left as it is.
+func flattenRedirects(routes []Route) {
+	next := map[string]string{}
+	for _, r := range routes {
+		if r.RedirectTo != "" && r.PathPrefix == "" {
+			next[r.Host] = r.RedirectTo
+		}
+	}
+	for i, r := range routes {
+		if r.RedirectTo == "" {
+			continue
+		}
+		to, seen := r.RedirectTo, map[string]bool{r.Host: true}
+		for next[to] != "" && !seen[to] {
+			seen[to] = true
+			to = next[to]
+		}
+		if !seen[to] {
+			routes[i].RedirectTo = to
+		}
+	}
+}
+
+// hostRedirects are the plain-HTTP answers for hosts a whole-host redirect
+// takes: straight to the target over HTTPS, one hop instead of two. ACME
+// HTTP-01 challenges never reach them: Caddy answers those first, on every
+// server, before any route.
+func (c Config) hostRedirects(portSuffix string) []obj {
+	var out []obj
+	for _, r := range c.Routes {
+		if r.RedirectTo == "" || r.PathPrefix != "" {
+			continue
+		}
+		out = append(out, obj{
+			"match": []obj{{"host": c.hostsFor(r.Host)}},
+			"handle": []obj{{
+				"handler":     "static_response",
+				"status_code": 308,
+				"headers": obj{
+					"Location":   []string{"https://" + r.RedirectTo + portSuffix + "{http.request.uri}"},
+					"Connection": []string{"close"},
+				},
+				"close": true,
+			}},
+			"terminal": true,
+		})
+	}
+	return out
 }
 
 func validHost(h string) error {
@@ -756,7 +822,7 @@ func buildConfig(c Config) obj {
 
 	httpRedirect := obj{
 		"listen": []string{":" + strconv.Itoa(c.HTTPPort)},
-		"routes": []obj{{"handle": []obj{{
+		"routes": append(c.hostRedirects(portSuffix), obj{"handle": []obj{{
 			"handler":     "static_response",
 			"status_code": 308,
 			"headers": obj{
@@ -764,7 +830,7 @@ func buildConfig(c Config) obj {
 				"Connection": []string{"close"},
 			},
 			"close": true,
-		}}}},
+		}}}),
 		"automatic_https": obj{"disable": true},
 	}
 	httpsServer := obj{
