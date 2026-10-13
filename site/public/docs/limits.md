@@ -709,9 +709,11 @@ See [managed boxes](https://shiptiffin.com/docs/managed.md). What is not done ye
   folder of its own; the lost box's copies are in the old one, which only credentials
   for that box id reach (the box checks the folder is its own). There is no flow yet to
   hand a new box of the same account the old folder: support has to do it.
-- **Off-site copies of an unpaid box stay.** When the subscription ends the box stops
-  copying, but what it copied stays in ShipTiffin's storage (no one prunes it) until the
-  box is deleted (then 7 days), or renewed (the box prunes it again).
+- **Off-site copies of an unpaid box go after 30 days.** When the subscription ends the
+  box stops copying; 30 days later the worker empties its folder (7 days after the box
+  is deleted, if that comes first). A box renewed after that still thinks its folder is
+  set up, and its copies fail ("the bucket cannot be read") until its owner runs
+  `tiffin backups offsite off` then `tiffin backups offsite managed`.
 - **The website could hand a box's folder to someone else.** It stores the box's public
   key from check-ins that count, and the worker seals credentials to whatever key the row
   holds. A compromised website (or its database) could swap the key and get credentials

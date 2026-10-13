@@ -23,7 +23,8 @@ import (
 // one by one, so TTL is kept short.
 //
 // A deleted or released box's folder is emptied PurgeDays after it went
-// (the account page says so before it is deleted).
+// (the account page says so before it is deleted), and an unpaid box's
+// LapsePurgeDays after its subscription ended.
 
 // Offsite is the worker's off-site backup settings; a Worker with none
 // (no CLOUD_R2_* settings) leaves boxes without.
@@ -46,6 +47,9 @@ const (
 	offsiteBatch       = 20
 	// PurgeDays: a deleted or released box's off-site copies go this many days after.
 	PurgeDays = 7
+	// LapsePurgeDays: a box whose subscription ended keeps its off-site
+	// copies this long for a renewal, then they go.
+	LapsePurgeDays = 30
 )
 
 func (o *Offsite) ttl() time.Duration {
@@ -126,7 +130,8 @@ func (w *Worker) grant(ctx context.Context, b OffsiteBox) error {
 	return err
 }
 
-// PurgeOffsite empties the folders of boxes deleted or released PurgeDays ago.
+// PurgeOffsite empties the folders of boxes deleted or released PurgeDays
+// ago, and of boxes whose subscription ended LapsePurgeDays ago.
 func (w *Worker) PurgeOffsite(ctx context.Context) {
 	w.defaults()
 	if w.Offsite == nil || w.Offsite.R2 == nil {
@@ -140,13 +145,13 @@ func (w *Worker) PurgeOffsite(ctx context.Context) {
 	for _, id := range ids {
 		n, err := w.Offsite.R2.EmptyFolder(ctx, Folder(id))
 		if err != nil {
-			w.Log.Warn("off-site: emptying a deleted box's folder", "box", id, "err", err)
+			w.Log.Warn("off-site: emptying a box's folder", "box", id, "err", err)
 			continue
 		}
 		if err := w.Store.OffsitePurged(ctx, id); err != nil {
 			w.Log.Warn("off-site: recording a folder emptied", "box", id, "err", err)
 			continue
 		}
-		w.Log.Info("off-site: emptied a deleted box's folder", "box", id, "objects", n)
+		w.Log.Info("off-site: emptied a box's folder", "box", id, "objects", n)
 	}
 }

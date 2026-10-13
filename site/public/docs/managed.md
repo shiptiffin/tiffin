@@ -166,8 +166,8 @@ Every backup set is also copied off the server, as on any box with
   and Postgres's WAL follows every few minutes. Sets older than 30 days are deleted.
 - **Only while the subscription is active.** When it ends, no new credentials come; the
   ones the box holds run out within two days and copies pause, saying why (the
-  `offsite-backups` check fails). The copies already made stay; renew and copying
-  resumes at the next check-in.
+  `offsite-backups` check fails). The copies already made stay 30 days; renew in that
+  time and copying resumes at the next check-in. After 30 days the worker deletes them.
 - **Your choice wins.** Set a bucket of your own (*Backups › Use my own bucket*, or
   `tiffin backups offsite set`) and the box copies there instead; turn copies off and
   they stay off until `tiffin backups offsite managed` (or the dashboard's button).

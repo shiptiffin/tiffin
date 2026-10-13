@@ -738,8 +738,13 @@ func (s *PG) SetOffsite(ctx context.Context, boxID, key, sealed string, expires 
 }
 
 func (s *PG) OffsitePurgeDue(ctx context.Context, now time.Time, limit int) ([]string, error) {
-	rows, err := s.Pool.Query(ctx, `select id from cloud_boxes where offsite_purge_after <= $1 and offsite_purged_at is null
-		and status in ('deleted', 'released') order by offsite_purge_after limit $2`, now, limit)
+	// Deleted or released (on the date set then), or a subscription ended
+	// LapsePurgeDays ago and not renewed (purged again after a later lapse).
+	rows, err := s.Pool.Query(ctx, `select id from cloud_boxes
+		where (offsite_purge_after <= $1 and offsite_purged_at is null and status in ('deleted', 'released'))
+		or (plan_status in ('canceled', 'incomplete_expired') and plan_ended_at <= $1::timestamptz - make_interval(days => $3)
+			and (offsite_purged_at is null or offsite_purged_at < plan_ended_at))
+		order by coalesce(offsite_purge_after, plan_ended_at) limit $2`, now, limit, LapsePurgeDays)
 	if err != nil {
 		return nil, err
 	}

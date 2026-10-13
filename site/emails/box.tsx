@@ -341,12 +341,15 @@ export function ExtrasPaused({ b, until }: { b: BoxCtx; until: Date }) {
         rows={[
           { label: "What stops", value: "Automatic Tiffin updates, backup copies off the server, our monitoring emails and support" },
           ...(d ? [{ label: "The address", value: <><Code>{d}</Code> works until {day(until)}</> }] : []),
+          { label: "Backup copies in our storage", value: <>Deleted on {day(until)}. The backups on the server stay.</> },
         ]}
       />
-      <P>
-        After that we remove the address. Before then, point a domain of your own at the box: <Code>tiffin domain set</Code>, or Settings › Your box ›
-        Domain in its dashboard.
-      </P>
+      {d ? (
+        <P>
+          After that we remove the address. Before then, point a domain of your own at the box: <Code>tiffin domain set</Code>, or Settings › Your box ›
+          Domain in its dashboard.
+        </P>
+      ) : null}
       <Cta href={account(b)}>Resume the subscription</Cta>
     </Notice>
   );

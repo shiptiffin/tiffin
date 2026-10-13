@@ -241,6 +241,46 @@ func TestOffsitePurgeAfterDelete(t *testing.T) {
 	}
 }
 
+// A box whose subscription ended has its folder emptied thirty days after,
+// unless it was renewed; a later lapse empties it again.
+func TestOffsitePurgeAfterLapse(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	bucket := withOffsite(h)
+	h.activeBox("box_l")
+	h.activeBox("box_r")
+	put := func() {
+		bucket.Put("box_l/tiffin/key", []byte("x"))
+		bucket.Put("box_r/tiffin/key", []byte("x"))
+	}
+	put()
+	h.exec(`update cloud_boxes set plan_status = 'canceled', plan_ended_at = now() where id in ('box_l', 'box_r')`)
+	h.w.Now = func() time.Time { return time.Now().Add(29 * 24 * time.Hour) }
+	h.w.PurgeOffsite(ctx)
+	if len(bucket.Keys("")) != 2 {
+		t.Fatal("emptied before the 30 days")
+	}
+	h.exec(`update cloud_boxes set plan_status = 'active' where id = 'box_r'`)
+	h.w.Now = func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }
+	h.w.PurgeOffsite(ctx)
+	if left := bucket.Keys(""); strings.Join(left, ",") != "box_r/tiffin/key" {
+		t.Fatalf("left: %v", left)
+	}
+	n := len(h.cf.Mints())
+	h.w.PurgeOffsite(ctx)
+	if len(h.cf.Mints()) != n {
+		t.Fatal("emptied again")
+	}
+	// Renewed, copied again, lapsed again: emptied again 30 days on.
+	put()
+	h.exec(`update cloud_boxes set plan_ended_at = now() + interval '32 days' where id = 'box_l'`)
+	h.w.Now = func() time.Time { return time.Now().Add(63 * 24 * time.Hour) }
+	h.w.PurgeOffsite(ctx)
+	if left := bucket.Keys(""); strings.Join(left, ",") != "box_r/tiffin/key" {
+		t.Fatalf("after a second lapse, left: %v", left)
+	}
+}
+
 // Without CLOUD_R2_* settings nothing happens.
 func TestOffsiteOff(t *testing.T) {
 	h := newHarness(t)
