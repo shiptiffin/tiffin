@@ -171,7 +171,8 @@ separate apps domain, use the A and AAAA records.
 DNS checks are cheap. A certificate is only requested once DNS points here, so frequent
 checks never use up Let's Encrypt's limits.
 
-`tiffin domains remove shop example.com` stops serving it. Your DNS records stay.
+`tiffin domains remove shop example.com` stops serving it. The plan says what happens to
+its DNS records (see [Removing a domain](#removing-a-domain-or-a-project)).
 
 ## Primary domain
 
@@ -228,6 +229,39 @@ The box checks the token by listing your zones and stores it encrypted. From the
 
 Keep these records **DNS only** (grey cloud) in Cloudflare; the box serves HTTPS
 itself. `tiffin dns disconnect cloudflare` forgets the token.
+
+The box remembers every record it creates. `tiffin dns records list --name example.com`
+marks them `created`, and the ones the box relies on `managed: tiffin` (it refuses to
+delete those until the domain is removed).
+
+`tiffin dns records delete` takes a type and a name, and deletes every record of that
+type at that name. Add a value to delete only that one. The answer lists what it deleted:
+
+```
+tiffin dns records delete --records '[{"type":"A","name":"old.example.com"}]'
+tiffin dns records delete --records '[{"type":"TXT","name":"example.com","value":"google-site-verification=abc"}]'
+```
+
+## Removing a domain or a project
+
+`tiffin domains remove shop example.com` and `tiffin projects destroy shop` tidy up DNS,
+so no record is left pointing at the server's address. (If the server is deleted later,
+its address can go to someone else, who would then get your name.)
+
+- **Records the box created** (`--create-records`) that still point at this box are
+  deleted once the change is applied. The plan lists them first (`dns.delete`). Add
+  `--keep-dns` (API: `keepDns: true`) to keep them.
+- **Records you added yourself** are never deleted. The plan and the answer list the ones
+  that point at this box (`dns.byHand`): delete them at your DNS host.
+- **Records you pointed elsewhere** after the box created them are left alone
+  (`dns.kept`).
+- **If the DNS provider fails**, the domain or project is still removed. The answer says
+  so (`dns.error`) and lists the records to delete by hand.
+
+The box reads the records again from the provider when it plans and when it applies.
+Undo brings the domain back, but not deleted records: add the domain again with
+`--create-records`. In the dashboard, *Remove domain* and *Delete project* list the same
+records before you confirm.
 
 ## Behind the scenes
 

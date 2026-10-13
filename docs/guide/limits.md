@@ -398,6 +398,20 @@ The box adds nothing for LLMs:
 - **Domains are checked every 30 seconds only for 30 minutes** after they are added, their
   DNS answer changes or someone checks by hand. A record that shows up later is seen
   within the backoff (up to 30 minutes) unless you check by hand.
+- **DNS records are tidied only by `domains remove` and `projects destroy`.** They delete
+  the A, AAAA and CNAME records the box created (through a connected DNS provider) that
+  still point at this box. Some things leave records behind:
+  - Dropping a domain from `tiffin.config.ts` and applying, or editing the manifest in the
+    dashboard. Use `tiffin domains remove` instead, or delete them with
+    `tiffin dns records delete`.
+  - Deleting the server (`tiffin down`), `tiffin domain unset` and switching the box
+    domain. The box domain's records stay too. Before `tiffin down`, run
+    `tiffin projects destroy` for each project with a domain, and delete the box domain's
+    records at your DNS host.
+  - A record you added by hand. It is only listed, never deleted.
+  - The box knows the records it created by name, type and value. A record you later set
+    by hand to the same value counts as the box's.
+  - Undo of a removal brings the domain back but not its records.
 - **`tiffin deploy` names the first live domain of the app's routes.** With several own
   domains it picks the first that is live, in route order.
 - **`tiffin.config.ts` sees no environment** on your computer or the box (`process.env` is
