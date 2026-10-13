@@ -18,7 +18,8 @@
       "role": "web",
       "routes": [
         "web",
-        "example.com"
+        "example.com",
+        "old-shop.com"
       ],
       "instances": 1,
       "healthcheck": "/"
@@ -43,6 +44,10 @@
   },
   "domains": {
     "example.com": {
+      "www": "redirect",
+      "primary": true
+    },
+    "old-shop.com": {
       "www": "redirect"
     }
   }

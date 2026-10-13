@@ -173,6 +173,9 @@ func configNode(m *Manifest) *node {
 			if w := m.Domains[name].WWW; w != "" {
 				d.set("www", str(w))
 			}
+			if m.Domains[name].Primary {
+				d.set("primary", boolean(true))
+			}
 			ds.set(name, d)
 		}
 		root.set("domains", ds)

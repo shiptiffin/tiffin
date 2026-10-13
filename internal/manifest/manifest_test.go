@@ -385,6 +385,7 @@ func TestSchemaMatchesTypes(t *testing.T) {
 		{reflect.TypeOf(Cron{}), defs["cron"].(map[string]any)},
 		{reflect.TypeOf(Queue{}), defs["queue"].(map[string]any)},
 		{reflect.TypeOf(Topic{}), defs["topic"].(map[string]any)},
+		{reflect.TypeOf(Domain{}), defs["domain"].(map[string]any)},
 	}
 	for _, c := range checks {
 		props := c.schema["properties"].(map[string]any)
