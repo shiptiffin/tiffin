@@ -383,6 +383,15 @@ export interface DomainConfig {
      * Default "" (off; to serve www.<domain> itself, add it to an app's routes).
      */
     www?: "" | "redirect";
+    /**
+     * Makes this domain its app's main address: once it is live (it has its
+     * certificate), the app's other whole-host addresses (its
+     * <name>.<apps domain> and its other domains) answer a permanent redirect
+     * here (308, path and query kept). Previews and deploy addresses keep
+     * serving. At most one per app; the app must serve the whole domain (a
+     * route without a path). Default false.
+     */
+    primary?: boolean;
 }
 /**
  * Services are the box-provided backends. Leave a service out and it is not
