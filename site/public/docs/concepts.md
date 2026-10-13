@@ -146,16 +146,16 @@ any time.
 ### Changes made outside your config
 Every change records how it came in: from a config file, the dashboard, a command such as
 `tiffin domains add`, or the box itself. So a config file can fall behind. Say an agent
-ran `tiffin domains add reelbird --domain reelbird.app --app site`. Your `tiffin.config.ts`
+ran `tiffin domains add shop --domain example.com --app web`. Your `tiffin.config.ts`
 doesn't have that domain, and a plan from it would remove it and take the site down.
 
 A plan from a config file marks those steps instead of hiding them among the rest:
 
 ```
-- domain/reelbird.app  reversible  ...
-    ! not in your config: added 2026-10-13 by claude-code with `tiffin domains add`
-! drift: Your tiffin.config.ts doesn't have changes made outside it: domain/reelbird.app
-  (added 2026-10-13 by claude-code with `tiffin domains add`). Run `tiffin pull` to bring
+- domain/example.com  reversible  ...
+    ! not in your config: added 2026-10-01 by an agent with `tiffin domains add`
+! drift: Your tiffin.config.ts doesn't have changes made outside it: domain/example.com
+  (added 2026-10-01 by an agent with `tiffin domains add`). Run `tiffin pull` to bring
   them into your config, or confirm with --discard-drift (API: discardDrift: true) to remove them.
 ```
 
