@@ -166,12 +166,20 @@ type ApplyRequest struct {
 	Actor     Actor
 	Intent    string
 	Authorize Authorizer // nil allows everything
+	// Via is the path the change came in by (Change.Via); "" takes the
+	// one WithVia put on the context, or ViaSystem for the box's own.
+	Via string
+	// DiscardDrift confirms deleting or reverting what a config plan
+	// marked as drift (see MarkDrift). Without it such a plan is refused
+	// with *DriftError, even with a matching confirmation.
+	DiscardDrift bool
 }
 
 // Apply commits a plan once the caller has confirmed its hash and policy
 // allows its risk. Without a matching confirmation it returns
-// *ConfirmRequiredError carrying the plan. An empty plan is a no-op and
-// returns (nil, nil).
+// *ConfirmRequiredError carrying the plan; a plan with drift also needs
+// DiscardDrift (*DriftError). An empty plan is a no-op and returns
+// (nil, nil).
 func (e *Engine) Apply(ctx context.Context, r ApplyRequest) (*Change, error) {
 	p := r.Plan
 	if p.Empty() {
@@ -179,6 +187,9 @@ func (e *Engine) Apply(ctx context.Context, r ApplyRequest) (*Change, error) {
 	}
 	if !MatchHash(p.Hash, r.Confirm) {
 		return nil, &ConfirmRequiredError{Plan: p, Mismatch: r.Confirm != ""}
+	}
+	if p.HasDrift() && !r.DiscardDrift {
+		return nil, &DriftError{Plan: p}
 	}
 	if r.Authorize != nil {
 		if err := r.Authorize(p); err != nil {
@@ -188,11 +199,19 @@ func (e *Engine) Apply(ctx context.Context, r ApplyRequest) (*Change, error) {
 	if strings.TrimSpace(r.Intent) == "" {
 		r.Intent = p.Summary
 	}
+	via := r.Via
+	if via == "" {
+		via = ViaFrom(ctx)
+	}
+	if via == "" && r.Actor.Kind == "system" {
+		via = ViaSystem
+	}
 	c := &Change{
 		ID:      ids.New("chg"),
 		Project: p.Project,
 		Actor:   r.Actor,
 		Intent:  r.Intent,
+		Via:     via,
 		Plan:    *p,
 		Inverse: Inverse(p.Ops),
 		UndoOf:  p.UndoOf,

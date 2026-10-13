@@ -78,6 +78,10 @@ type Op struct {
 	// Loss is what an irreversible op would destroy, measured when the plan
 	// was made (absent when the box couldn't measure it). Not hashed.
 	Loss *Loss `json:"loss,omitempty"`
+	// Drift, on a plan from a config file, says this op deletes or reverts
+	// something last set outside the config (see MarkDrift). Applying it
+	// needs DiscardDrift. Not hashed.
+	Drift *Drift `json:"drift,omitempty"`
 }
 
 // Actor is who asked for a change.
@@ -108,11 +112,16 @@ func (p *Plan) Empty() bool { return len(p.Ops) == 0 }
 
 // Change is an applied plan: the audit record and the unit of undo.
 type Change struct {
-	ID       string    `json:"id"`
-	Project  string    `json:"project"`
-	Version  int64     `json:"version"` // project version after this change
-	Actor    Actor     `json:"actor"`
-	Intent   string    `json:"intent"`
+	ID      string `json:"id"`
+	Project string `json:"project"`
+	Version int64  `json:"version"` // project version after this change
+	Actor   Actor  `json:"actor"`
+	Intent  string `json:"intent"`
+	// Via is the path the change came in by: ViaConfig for a manifest
+	// applied from a config file, ViaDashboard, ViaAPI for an edited
+	// manifest sent by a key, "tiffin <command>" for any other operation
+	// (`tiffin domains add`), ViaSystem for the box itself.
+	Via      string    `json:"via,omitempty"`
 	Plan     Plan      `json:"plan"`
 	Inverse  []Op      `json:"inverse"`
 	UndoOf   string    `json:"undoOf,omitempty"`
@@ -141,6 +150,15 @@ func (e *ConfirmRequiredError) Error() string {
 	}
 	return fmt.Sprintf("confirmation required: %s; apply with --confirm %s", e.Plan.Summary, e.Plan.Hash[:12])
 }
+
+// DriftError is returned by Apply when a confirmed plan deletes or reverts
+// changes made outside the config file it came from (ops with Drift) and
+// the caller did not say to discard them.
+type DriftError struct {
+	Plan *Plan
+}
+
+func (e *DriftError) Error() string { return DriftWarning(e.Plan) }
 
 // DeniedError is returned when policy refuses a plan's risk tier.
 type DeniedError struct {

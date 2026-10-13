@@ -143,6 +143,35 @@ overwrites a file that differs without `--force`, and shows the diff), plus the 
 of any app running a starter, so a project created in the dashboard can move to git at
 any time.
 
+### Changes made outside your config
+Every change records how it came in: from a config file, the dashboard, a command such as
+`tiffin domains add`, or the box itself. So a config file can fall behind. Say an agent
+ran `tiffin domains add reelbird --domain reelbird.app --app site`. Your `tiffin.config.ts`
+doesn't have that domain, and a plan from it would remove it and take the site down.
+
+A plan from a config file marks those steps instead of hiding them among the rest:
+
+```
+- domain/reelbird.app  reversible  ...
+    ! not in your config: added 2026-10-13 by claude-code with `tiffin domains add`
+! drift: Your tiffin.config.ts doesn't have changes made outside it: domain/reelbird.app
+  (added 2026-10-13 by claude-code with `tiffin domains add`). Run `tiffin pull` to bring
+  them into your config, or confirm with --discard-drift (API: discardDrift: true) to remove them.
+```
+
+- **Keep them** (usual): `tiffin pull` writes them into your config. Plan again, and the
+  plan no longer marks them.
+- **Remove them** on purpose: `tiffin apply --confirm <hash> --discard-drift`. Without
+  `--discard-drift` the apply is refused (status 428, code `drift`) even with the right hash.
+
+A step is marked when it deletes something that was created outside a config file and that
+no config apply has touched since, or when it puts a field back to a value it had before
+such a change. Other plans are unchanged. In the JSON, a marked op has
+`drift: {change, by, at, via, fields}` and the plan's first warning lists every one.
+The dashboard always edits the current state, so its changes never come back marked. A
+script that does the same (reads `GET /v1/projects/{project}/manifest`, edits it and
+applies it) sends `source: "edit"`, so nothing is marked.
+
 ## Risk tiers
 | Tier | Meaning | Example |
 |---|---|---|

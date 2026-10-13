@@ -15,6 +15,10 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 
 - Never guess a hash. Use the one from the plan you just reviewed. If the box changed
   meanwhile, apply refuses (exit 4) and shows the new plan.
+- A step marked "not in your config" would undo a change made another way (a domain
+  added with `tiffin domains add`, a dashboard edit). Don't apply over it: run
+  `tiffin pull` to bring it into `tiffin.config.ts`, then plan again. Use
+  `--discard-drift` only when the human says to remove it.
 - Risk tiers: **reversible**, **outbound** (reaches outside the box) and **irreversible**
   (deleting data). Before an irreversible apply, tell the human exactly what will be
   lost; your client asks them before destructive tools run.

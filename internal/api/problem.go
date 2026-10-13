@@ -20,11 +20,11 @@ type Problem struct {
 	Type   string       `json:"type,omitempty" doc:"URI identifying the problem type"`
 	Title  string       `json:"title" doc:"Short summary"`
 	Status int          `json:"status" doc:"HTTP status code"`
-	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,rate_limited,not_found,conflict,precondition,confirm_required,reauth_required,plan_mismatch,internal"`
+	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,rate_limited,not_found,conflict,precondition,confirm_required,drift,reauth_required,plan_mismatch,internal"`
 	Detail string       `json:"detail,omitempty" doc:"What went wrong"`
 	Hint   string       `json:"hint,omitempty" doc:"What to do next"`
 	Errors []FieldError `json:"errors,omitempty" doc:"Per-field problems"`
-	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch), or the plan the key may not apply (forbidden)"`
+	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch, drift), or the plan the key may not apply (forbidden)"`
 }
 
 // FieldError points at one bad input field.
@@ -106,6 +106,7 @@ func toProblem(err error) error {
 		ve  *manifest.ValidationError
 		ee  *manifest.EvalError
 		cr  *change.ConfirmRequiredError
+		dr  *change.DriftError
 		de  *change.DeniedError
 		pe  *change.PreconditionError
 		hse huma.StatusError
@@ -129,6 +130,12 @@ func toProblem(err error) error {
 		}
 		out := problem(428, code, cr.Error())
 		out.Plan, out.Hint = cr.Plan, hint
+		return out
+	case errors.As(err, &dr):
+		out := problem(428, "drift", dr.Error())
+		out.Plan = dr.Plan
+		out.Hint = "run `tiffin pull` (GET /v1/projects/" + dr.Plan.Project + "/manifest) to keep those changes in your config, then plan again; " +
+			"or repeat with discardDrift: true (tiffin apply --confirm " + dr.Plan.Hash[:12] + " --discard-drift) to remove them"
 		return out
 	case errors.As(err, &de):
 		out := problem(403, "forbidden", de.Reason)

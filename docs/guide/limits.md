@@ -129,6 +129,23 @@ set `runtime: "node"` for them:
   over. Connect a DNS provider for a wildcard certificate instead.
 - A cleaned-up version's address answers its "cleaned up" page while the box keeps its
   record (the last 50 per app), then "nothing here".
+- **Changes made outside your config** (see [Concepts](concepts.md#changes-made-outside-your-config)):
+  the box can't see what your file has seen, only what it holds now. So:
+  - After `tiffin pull`, deleting something that was added outside the file (removing the
+    domain from your config) is still marked once, until a config apply touches it.
+  - A plan that adds back something removed outside the file (a domain removed with
+    `tiffin domains remove`) is not marked.
+  - An update that changes a field to a new value is not marked, even when that value
+    also drops something set outside (a route list your file edited and that
+    `domains add` also changed). Only putting back an older value is marked. The domain
+    itself is still marked.
+  - A manifest sent to the API with a key counts as a config file unless the call says
+    `source: "edit"`. An agent that applies its own edited manifest without it is
+    recorded as a config apply, so a stale file later reverts its change without a mark.
+  - A project made by import or duplicate marks nothing it copied. A move keeps its
+    history, so what was made outside the config before the move is still marked.
+  - The box reads at most the last 1,000 changes of a project to decide. Anything older
+    is never marked.
 
 ## Monorepos
 
