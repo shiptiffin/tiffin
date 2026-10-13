@@ -23,7 +23,8 @@ import (
 //
 // Every deploy's image is named imageRepo<project>-<app>:<deploy> in the
 // tiffin namespace. gc keeps an environment's live build, its newest
-// KeepImages rollback targets (previews none) and releases still draining
+// rollback targets (rollbackTargets: the project's keepVersions, else
+// KeepImages; previews none) and releases still draining
 // or pinned for workflow runs; a failed deploy's image goes at once; a
 // deleted preview's go with it. A deleted app keeps only its live build,
 // for an undo, for deletedAppKeep; a destroyed project keeps nothing.
@@ -345,7 +346,7 @@ func (r *rt) neededImages(ctx context.Context, inv *inventory) map[string]string
 			}
 			continue
 		}
-		rollbacks := r.rollbackTargets(preview)
+		rollbacks := r.rollbackTargets(ctx, project, preview)
 		if preview == "" {
 			if _, ok := r.pinnedReleases(ctx, project, app); !ok {
 				rollbacks = len(ds) // no answer on workflow pins: keep every rollback target

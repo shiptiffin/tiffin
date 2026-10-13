@@ -84,10 +84,10 @@ The box builds with Railpack and BuildKit, starts the new instances, waits for t
 health check, switches traffic with no dropped requests, then drains the old ones. A
 failed build or health check leaves the old version serving.
 
-- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 20 production deploys
-  before the live one, each of which you can also open at its own address first (see
-  [Every version's own address](#every-versions-own-address)). Older builds are cleaned
-  up; their records stay listed.
+- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 5 production deploys
+  before the live one (up to 20 with `keepVersions`), each of which you can also open at
+  its own address first (see [Every version's own address](#every-versions-own-address)).
+  Older builds are cleaned up; their records stay listed.
 - **Disk:** images nothing needs any more go at once or in the hourly sweep. BuildKit's
   cache may hold 15% of the data disk (at least 4 GiB, at most 20 GiB); the sweep trims
   it back to that even when nothing builds.
@@ -179,10 +179,13 @@ own address. Workers have none.
   address in, set `deployAddresses: "public"` in `tiffin.config.ts` or **Settings ›
   General › Version addresses › Public**. Either way the addresses say `noindex` to
   search engines.
-- **How many.** The last 20 production deploys before the live one stay, built and ready
-  to roll back to or open (a sliding window: each new deploy pushes the oldest out). Once
-  the data disk passes the disk guard's warning level (85% by default), apps keep only
-  their last 3, and the guard cleans up the rest at once. An address whose version was
+- **How many.** The last 5 production deploys before the live one stay, built and ready
+  to roll back to or open (a sliding window: each new deploy pushes the oldest out). Set
+  another number per project, 0 to 20, with `keepVersions` in `tiffin.config.ts` (0 keeps
+  only the live one) or in **Settings › General › Earlier versions kept**. Lowering it
+  removes the extra versions at the app's next deploy or within the hour. Once the data
+  disk passes the disk guard's warning level (85% by default), apps keep at most their
+  last 3, and the guard cleans up the rest at once. An address whose version was
   cleaned up answers with a short page that links to the live site, as long as the box
   keeps its record (the last 50 per app); the record says `"retention": "cleaned"`.
 - **What each one costs.** A kept version holds its image's own layers (once compressed,
@@ -190,12 +193,12 @@ own address. Workers have none.
   image, and the dependencies while the lockfile stays the same) are stored once.
   Measured for the Next.js starter (`next build`, without `.next/cache`, which stays in the
   build cache): about 6 MB of build output, 1.5 MB compressed, and a 10 KB source archive,
-  so about 8 MB a version, or 160 MB for all 20. A version that changed dependencies
-  also carries its own `node_modules` layer: about 320 MB unpacked and 82 MB compressed for
-  that starter (10 MB unpacked for the Hono starter). An earlier version that was woken
-  adds its container's writable layer and its own disk folders until it is cleaned up.
-  These are estimates from a build of the starters, not a box's image store; past the
-  disk guard's warning level the window shrinks to 3 by itself.
+  so about 8 MB a version: 40 MB for the default 5, 160 MB for 20. A version that
+  changed dependencies also carries its own `node_modules` layer: about 320 MB unpacked
+  and 82 MB compressed for that starter (10 MB unpacked for the Hono starter). An earlier
+  version that was woken adds its container's writable layer and its own disk folders
+  until it is cleaned up. These are estimates from a build of the starters, not a box's
+  image store; past the disk guard's warning level the window shrinks to 3 by itself.
 - **Certificates.** On a box with a wildcard certificate (a connected DNS provider; the
   hosted apps domain has one), the addresses are covered already. Without one, each
   address gets its own certificate on its first visit, as previews' do.
