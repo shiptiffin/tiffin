@@ -13,6 +13,7 @@ package domains
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/netip"
 	"slices"
 	"sort"
@@ -27,7 +28,10 @@ import (
 	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
-func init() { platform.Register(New()) }
+// std is the module the platform runs (Live reads it).
+var std = New()
+
+func init() { platform.Register(std) }
 
 // Domain states.
 const (
@@ -77,8 +81,17 @@ type record struct {
 	Since       time.Time `json:"since"`
 	CheckedAt   time.Time `json:"checkedAt,omitzero"`
 	NextCheckAt time.Time `json:"nextCheckAt,omitzero"`
-	Attempts    int       `json:"attempts"`
+	Attempts    int       `json:"attempts"` // slow checks since the fast window ended
 	LiveAt      time.Time `json:"liveAt,omitzero"`
+	// FastUntil: checked every fastCheck until then (fastWindow after it
+	// was added, after its DNS answer changed, or after a check by hand).
+	FastUntil time.Time `json:"fastUntil,omitzero"`
+	Registrar string    `json:"registrar,omitempty"` // registrars key: its DNS host, when known
+	Parked    bool      `json:"parked,omitempty"`    // DNS still answers with the registrar's parking records
+}
+
+func newRecord(host string, now time.Time) *record {
+	return &record{Host: host, State: StateWaiting, Since: now, FastUntil: now.Add(fastWindow)}
 }
 
 const ns = "domains"
@@ -215,15 +228,44 @@ func splitRoute(rt string) (host, path string) {
 
 // ---- the background loop ----
 
-// backoff is the wait before the next DNS check of a domain that does not
-// point here yet: quick at first (people add the record, then look), then
-// patient (every 30 minutes) so a forgotten domain costs nothing.
+// The DNS check schedule of a domain that does not point here yet. People
+// add the records and look, so for fastWindow after a domain is added (or
+// its DNS answer changes, or someone checks by hand) it is looked up every
+// fastCheck; after that less and less often, up to every 30 minutes, so a
+// forgotten domain costs nothing. DNS lookups are cheap: certificates are
+// only requested once DNS points here, so Let's Encrypt's limits are safe.
+const (
+	fastCheck  = 30 * time.Second
+	fastWindow = 30 * time.Minute
+)
+
+// backoff is the wait after the attempts-th slow check.
 func backoff(attempts int) time.Duration {
-	steps := []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute}
+	steps := []time.Duration{time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute, 15 * time.Minute}
 	if attempts < len(steps) {
 		return steps[attempts]
 	}
 	return 30 * time.Minute
+}
+
+// nextWait is the wait before the next check of a domain that does not
+// point here, and moves its slow-check count on.
+func nextWait(r *record, now time.Time) time.Duration {
+	if now.Before(r.FastUntil) {
+		r.Attempts = 0
+		return fastCheck
+	}
+	w := backoff(r.Attempts)
+	r.Attempts++
+	return w
+}
+
+// siblings are the other names of a domain: www.<d> for <d>, <d> for www.<d>.
+func siblings(host string) []string {
+	if rest, ok := strings.CutPrefix(host, "www."); ok && strings.Contains(rest, ".") {
+		return []string{rest}
+	}
+	return []string{"www." + host}
 }
 
 // recheckLive is how often a domain that works is checked again (to notice
@@ -302,7 +344,7 @@ func (m *Module) tick(ctx context.Context) {
 		seen[w.Host] = true
 		r := m.recs[w.Host]
 		if r == nil {
-			r = &record{Host: w.Host, State: StateWaiting, Since: now}
+			r = newRecord(w.Host, now)
 			m.recs[w.Host] = r
 		}
 		if !now.Before(r.NextCheckAt) {
@@ -319,8 +361,25 @@ func (m *Module) tick(ctx context.Context) {
 	}
 	m.mu.Unlock()
 
+	checked := map[string]bool{}
+	var wake []string
 	for _, h := range due {
-		m.checkDNS(ctx, h)
+		checked[h] = true
+		if m.checkDNS(ctx, h) {
+			wake = append(wake, siblings(h)...)
+		}
+	}
+	// One name of a domain now points here: its sibling (www) was most
+	// likely fixed at the same time, so look at it now too.
+	for _, h := range wake {
+		m.mu.Lock()
+		r := m.recs[h]
+		due := r != nil && !r.Ready && !checked[h]
+		m.mu.Unlock()
+		if due {
+			checked[h] = true
+			m.checkDNS(ctx, h)
+		}
 	}
 	m.followCerts(ctx)
 	changed := m.boxDomainTick(ctx)
@@ -346,8 +405,9 @@ func (m *Module) readyLocked() []string {
 	return out
 }
 
-// checkDNS looks a custom domain up and moves it between waiting and ready.
-func (m *Module) checkDNS(ctx context.Context, host string) {
+// checkDNS looks a custom domain up and moves it between waiting and
+// ready. It reports whether the domain just became ready.
+func (m *Module) checkDNS(ctx context.Context, host string) bool {
 	p := m.p
 	res := p.Reach.Resolver()
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -355,8 +415,18 @@ func (m *Module) checkDNS(ctx context.Context, host string) {
 	cancel()
 	now := m.now()
 	ok, why := false, ""
+	var reg *registrar
+	parked := false
 	if err == nil {
 		ok, why = dnskit.PointsHere(ans, p.Reach.PublicIPs)
+		if !ok {
+			if r, val := parkedBy(ans); r != nil {
+				reg, parked = r, true
+				why = fmt.Sprintf("it points to %s (%s), not this box (%s)", r.What, val, joinAddrs(p.Reach.PublicIPs))
+			} else if k := m.dnsHost(ctx, host); k != "" {
+				reg = registrarByKey(k)
+			}
+		}
 	} else {
 		why = "could not ask DNS: " + err.Error()
 	}
@@ -368,10 +438,22 @@ func (m *Module) checkDNS(ctx context.Context, host string) {
 	defer m.mu.Unlock()
 	r := m.recs[host]
 	if r == nil {
-		return
+		return false
+	}
+	found := addrStrings(ans.Addrs)
+	if err == nil && !r.CheckedAt.IsZero() && (!slices.Equal(found, r.Found) || ans.CNAME != r.CNAME) {
+		// Someone is changing its records: watch closely again.
+		r.FastUntil = now.Add(fastWindow)
 	}
 	r.CheckedAt = now
-	r.Found, r.CNAME = addrStrings(ans.Addrs), ans.CNAME
+	if err == nil {
+		r.Found, r.CNAME = found, ans.CNAME
+		r.Registrar, r.Parked = "", parked
+		if reg != nil {
+			r.Registrar = reg.Key
+		}
+	}
+	became := false
 	switch {
 	case !ok:
 		if r.Ready && p.Log != nil {
@@ -379,22 +461,29 @@ func (m *Module) checkDNS(ctx context.Context, host string) {
 		}
 		m.setState(r, StateWaiting, why, now)
 		r.Ready = false
-		r.NextCheckAt = now.Add(backoff(r.Attempts))
-		r.Attempts++
+		r.NextCheckAt = now.Add(nextWait(r, now))
 	case caaWhy != "":
 		m.setState(r, StateError, caaWhy, now)
 		r.Ready = false
-		r.NextCheckAt = now.Add(backoff(r.Attempts))
-		r.Attempts++
+		r.NextCheckAt = now.Add(nextWait(r, now))
 	default:
 		if !r.Ready {
-			r.Ready = true
+			r.Ready, became = true, true
 			m.setState(r, StateIssuing, "", now)
 		}
 		r.Attempts = 0
 		r.NextCheckAt = now.Add(recheckLive)
 	}
 	m.save(ctx, r)
+	return became
+}
+
+func joinAddrs(as []netip.Addr) string {
+	s := make([]string, len(as))
+	for i, a := range as {
+		s[i] = a.String()
+	}
+	return strings.Join(s, ", ")
 }
 
 // caaProblem says why CAA records stop the box's CA, or "".
@@ -447,6 +536,14 @@ func (m *Module) followCerts(ctx context.Context) {
 			m.setState(r, StateIssuing, "", now)
 		}
 		if r.State != prev {
+			if r.State == StateLive {
+				// Live: a sibling still waiting is looked at on the next tick.
+				for _, h := range siblings(r.Host) {
+					if sr := m.recs[h]; sr != nil && !sr.Ready {
+						sr.NextCheckAt = now
+					}
+				}
+			}
 			m.save(ctx, r)
 		}
 	}
@@ -607,4 +704,16 @@ func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Ch
 		out = append(out, platform.Check{Name: "domains", OK: false, Detail: strings.Join(bad, "; ")})
 	}
 	return out
+}
+
+// Live reports whether host is a project domain this box serves live: DNS
+// points here and its certificate is served. False until the module starts.
+// The runtime uses it to name an app's address after a deploy.
+func Live(host string) bool { return std.live(host) }
+
+func (m *Module) live(host string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.recs[strings.ToLower(host)]
+	return r != nil && r.State == StateLive
 }
