@@ -396,6 +396,11 @@ unchanged.
   (see [Monorepos](limits.md#monorepos)); then the app builds and starts in its own folder
   (the deploy's `dir`, e.g. `apps/web`). `tiffin deploy`, git pushes and GitHub deploys all
   do this. Any other app goes up alone.
+- **Local packages.** A `file:` dependency (`"@acme/sdk": "file:./vendor/sdk-1.0.0.tgz"`)
+  installs from the package files, the lockfile and the package it names, so the install
+  stays cached until one of them changes, as for any other app. An install script
+  (`preinstall`, `install`, `postinstall` or `prepare`) can read anything, so with one the
+  install gets the whole source and runs again on every change.
 - **vercel.json** in the app's folder is read at every deploy. The build log lists what was
   taken and what was not used (`tiffin plan` says the same on a terminal), and the deploy
   record keeps it (`vercel`):
