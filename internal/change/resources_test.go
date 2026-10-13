@@ -77,6 +77,48 @@ func TestResourcesPlatform(t *testing.T) {
 	}
 }
 
+// keepVersions lives on the project resource like deployAddresses: setting
+// it to 0, changing it or removing it is one reversible project update and
+// touches no app.
+func TestKeepVersionsIsAProjectSetting(t *testing.T) {
+	spec := func(keep *int) map[string]Resource {
+		m := platformManifest()
+		m.KeepVersions = keep
+		res, err := Resources(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	zero, ten := 0, 10
+	if got := string(spec(&zero)[KindProject].Spec); got != `{"keepVersions":0}` {
+		t.Fatalf("project spec = %s", got)
+	}
+	if got := string(spec(nil)[KindProject].Spec); got != `{}` {
+		t.Fatalf("unset project spec = %s", got)
+	}
+	for _, c := range []struct {
+		from, to *int
+		reason   string
+	}{
+		{nil, &zero, "keeps 0 earlier versions of each app instead of 5"},
+		{&zero, &ten, "changes the project's settings"},
+		{&ten, nil, "keeps 5 earlier versions of each app instead of 10"},
+	} {
+		ops := Diff(spec(c.from), spec(c.to))
+		if len(ops) != 1 || ops[0].Address != KindProject || ops[0].Action != Update {
+			t.Fatalf("%v → %v: ops %+v", c.from, c.to, ops)
+		}
+		if tier, reason := Classify(ops[0]); tier != TierReversible || !strings.HasPrefix(reason, c.reason) || !strings.Contains(reason, "restart") {
+			t.Fatalf("%v → %v: %s, %q", c.from, c.to, tier, reason)
+		}
+	}
+	m, err := ManifestFromResources("p", spec(&zero))
+	if err != nil || m.KeepVersions == nil || *m.KeepVersions != 0 {
+		t.Fatalf("copied back: %v %v", m.KeepVersions, err)
+	}
+}
+
 func TestCronsOrderedAfterApps(t *testing.T) {
 	res, _ := Resources(platformManifest())
 	ops := Diff(nil, res)

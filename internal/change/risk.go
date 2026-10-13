@@ -3,8 +3,11 @@ package change
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Classify assigns a risk tier to one op, with a plain-words reason.
@@ -78,7 +81,15 @@ func Classify(op Op) (Tier, string) {
 				return TierIrreversible, "shortens analytics retention and deletes events older than the new limit"
 			}
 		case KindProject:
-			return TierReversible, "changes the project's share of the box; applies live without restarting apps, and undo restores the previous limits"
+			a, b := projectSpec(op.Before), projectSpec(op.After)
+			if keptVersions(b) < keptVersions(a) {
+				return TierReversible, fmt.Sprintf("keeps %d earlier versions of each app instead of %d: the extra ones are removed at its next deploy or within the hour, "+
+					"and undo restores the setting, not them; no app restarts", keptVersions(b), keptVersions(a))
+			}
+			if !reflect.DeepEqual(a.Resources, b.Resources) {
+				return TierReversible, "changes the project's share of the box; applies live without restarting apps, and undo restores the previous limits"
+			}
+			return TierReversible, "changes the project's settings; applies without restarting apps, and undo restores the previous settings"
 		case KindSecret:
 			return TierReversible, "replaces secret " + name + "'s value; undo restores the previous value"
 		case KindBucket:
@@ -139,6 +150,21 @@ func droppedExtensions(before, after json.RawMessage) []string {
 		}
 	}
 	return dropped
+}
+
+func projectSpec(raw json.RawMessage) ProjectSpec {
+	var ps ProjectSpec
+	_ = json.Unmarshal(raw, &ps)
+	return ps
+}
+
+// keptVersions is how many earlier production builds a project spec keeps
+// each app (before disk pressure).
+func keptVersions(ps ProjectSpec) int {
+	if ps.KeepVersions == nil {
+		return manifest.DefaultKeepVersions
+	}
+	return *ps.KeepVersions
 }
 
 func becamePublic(before, after json.RawMessage) bool {

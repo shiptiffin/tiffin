@@ -59,7 +59,7 @@ func ManifestFromResources(project string, res map[string]Resource) (*manifest.M
 			if err := dec(&ps); err != nil {
 				return nil, err
 			}
-			m.Resources, m.SleepAfter, m.DeployAddresses = ps.Resources, ps.SleepAfter, ps.DeployAddresses
+			m.Resources, m.SleepAfter, m.DeployAddresses, m.KeepVersions = ps.Resources, ps.SleepAfter, ps.DeployAddresses, ps.KeepVersions
 		case KindApp:
 			var a manifest.App
 			if err := dec(&a); err != nil {

@@ -105,6 +105,9 @@ func configNode(m *Manifest) *node {
 	if m.DeployAddresses != "" {
 		root.set("deployAddresses", str(m.DeployAddresses))
 	}
+	if m.KeepVersions != nil {
+		root.set("keepVersions", num(*m.KeepVersions))
+	}
 	if len(m.Apps) > 0 {
 		apps := obj()
 		for _, name := range sortedKeys(m.Apps) {
