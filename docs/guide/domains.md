@@ -136,6 +136,41 @@ name's state:
 
 `tiffin domains remove shop example.com` stops serving it. Your DNS records stay.
 
+## Primary domain
+
+Moving a site to its own domain? Make that domain the app's **primary**, and its old
+addresses send visitors there:
+
+```
+tiffin domains add shop --domain example.com --app web --www --primary
+tiffin domains edit shop example.com --primary          # a domain the app already has
+tiffin domains edit shop example.com --primary=false    # every address serves again
+```
+
+```ts
+domains: { "example.com": { www: "redirect", primary: true } },
+```
+
+Once `example.com` is live, the app's other addresses answer a permanent redirect
+(308) to `https://example.com`, with the path and query kept: its name on the box
+(`shop.<apps domain>`), its other domains, and their `www.` names. Search engines then
+index one address. Plain HTTP goes straight to the primary in one hop.
+
+- **Nothing redirects until the primary is live.** While it waits for DNS or its
+  certificate, the old addresses keep serving, so visitors never land on a name without
+  HTTPS. If it stops being live (its DNS moved away), they serve again.
+  `tiffin domains list shop` says which addresses redirect and whether the redirect is on
+  (`redirectFrom`, `redirecting`).
+- **Previews and deploy addresses keep serving**, so you can still open them. So do the
+  box's own names and the dashboard.
+- **Only addresses the app serves whole redirect.** A name shared with another app (say
+  `old.com/api` goes to the api app) keeps serving, so the other app's paths never move.
+- **One primary per app.** Making another domain primary unsets the old one. The primary
+  is a domain of your own that the app serves whole (no path).
+- In the dashboard: open a domain's menu and choose **Make primary**. For agents: `primary`
+  on `POST /v1/projects/{project}/domains`, and `POST
+  /v1/projects/{project}/domains/{domain}/edit` (`primary`, `www`).
+
 ## Let Tiffin manage DNS (optional)
 
 Connect a Cloudflare API token with **Zone · DNS · Edit** on your zones:
@@ -166,7 +201,9 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
   wastes Let's Encrypt's limits. Without a DNS provider, each app gets its certificate
   on its first visit. The domain itself gets one on its first visit too, for the redirect,
   and only while no app uses it; once an app does, it is checked like any project domain.
-- Plain HTTP redirects to HTTPS. Browsers are told to stay on HTTPS (HSTS, 30 days)
+- Plain HTTP redirects to HTTPS. A name that only redirects (`www.`, or an app's old
+  address once its primary domain is live) goes straight to its target in one hop. Let's
+  Encrypt's HTTP challenges are answered before any redirect. Browsers are told to stay on HTTPS (HSTS, 30 days)
   only for certificates from a public CA.
 - A domain switch restarts the service for a few seconds (apps keep running). The old
   names keep working until the new ones have certificates, then for another hour.

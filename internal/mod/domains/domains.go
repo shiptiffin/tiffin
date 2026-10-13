@@ -53,6 +53,8 @@ type Module struct {
 	wake     chan struct{}
 	started  bool
 	lastScan []want
+	// lastPrimary is the primary redirects the edge was last given.
+	lastPrimary []string
 }
 
 // New returns a module (tests use their own).
@@ -324,11 +326,12 @@ func (m *Module) tick(ctx context.Context) {
 	}
 	m.followCerts(ctx)
 	changed := m.boxDomainTick(ctx)
+	primaryChanged := m.primaryTick(ctx, p) // a primary went live, say
 
 	m.mu.Lock()
 	after := m.readyLocked()
 	m.mu.Unlock()
-	if changed || redirectsChanged || !slices.Equal(before, after) {
+	if changed || redirectsChanged || primaryChanged || !slices.Equal(before, after) {
 		if err := p.RefreshRoutes(ctx); err != nil && p.Log != nil {
 			p.Log.Error("domains: reload the edge", "err", err)
 		}
@@ -547,12 +550,14 @@ func (m *Module) boxDomainTick(ctx context.Context) bool {
 	return b.PreviousUntil.IsZero() // the grace period ended
 }
 
-// Routes are the www redirects (the apps' own routes come from the runtime).
+// Routes are the www redirects and the live primary domains' redirects
+// (the apps' own routes come from the runtime; a whole-host redirect wins
+// over them at the edge).
 func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, error) {
 	if p.DB == nil {
 		return nil, nil
 	}
-	return redirectRoutes(m.scan(ctx, p)), nil
+	return append(redirectRoutes(m.scan(ctx, p)), m.primaryRoutes(p, primaries(ctx, p))...), nil
 }
 
 func redirectKeys(wants []want) []string {

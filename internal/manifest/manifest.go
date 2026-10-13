@@ -532,6 +532,13 @@ type Domain struct {
 	// too. Default "" (off; to serve www.<domain> itself, add it to an
 	// app's routes).
 	WWW string `json:"www,omitempty"`
+	// Primary makes this domain its app's main address: once it is live
+	// (it has its certificate), the app's other whole-host addresses (its
+	// <name>.<apps domain> and its other domains) answer a permanent
+	// redirect here (308, path and query kept). Previews and deploy
+	// addresses keep serving. At most one per app; the app must serve the
+	// whole domain (a route without a path). Default false.
+	Primary bool `json:"primary,omitempty"`
 }
 
 // Topic is a fan-out name: every message sent to the topic becomes one job

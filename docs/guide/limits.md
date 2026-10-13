@@ -379,6 +379,12 @@ The box adds nothing for LLMs:
   served after a switch get no redirect. A wildcard certificate does not cover the domain
   itself, so it gets its own over HTTP-01 on its first visit; a box whose port 80 is closed
   to the internet cannot get it.
+- **A primary domain redirects only the addresses its app serves whole.** A name
+  where another app serves a path (`old.com/api`) keeps serving, and so do previews and
+  deploy addresses; nothing redirects to a primary domain until it is live, and on a
+  local box custom domains never go live. An app's `TIFFIN_URL` (and its sign-in
+  address) stays its first route, usually its name on the box, whose links then take one
+  redirect; put the primary domain first in `routes` to make it the app's URL.
 - **`tiffin.config.ts` sees no environment** on your computer or the box (`process.env` is
   empty) and imports only files of its repository. Values that differ per environment
   belong in secrets or `env`.

@@ -2820,6 +2820,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/domains/{domain}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change a domain's options
+         * @description Sets a domain's options in the manifest, through plan and apply: primary (the app's other addresses redirect here once it is live, like "Redirect to another domain"; previews and deploy addresses keep serving) and www (www.<domain> redirects here). Without confirm you get status 428 with the plan.
+         */
+        post: operations["domain-edit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/domains/{domain}/remove": {
         parameters: {
             query?: never;
@@ -7758,6 +7778,8 @@ export interface components {
             intent?: string;
             /** @description Only this path prefix goes to the app, e.g. /api (another app can serve the rest). Default: everything. */
             path?: string;
+            /** @description Make it the app's primary domain: once it is live, the app's other addresses (<name>.<apps domain>, its other domains) redirect here (308, path and query kept); previews and deploy addresses keep serving. Unsets the app's previous primary. */
+            primary?: boolean;
             /** @description Also serve www.<domain> and redirect it here (point www at the box too). */
             www?: boolean;
         };
@@ -7842,12 +7864,20 @@ export interface components {
             managedBy?: string;
             /** Format: date-time */
             nextCheckAt?: string;
+            /** @description Its app's primary domain: once it is live, the app's other addresses redirect here (308, path and query kept). */
+            primary: boolean;
+            /** @description Another domain is its app's primary: this one redirects there once that is live (see redirecting). */
+            primaryDomain?: string;
             project: string;
             reason?: string;
             /** @description Point the name at the box with these (all of them). */
             records: components["schemas"]["Record"][] | null;
+            /** @description On a primary domain: the app's other addresses that redirect here (once it is live; see redirecting). */
+            redirectFrom?: string[] | null;
             /** @description For www.<domain>: where it redirects. */
             redirectTo?: string;
+            /** @description The primary redirect is on: the primary domain is live. Until then every address keeps serving. */
+            redirecting?: boolean;
             /** @description Path prefixes and the app serving each. */
             routes: components["schemas"]["DomainsRoute"][] | null;
             /** Format: date-time */
@@ -7882,6 +7912,16 @@ export interface components {
             /** @description Add these at your DNS host. */
             records: components["schemas"]["DomainsRecordCheck"][] | null;
             summary: string;
+        };
+        DomainsEditBody: {
+            /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan. */
+            confirm?: string;
+            /** @description Why, in one sentence (shown in the activity timeline). */
+            intent?: string;
+            /** @description Make it its app's primary domain: once it is live, the app's other addresses (<name>.<apps domain>, its other domains) redirect here (308, path and query kept), and the app's previous primary is unset. false (--primary=false) stops it: every address serves again. */
+            primary?: boolean;
+            /** @description Also serve www.<domain> and redirect it here (point www at the box too). false (--www=false) stops it. */
+            www?: boolean;
         };
         DomainsPrevious: {
             /** @description The earlier apps domain, when it was another domain; its names keep working just as long. */
@@ -8885,6 +8925,7 @@ export interface components {
             Size: string;
         };
         ManifestDomain: {
+            primary?: boolean;
             www?: string;
         };
         ManifestEmail: {
@@ -25984,6 +26025,98 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description The domain, e.g. example.com */
+                domain: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DomainsEditBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsDomainChange"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
                 headers: {
                     [name: string]: unknown;
                 };

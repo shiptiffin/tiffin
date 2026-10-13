@@ -93,6 +93,11 @@ type Domain struct {
 	Routes     []route `json:"routes" doc:"Path prefixes and the app serving each."`
 	RedirectTo string  `json:"redirectTo,omitempty" doc:"For www.<domain>: where it redirects."`
 	WWW        bool    `json:"wwwRedirect" doc:"www.<domain> redirects here."`
+	// The primary domain (see primary.go).
+	Primary       bool     `json:"primary" doc:"Its app's primary domain: once it is live, the app's other addresses redirect here (308, path and query kept)."`
+	RedirectFrom  []string `json:"redirectFrom,omitempty" doc:"On a primary domain: the app's other addresses that redirect here (once it is live; see redirecting)."`
+	PrimaryDomain string   `json:"primaryDomain,omitempty" doc:"Another domain is its app's primary: this one redirects there once that is live (see redirecting)."`
+	Redirecting   bool     `json:"redirecting,omitempty" doc:"The primary redirect is on: the primary domain is live. Until then every address keeps serving."`
 	// State: waiting_for_dns (it does not point at the box yet; checked
 	// again with backoff, from 15 s up to every 30 min), issuing (the
 	// certificate is being obtained), live, or error (see reason).
@@ -523,6 +528,7 @@ func (m *Module) domainStatus(ctx context.Context, p *platform.Platform, w want)
 			d.Summary += fmt.Sprintf(". %s holds this zone: add the domain again with createRecords to set them for you.", d.ManagedBy)
 		}
 	}
+	m.describePrimary(ctx, p, &d)
 	return d
 }
 
@@ -578,6 +584,7 @@ type addBody struct {
 	App           string `json:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"The app that serves it (a web app of this project)."`
 	Path          string `json:"path,omitempty" maxLength:"200" doc:"Only this path prefix goes to the app, e.g. /api (another app can serve the rest). Default: everything."`
 	WWW           bool   `json:"www,omitempty" doc:"Also serve www.<domain> and redirect it here (point www at the box too)."`
+	Primary       bool   `json:"primary,omitempty" doc:"Make it the app's primary domain: once it is live, the app's other addresses (<name>.<apps domain>, its other domains) redirect here (308, path and query kept); previews and deploy addresses keep serving. Unsets the app's previous primary."`
 	CreateRecords bool   `json:"createRecords,omitempty" doc:"Create the DNS records through the connected DNS provider that holds the zone (after the change is applied). Box admins only."`
 	Confirm       string `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan."`
 	Intent        string `json:"intent,omitempty" maxLength:"500" doc:"Why, in one sentence (shown in the activity timeline)."`
@@ -898,6 +905,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		// A name on the box (<name>.<apps domain>) already points here: it
 		// is a route of its own, with no DNS to set.
 		boxName := p.IsBoxHost(d)
+		if in.Body.Primary && (boxName || path != "") {
+			pr := api.NewProblem(422, "validation", "a primary domain is one of your own domains, served whole (no path)")
+			pr.Errors = append(pr.Errors, api.FieldError{Path: "/primary", Message: "add " + d + path + " without primary, or make a domain of your own primary"})
+			return nil, pr
+		}
 		if boxName {
 			label, _, _ := strings.Cut(d, ".")
 			rt = label + path
@@ -925,7 +937,12 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				if man.Domains == nil {
 					man.Domains = map[string]manifest.Domain{}
 				}
-				man.Domains[d] = manifest.Domain{WWW: manifest.WWWRedirect}
+				e := man.Domains[d]
+				e.WWW = manifest.WWWRedirect
+				man.Domains[d] = e
+			}
+			if in.Body.Primary {
+				return setPrimary(man, d, true)
 			}
 			return nil
 		})
@@ -1039,6 +1056,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	m.registerDNS(a, p, ready)
+	m.registerEdit(a, p, ready)
 }
 
 // recheck checks hosts now and reloads the edge if one became ready.

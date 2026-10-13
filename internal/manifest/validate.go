@@ -325,18 +325,24 @@ var (
 )
 
 // domainErrors checks the domains section against the apps' routes: every
-// domain is served by an app, and a www redirect does not shadow a route.
+// domain is served by an app, a www redirect does not shadow a route, and
+// each app has at most one primary domain, which it serves whole.
 func domainErrors(m *Manifest) []FieldError {
 	var errs []FieldError
 	hosts := map[string]string{} // route host → app
+	whole := map[string]string{} // host → the app serving all of it (a route without a path)
 	for _, name := range sortedKeys(m.Apps) {
 		for _, r := range m.Apps[name].Routes {
-			h, _, _ := strings.Cut(normalizeRoute(r), "/")
+			h, _, hasPath := strings.Cut(normalizeRoute(r), "/")
 			if _, ok := hosts[h]; !ok {
 				hosts[h] = name
 			}
+			if _, ok := whole[h]; !ok && !hasPath {
+				whole[h] = name
+			}
 		}
 	}
+	primaryOf := map[string]string{} // app → its primary domain
 	for _, d := range sortedKeys(m.Domains) {
 		base := "/domains/" + escapePointer(d)
 		if _, ok := hosts[d]; !ok {
@@ -349,6 +355,20 @@ func domainErrors(m *Manifest) []FieldError {
 			} else if app, ok := hosts[www]; ok {
 				errs = append(errs, FieldError{Path: base + "/www", Message: fmt.Sprintf("%s is a route of app %q, so it cannot also redirect; remove one of them", www, app)})
 			}
+		}
+		if !m.Domains[d].Primary {
+			continue
+		}
+		app, ok := whole[d]
+		switch {
+		case !ok && hosts[d] != "":
+			errs = append(errs, FieldError{Path: base + "/primary", Message: fmt.Sprintf("a primary domain is served whole by one app, but only paths of %q are routes; add %q (no path) to the app's routes", d, d)})
+		case !ok:
+			// No app serves it: reported above.
+		case primaryOf[app] != "":
+			errs = append(errs, FieldError{Path: base + "/primary", Message: fmt.Sprintf("app %q already has the primary domain %q; an app has one primary, so set primary on only one of them", app, primaryOf[app])})
+		default:
+			primaryOf[app] = d
 		}
 	}
 	return errs

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, ChevronDown, Copy, CornerDownRight, MoreHorizontal, Pencil, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Copy, CornerDownRight, MoreHorizontal, Pencil, RefreshCw, Star, Trash2, X } from "lucide-react";
 import { Accordion as A } from "radix-ui";
 import { useState, type ReactNode } from "react";
 import type { Manifest } from "@/api/client";
@@ -8,6 +8,7 @@ import { Confirm } from "@/components/confirm";
 import { DomainDns } from "@/components/domains-dns";
 import { AddPath, ChangeAppDialog, dropPath } from "@/components/domains-edit";
 import { agoWords, kindOf, routesOf, shortDate, untilWords, useNow } from "@/components/domains-parts";
+import { canBePrimary, domainOptionEdit, PrimaryFact, setPrimary } from "@/components/domains-primary";
 import { DomainSetup } from "@/components/domains-setup";
 import { StatusDot } from "@/components/project-domains";
 import { toast } from "@/components/toast";
@@ -60,14 +61,15 @@ export function DomainRow({ project, d, www, writer, local, every, open, onToggl
   const flipWww = (to: "on" | "off") =>
     change(
       project,
-      {
-        kind: "set",
-        path: ["domains", d.domain],
-        from: wwwOn ? { www: "redirect" } : undefined,
-        to: to === "on" ? { www: "redirect" } : undefined,
-        what: to === "on" ? `Redirect www.${d.domain} to ${d.domain}` : `Stop redirecting www.${d.domain}`,
-        undo: to === "on" ? `www.${d.domain} stops redirecting` : `www.${d.domain} redirects again`,
-      },
+      // Keeps the entry's other options (primary).
+      domainOptionEdit(
+        manifest,
+        d.domain,
+        "www",
+        to === "on" ? "redirect" : undefined,
+        to === "on" ? `Redirect www.${d.domain} to ${d.domain}` : `Stop redirecting www.${d.domain}`,
+        to === "on" ? `www.${d.domain} stops redirecting` : `www.${d.domain} redirects again`,
+      ),
       { immediate: true },
     );
 
@@ -79,6 +81,7 @@ export function DomainRow({ project, d, www, writer, local, every, open, onToggl
         { icon: <Copy />, label: "Copy address", run: () => void copyText(d.url).then((ok) => ok && toast({ title: "Copied the address." })) },
         writer && anyPending && { icon: <RefreshCw />, label: "Check DNS now", run: () => check.mutate() },
         writer && apps.length > 1 && { icon: <Pencil />, label: "Change app…", run: () => setChanging(true) },
+        writer && canBePrimary(manifest, d) && { icon: <Star />, label: d.primary ? "Stop being primary" : "Make primary", run: () => setPrimary(project, manifest, d, !d.primary) },
         writer && apex && { icon: <CornerDownRight />, label: wwwOn ? `Stop redirecting www` : `Redirect www here`, run: () => flipWww(wwwOn ? "off" : "on") },
         writer && "sep",
         writer && { icon: <Trash2 />, label: "Remove…", run: () => setRemoving(true), danger: true },
@@ -131,7 +134,7 @@ export function DomainRow({ project, d, www, writer, local, every, open, onToggl
                   <Breaker
                     label={`Redirect www.${d.domain} here`}
                     state={wwwOn ? "on" : "off"}
-                    staged={staged && staged.kind === "set" ? (staged.to === undefined ? "off" : "on") : undefined}
+                    staged={staged && staged.kind === "set" ? ((staged.to as { www?: string } | undefined)?.www ? "on" : "off") : undefined}
                     onFlip={flipWww}
                     disabled={!writer}
                   />
@@ -203,6 +206,7 @@ function Line({
 }) {
   const s = stateWords(d);
   const { root, paths } = routesOf(d);
+  const to = d.redirectTo ?? (d.redirecting ? d.primaryDomain : undefined);
   const word = d.state === "live" ? (s.detail ? "Live, with a warning" : "Live") : d.state === "error" ? "Problem" : s.word;
   const sub = d.state === "error" ? s.word.replace(/^Problem: /, "") : d.state === "live" ? s.detail : d.state === "issuing" ? "Usually under a minute" : waitingSub(d);
   return (
@@ -236,19 +240,20 @@ function Line({
           <span className={cn("block truncate text-xs sm:hidden", toneText(s.tone))}>
             {child && <StatusDot tone={s.tone} className="mr-1.5 size-1.5!" />}
             {word}
-            {d.redirectTo ? <span className="text-ink-3"> · redirects to {d.redirectTo}</span> : root && <span className="text-ink-3"> · shows {root}</span>}
+            {to ? <span className="text-ink-3"> · redirects to {to}</span> : root && <span className="text-ink-3"> · shows {root}{d.primary ? " · primary" : ""}</span>}
           </span>
         </span>
       </div>
 
       <div className="pointer-events-none relative min-w-0 text-[0.8125rem] max-sm:hidden">
-        {d.redirectTo ? (
+        {to ? (
           <span className="text-ink-3">
-            Redirects to <span className="ident text-[0.75rem] text-ink-2">{d.redirectTo}</span>
+            Redirects to <span className="ident text-[0.75rem] text-ink-2">{to}</span>
           </span>
         ) : (
           <>
             <span className="ident text-[0.75rem] text-ink">{root ?? "—"}</span>
+            {d.primary && <span className="text-xs text-ink-3"> · primary</span>}
             {paths.length > 0 && <span className="block truncate text-xs text-ink-3">{paths.map((p) => `${p.path} → ${p.app}`).join(", ")}</span>}
           </>
         )}
@@ -385,6 +390,11 @@ function Details({
         )}
       </Fact>
       {wwwSwitch && <Fact label="www">{wwwSwitch}</Fact>}
+      {!d.redirectTo && (
+        <Fact label="Primary">
+          <PrimaryFact d={d} />
+        </Fact>
+      )}
       {addingPath && (
         <div className="py-3 sm:col-span-2">
           <AddPath project={project} d={d} apps={apps} onDone={() => setAddingPath(false)} />
