@@ -19,7 +19,6 @@ type fakeStore struct {
 	mu         sync.Mutex
 	block      chan struct{} // inserts wait on it while non-nil
 	insertErr  error
-	rollupErr  error
 	inserted   int
 	rolledUp   [][3]string
 	rollupFail int // fail this many rollups

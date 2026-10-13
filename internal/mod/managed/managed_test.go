@@ -191,7 +191,7 @@ func TestHandoffLinkOnRequest(t *testing.T) {
 	}
 	// Signed in: "done", and no link even if asked.
 	got, links.done = nil, true
-	_, soon = CheckIn(context.Background(), srv.Client(), cfg, Report{BoxID: "box_1"}, links, platform.ManagedState{}, time.Now())
+	_, _ = CheckIn(context.Background(), srv.Client(), cfg, Report{BoxID: "box_1"}, links, platform.ManagedState{}, time.Now())
 	if len(got) != 1 || got[0].Handoff != "done" || got[0].Signin != nil || links.made != 1 {
 		t.Fatalf("after the owner signed in: %+v", got)
 	}

@@ -15,7 +15,7 @@
     "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-email": "6.11.0",
+    "react-email": "6.11.1",
     "shiki": "4.5.0"
   },
   "devDependencies": {
