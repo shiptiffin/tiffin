@@ -1431,21 +1431,30 @@ func (e *stateError) Error() string { return e.msg }
 // gc removes images, source archives, static files and work dirs of old
 // deploys of an app environment: everything keptDeploys does not keep.
 func (r *rt) gc(ctx context.Context, project, app, preview string) {
-	r.gcKeeping(ctx, project, app, preview, r.rollbackTargets(preview))
+	r.gcKeeping(ctx, project, app, preview, r.rollbackTargets(ctx, project, preview))
 }
 
 // rollbackTargets is how many earlier builds an environment keeps to roll
-// back to (each at its own address): KeepImages for production, fewer
-// (pressureKeep) while the data disk is past the disk guard's warning
-// level, none for a preview.
-func (r *rt) rollbackTargets(preview string) int {
+// back to (each at its own address): for production its project's
+// keepVersions, or KeepImages when it sets none, and at most pressureKeep
+// while the data disk is past the disk guard's warning level; none for a
+// preview.
+func (r *rt) rollbackTargets(ctx context.Context, project, preview string) int {
 	if preview != "" {
 		return 0
 	}
-	if r.opt.KeepImages > pressureKeep && r.diskPressure() {
+	_, res, err := r.p.DB.Load(ctx, project)
+	if err != nil {
+		return max(r.opt.KeepImages, manifest.MaxKeepVersions) // no answer: keep all a project may ask for
+	}
+	n := r.opt.KeepImages
+	if k := projectKeepVersions(res); k != nil {
+		n = min(max(*k, 0), manifest.MaxKeepVersions)
+	}
+	if n > pressureKeep && r.diskPressure() {
 		return pressureKeep
 	}
-	return r.opt.KeepImages
+	return n
 }
 
 // gcKeeping is gc with the environment's newest rollbacks rollback targets.

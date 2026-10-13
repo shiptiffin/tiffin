@@ -239,6 +239,14 @@ code {
   color: var(--ink);
   background: var(--paper-sunk);
 }
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px;
+}
+.nav-icon svg {
+  display: block;
+}
 @media (max-width: 560px) {
   .hide-sm {
     display: none;

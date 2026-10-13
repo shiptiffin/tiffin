@@ -88,6 +88,9 @@ type ProjectSpec struct {
 	// DeployAddresses: who may open its deploys' own addresses ("":
 	// signed-in, see manifest.Manifest.DeployAddresses).
 	DeployAddresses string `json:"deployAddresses,omitempty"`
+	// KeepVersions: how many earlier production builds each app keeps
+	// (nil: the default, see manifest.Manifest.KeepVersions).
+	KeepVersions *int `json:"keepVersions,omitempty"`
 }
 
 // Kind returns the kind part of an address ("app/web" → "app").
@@ -114,7 +117,8 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 		out[addr] = Resource{Address: addr, Spec: b}
 		return nil
 	}
-	if err := add(KindProject, ProjectSpec{Resources: m.Resources, SleepAfter: m.SleepAfter, DeployAddresses: m.DeployAddresses}); err != nil {
+	if err := add(KindProject, ProjectSpec{Resources: m.Resources, SleepAfter: m.SleepAfter, DeployAddresses: m.DeployAddresses,
+		KeepVersions: m.KeepVersions}); err != nil {
 		return nil, err
 	}
 	for name, app := range m.Apps {

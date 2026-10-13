@@ -20,6 +20,12 @@ const (
 	DeployAddressesPublic   = "public"
 )
 
+// How many earlier production builds each app keeps (Manifest.KeepVersions).
+const (
+	DefaultKeepVersions = 5
+	MaxKeepVersions     = 20
+)
+
 // Manifest is the canonical, fully-defaulted form of tiffin.config.ts.
 type Manifest struct {
 	// Version of the manifest format. Always 1 for now.
@@ -42,6 +48,11 @@ type Manifest struct {
 	// of a web app gets (d-<id>--<app>.<apps domain>): "signed-in" (absent
 	// means this), people signed in to the box's dashboard; "public", anyone.
 	DeployAddresses string `json:"deployAddresses,omitempty"`
+	// KeepVersions is how many earlier production builds each app keeps to
+	// roll back to, each at its own deploy address: 0 to 20 (0 keeps only
+	// the live one). Absent means DefaultKeepVersions. Past the disk
+	// guard's warning level at most 3 are kept.
+	KeepVersions *int `json:"keepVersions,omitempty"`
 	// Apps keyed by name (same slug rules as Project).
 	Apps map[string]App `json:"apps,omitempty"`
 	// Services are the box-provided backends. Normalize always adds the

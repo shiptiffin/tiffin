@@ -59,8 +59,9 @@ import (
 const (
 	versionPrefix = "d-"
 	// keepVersions is how many earlier production builds an app keeps to
-	// roll back to, each at its own address.
-	keepVersions = 20
+	// roll back to, each at its own address, unless its project sets
+	// keepVersions (0 to manifest.MaxKeepVersions).
+	keepVersions = manifest.DefaultKeepVersions
 	// pressureKeep is what gc keeps instead while the data disk is past the
 	// disk guard's warning level.
 	pressureKeep = 3
@@ -179,6 +180,16 @@ func deployAddressesPublic(res map[string]change.Resource) bool {
 		return ps.DeployAddresses == manifest.DeployAddressesPublic
 	}
 	return false
+}
+
+// projectKeepVersions is how many earlier production builds a project's
+// apps keep (keepVersions), or nil when it does not say.
+func projectKeepVersions(res map[string]change.Resource) *int {
+	var ps change.ProjectSpec
+	if rs, ok := res[change.KindProject]; ok && json.Unmarshal(rs.Spec, &ps) == nil {
+		return ps.KeepVersions
+	}
+	return nil
 }
 
 // versionRoutes adds the deploy addresses of a production environment
@@ -451,6 +462,12 @@ func (m *Module) TrimVersions(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	r.trimVersions(ctx)
+}
+
+// trimVersions runs gc on every app's production environment: what its
+// project no longer keeps goes (a lowered keepVersions, disk pressure).
+func (r *rt) trimVersions(ctx context.Context) {
 	states, err := r.st.allStates(ctx)
 	if err != nil {
 		return
