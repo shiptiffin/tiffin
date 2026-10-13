@@ -10,7 +10,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 
 1. Read `tiffin.config.ts` and `tiffin status` before changing anything.
 2. Change the box only through plans: `tiffin plan` → review every op's risk and reason →
-   `tiffin apply --confirm <that hash> -m "<why>"`. Exit code 4 means re-plan. Data
+   `tiffin apply --confirm <that hash> -m "<why>"`. Exit code 4 means re-plan. A step marked
+   "not in your config" (op `drift`) undoes a change made another way (`tiffin domains add`,
+   the dashboard): run `tiffin pull` and plan again; `--discard-drift` only if the human says. Data
    commands (`sql write`, `branches delete`) run at once, after a snapshot. Every project
    always has a Database, KV, Files (bucket `files`), Email, Analytics and Jobs: list one in
    `services` only to set options; leaving it out deletes nothing. To start one over:
