@@ -41,8 +41,13 @@ func (a *app) emit(status int, raw []byte) {
 	if status >= 300 {
 		var p api.Problem
 		_ = json.Unmarshal(raw, &p)
-		if p.Plan != nil && (p.Code == "confirm_required" || p.Code == "plan_mismatch" || p.Code == "forbidden") {
+		if p.Plan != nil && (p.Code == "confirm_required" || p.Code == "plan_mismatch" || p.Code == "forbidden" || p.Code == "drift") {
 			renderPlan(out, p.Plan, a.color())
+		}
+		if p.Code == "drift" {
+			// The plan's drift warning already says what and why.
+			a.driftNext(out, p.Plan)
+			return
 		}
 		w := a.io.Err
 		if p.Code == "confirm_required" {
@@ -57,7 +62,11 @@ func (a *app) emit(status int, raw []byte) {
 			fmt.Fprintf(w, "%s %s\n", a.paint("next:", dim), p.Hint)
 		}
 		if p.Code == "confirm_required" || p.Code == "plan_mismatch" {
-			fmt.Fprintf(out, "%s nothing has changed yet. Re-run with %s\n", a.paint("→", amber), a.paint("--confirm "+p.Plan.Hash[:12], bold))
+			if p.Plan.HasDrift() {
+				a.driftNext(out, p.Plan)
+			} else {
+				fmt.Fprintf(out, "%s nothing has changed yet. Re-run with %s\n", a.paint("→", amber), a.paint("--confirm "+p.Plan.Hash[:12], bold))
+			}
 		}
 		return
 	}
@@ -68,7 +77,10 @@ func (a *app) emit(status int, raw []byte) {
 			var p change.Plan
 			if json.Unmarshal(raw, &p) == nil {
 				renderPlan(out, &p, a.color())
-				if !p.Empty() {
+				switch {
+				case p.HasDrift():
+					a.driftNext(out, &p)
+				case !p.Empty():
 					fmt.Fprintf(out, "%s apply with %s\n", a.paint("→", amber), a.paint("tiffin apply --confirm "+p.Hash[:12], bold))
 				}
 				return
@@ -131,9 +143,21 @@ func paint(on bool, s, code string) string {
 	return "\x1b[" + code + "m" + s + "\x1b[0m"
 }
 
+// driftNext says what to do about a plan that would undo changes made
+// outside the config: keep them (pull), or remove them on purpose.
+func (a *app) driftNext(out io.Writer, p *change.Plan) {
+	fmt.Fprintf(out, "%s nothing has changed yet. To keep those changes: %s, then plan again.\n", a.paint("→", amber), a.paint("tiffin pull", bold))
+	fmt.Fprintf(out, "  To remove them: %s\n", a.paint("tiffin apply --confirm "+p.Hash[:12]+" --discard-drift", bold))
+}
+
 func renderPlan(w io.Writer, p *change.Plan, color bool) {
 	defer func() {
+		drift := change.DriftWarning(p)
 		for _, warn := range p.Warnings {
+			if drift != "" && warn == drift {
+				fmt.Fprintf(w, "%s %s\n", paint(color, "! drift:", red), warn)
+				continue
+			}
 			fmt.Fprintf(w, "%s %s\n", paint(color, "! warning:", amber), warn)
 		}
 	}()
@@ -163,6 +187,13 @@ func renderPlan(w io.Writer, p *change.Plan, color bool) {
 			detail = strings.Join(o.Fields, ", ") + " · " + detail
 		}
 		fmt.Fprintf(w, "  %s %-*s  %s %s\n", paint(color, sym, code), width, o.Address, riskBadgePadded(o.Risk, 12, color), paint(color, detail, dim))
+		if d := o.Drift; d != nil {
+			what := "changed"
+			if o.Action == change.Delete {
+				what = "added"
+			}
+			fmt.Fprintf(w, "    %s\n", paint(color, "! not in your config: "+what+" "+change.DescribeDrift(d)+" ("+d.Change+")", red))
+		}
 	}
 	fmt.Fprintf(w, "%s\n", p.Summary)
 }

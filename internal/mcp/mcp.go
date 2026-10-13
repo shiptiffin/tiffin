@@ -31,6 +31,7 @@ const Instructions = `Tiffin runs a whole app stack on one Linux box. You operat
 Every change follows plan → review → apply:
 1. Call "plan" with a manifest to see what would change. Each op has a risk tier (reversible, outbound, irreversible) and a plain-words reason; "warnings" lists things that would apply but probably not work: fix them first.
 2. Call "apply" with the same manifest and confirm=<plan hash>. Without confirm, or if the plan changed, nothing is applied and you get the plan back to review.
+   Drift: when the manifest comes from a tiffin.config.ts that predates changes made another way (domains_add, the dashboard, another agent), ops that would delete or revert them carry "drift" and the first warning lists them. Don't apply over them: run "tiffin pull" (or project_manifest) to bring them into the config, then plan again. Only pass discardDrift: true when the person said to remove them. Sending an edited current manifest rather than a config file? Pass source: "edit".
 3. Every applied change can be reviewed with "changes_list" and reverted with "change_undo" (also plan-then-confirm). Secret changes (secret_set, secret_delete, secrets_copy) are changes too: undo restores the previous value.
 
 Your client asks the person before destructive tools run (apply, change_undo, project_destroy and the like are marked destructive), so say plainly what the plan does before you call them, especially anything irreversible (deleting data). Tiffin records every change in History under your key's name and can undo it.
@@ -421,6 +422,10 @@ func toResult(status int, raw []byte) *sdk.CallToolResult {
 	text := string(raw)
 	switch {
 	case status < 300:
+	case status == http.StatusPreconditionRequired && problemCode(v) == "drift":
+		// Not a failure either, but the plan would undo someone's change.
+		text = "Nothing was applied: this plan deletes or reverts changes made outside the config file (the ops with drift). " +
+			"Run tiffin pull (or project_manifest) to keep them, then plan again. Pass discardDrift: true only if the person said to remove them.\n" + text
 	case status == http.StatusPreconditionRequired:
 		// Not a failure: this is the plan the agent must review.
 		text = "Nothing was applied yet. Review this plan, then call again with confirm set to its hash.\n" + text
@@ -429,6 +434,13 @@ func toResult(status int, raw []byte) *sdk.CallToolResult {
 	}
 	res.Content = []sdk.Content{&sdk.TextContent{Text: text}}
 	return res
+}
+
+// problemCode is an API problem's code, or "".
+func problemCode(v any) string {
+	m, _ := v.(map[string]any)
+	c, _ := m["code"].(string)
+	return c
 }
 
 func errorResult(msg string) *sdk.CallToolResult {

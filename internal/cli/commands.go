@@ -160,7 +160,8 @@ func (a *app) planCmd() *cobra.Command {
 		Use:   "plan [dir|file]",
 		Short: "Show what applying tiffin.config.ts would change",
 		Long: "Evaluates tiffin.config.ts and shows the plan: every create, update and delete, its risk tier and why, " +
-			"and the plan hash to confirm. Never changes anything.",
+			"and the plan hash to confirm. Never changes anything. Steps that would delete or revert changes made outside " +
+			"the file (a domain added with `tiffin domains add`, a dashboard edit) are marked: run `tiffin pull` to keep them.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, path, err := a.loadManifest(first(args))
@@ -208,11 +209,14 @@ func (a *app) vercelNotes(raw []byte, dir string) {
 
 func (a *app) applyCmd() *cobra.Command {
 	var confirm, intent string
+	var discardDrift bool
 	cmd := &cobra.Command{
 		Use:   "apply [dir|file]",
 		Short: "Apply tiffin.config.ts (needs --confirm <plan hash>)",
 		Long: "Plans tiffin.config.ts and applies it if --confirm matches the plan hash. Without --confirm, or if the plan " +
-			"changed since you looked, nothing is applied: the plan is printed and the exit code is 4.",
+			"changed since you looked, nothing is applied: the plan is printed and the exit code is 4. " +
+			"A plan that deletes or reverts changes made outside the file (a domain added with `tiffin domains add`, a dashboard edit) " +
+			"also needs --discard-drift; run `tiffin pull` instead to keep them.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, _, err := a.loadManifest(first(args))
@@ -226,10 +230,14 @@ func (a *app) applyCmd() *cobra.Command {
 			if intent != "" {
 				body["intent"] = intent
 			}
+			if discardDrift {
+				body["discardDrift"] = true
+			}
 			return a.call(cmd.Context(), http.MethodPost, "/v1/apply", nil, body)
 		},
 	}
 	cmd.Flags().StringVar(&confirm, "confirm", "", "the plan hash (or first 8+ characters) you reviewed")
+	cmd.Flags().BoolVar(&discardDrift, "discard-drift", false, "also remove changes made outside tiffin.config.ts that the plan marks (instead of tiffin pull)")
 	cmd.Flags().StringVarP(&intent, "intent", "m", "", "why you are making this change, in one sentence")
 	return cmd
 }
