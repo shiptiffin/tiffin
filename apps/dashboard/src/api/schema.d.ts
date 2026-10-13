@@ -999,7 +999,7 @@ export interface paths {
         put?: never;
         /**
          * Delete DNS records
-         * @description Deletes exactly the given records (name, type and value) through the connected provider that holds each zone; other values of the same name and type stay. Refuses (409) records the box relies on (see dns records list); remove the domain first. Status 412 when no connected provider holds a zone. Box admins only.
+         * @description Deletes records through the connected provider that holds each zone. Give each record's type and name to delete every record of that type at that name, or add its value to delete only that one (other values of the same name and type stay). The answer lists exactly what was deleted. Refuses (409) records the box relies on (see dns records list); remove the domain first. Status 412 when no connected provider holds a zone. Box admins only.
          */
         post: operations["dns-records-delete"];
         delete?: never;
@@ -2767,7 +2767,7 @@ export interface paths {
         put?: never;
         /**
          * Destroy a project
-         * @description Plans deleting every resource of a project (its apps, databases, buckets, auth users, secrets, everything) and applies it with confirm. The plan lists each secret it deletes (secret/NAME), so nothing is left behind for a new project of the same name. Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.
+         * @description Plans deleting every resource of a project (its apps, databases, buckets, auth users, secrets, everything) and applies it with confirm. The plan lists each secret it deletes (secret/NAME), so nothing is left behind for a new project of the same name. Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428. Its domains' DNS records: the ones the box created (createRecords) that still point at this box are deleted too (keepDns keeps them), and dns lists them in the plan; records it did not create are listed under dns.byHand, to delete at your DNS host. A DNS provider that fails does not stop the destroy: the answer lists what to delete by hand.
          */
         post: operations["project-destroy"];
         delete?: never;
@@ -2851,7 +2851,7 @@ export interface paths {
         put?: never;
         /**
          * Remove a domain from a project
-         * @description Stops serving <domain>: removes every route of the project's apps on that host (all paths) and its domains entry (www redirect), through plan and apply. Without confirm you get status 428 with the plan. DNS records are left alone.
+         * @description Stops serving <domain>: removes every route of the project's apps on that host (all paths) and its domains entry (www redirect), through plan and apply. Without confirm you get status 428 with the plan, and dns: what happens to the domain's DNS records. Records the box created (createRecords) that still point at this box are deleted through the connected DNS provider once the change is applied (keepDns keeps them), so none is left pointing at this server's address. Records it did not create are never deleted: dns.byHand lists the ones pointing here, to delete at your DNS host. Records you pointed elsewhere are left alone (dns.kept). If the DNS provider fails, the domain is still removed and dns.byHand lists what to delete by hand.
          */
         post: operations["domain-remove"];
         delete?: never;
@@ -6099,6 +6099,8 @@ export interface components {
             applied: boolean;
             /** @description The applied change; its plan is change.plan. */
             change?: components["schemas"]["Change"];
+            /** @description After projects destroy: the DNS records the box deleted (ones it created for the project's domains that pointed here), and the ones to delete at your DNS host. */
+            dns?: components["schemas"]["DNSCleanup"];
             /** @description The (empty) plan, only when nothing was applied. */
             plan?: components["schemas"]["Plan"];
         };
@@ -7686,6 +7688,23 @@ export interface components {
             /** @description The key's secret (tfn_...). Shown once; store it now. */
             secret: string;
         };
+        DNSCleanup: {
+            /** @description Records that point these names at this box but that the box did not create (or that it could not delete): delete these at your DNS host. */
+            byHand?: components["schemas"]["Record"][] | null;
+            /** @description In a plan: records the box created (createRecords) that still point at this box. They are deleted through the connected DNS provider once the change is applied. */
+            delete?: components["schemas"]["Record"][] | null;
+            /** @description After the change: the records the box deleted. */
+            deleted?: components["schemas"]["Record"][] | null;
+            /** @description Why the DNS provider could not be read or refused a deletion; those records are listed under byHand. */
+            error?: string;
+            /** @description The names that stop being served. */
+            hosts: string[] | null;
+            /** @description keepDns was set: no record is deleted. */
+            keepDns?: boolean;
+            /** @description Records the box created that it leaves alone: they point elsewhere now (you changed them), or keepDns was set. */
+            kept?: components["schemas"]["Record"][] | null;
+            summary: string;
+        };
         DataBody: {
             /** @description The hash of the plan you reviewed (or its first 8+ characters). Without it nothing changes and the plan comes back with status 428. */
             confirm?: string;
@@ -7731,6 +7750,8 @@ export interface components {
             confirm?: string;
             /** @description Why you are deleting the project, in one sentence. */
             intent?: string;
+            /** @description Keep the DNS records the box created for the project's domains (by default it deletes the ones that still point at this box). */
+            keepDns?: boolean;
         };
         DetailEnvelopeStruct: {
             from: string;
@@ -7745,12 +7766,8 @@ export interface components {
             token?: string;
         };
         "Dns-records-deleteRequest": {
-            records: components["schemas"]["Record"][] | null;
-        };
-        "Dns-records-deleteResponse": {
-            /** Format: int64 */
-            deleted: number;
-            summary: string;
+            /** @description The records to delete: each a type and a name, and optionally a value. */
+            records: components["schemas"]["DomainsRecordRef"][] | null;
         };
         "Dns-records-setRequest": {
             records: components["schemas"]["Record"][] | null;
@@ -7917,6 +7934,8 @@ export interface components {
             change?: components["schemas"]["Change"];
             /** @description Records the box created through the connected DNS provider (createRecords). */
             created?: components["schemas"]["Record"][] | null;
+            /** @description After a remove: the DNS records the box deleted (ones it created that pointed here), and the ones to delete at your DNS host. */
+            dns?: components["schemas"]["DNSCleanup"];
             /** @description The domain's status and the records to add (after an add). */
             domain?: components["schemas"]["DomainsDomain"];
             plan: components["schemas"]["Plan"];
@@ -7982,6 +8001,23 @@ export interface components {
             type: string;
             value: string;
         };
+        DomainsRecordRef: {
+            /** @description The full name, e.g. old.example.com (the zone's own name for the apex). */
+            name: string;
+            /** @description A, AAAA, CNAME, TXT, MX, CAA... */
+            type: string;
+            /** @description Only the record with this value; other values of the same name and type stay. Absent: every record of this type at this name. */
+            value?: string;
+        };
+        DomainsRecordsDeleted: {
+            /** Format: int64 */
+            deleted: number;
+            /** @description What was asked for that the zone did not have. */
+            notFound?: components["schemas"]["DomainsRecordRef"][] | null;
+            /** @description The records deleted. */
+            records: components["schemas"]["Record"][] | null;
+            summary: string;
+        };
         DomainsRegistrar: {
             /** @description The registrar or DNS host, e.g. Namecheap. */
             name: string;
@@ -7999,6 +8035,8 @@ export interface components {
             confirm?: string;
             /** @description Why, in one sentence. */
             intent?: string;
+            /** @description Keep the DNS records the box created for the domain (by default it deletes the ones that still point at this box). */
+            keepDns?: boolean;
         };
         DomainsRoute: {
             app: string;
@@ -8010,6 +8048,8 @@ export interface components {
             provider: string;
         };
         DomainsZoneRecord: {
+            /** @description The box created it (createRecords, dns records set, email's records). When a domain is removed or its project destroyed, the box deletes the ones it created that still point at this box (unless keepDns). Records without it were added some other way: the box never deletes those on its own. */
+            created?: boolean;
             /** @description The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com. */
             host?: string;
             /**
@@ -10588,6 +10628,8 @@ export interface components {
             code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "drift" | "reauth_required" | "plan_mismatch" | "internal";
             /** @description What went wrong */
             detail?: string;
+            /** @description What happens to the DNS records of the names the change stops serving (domains remove, projects destroy): records the box created that will be deleted, and ones to delete at your DNS host */
+            dns?: components["schemas"]["DNSCleanup"];
             /** @description Per-field problems */
             errors?: components["schemas"]["FieldError"][] | null;
             /** @description What to do next */
@@ -17904,7 +17946,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Dns-records-deleteResponse"];
+                    "application/json": components["schemas"]["DomainsRecordsDeleted"];
                 };
             };
             /** @description Bad Request */

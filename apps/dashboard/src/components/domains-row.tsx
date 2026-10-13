@@ -1,10 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, ChevronDown, Copy, CornerDownRight, MoreHorizontal, Pencil, RefreshCw, Star, Trash2, X } from "lucide-react";
 import { Accordion as A } from "radix-ui";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type { Manifest } from "@/api/client";
 import { Breaker } from "@/components/breaker";
 import { Confirm } from "@/components/confirm";
+import { DnsCleanupNote, dnsCleanupWords } from "@/components/dns-cleanup";
 import { DomainDns } from "@/components/domains-dns";
 import { AddPath, ChangeAppDialog, dropPath } from "@/components/domains-edit";
 import { agoWords, kindOf, routesOf, shortDate, untilWords, useNow } from "@/components/domains-parts";
@@ -17,7 +18,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { full, relative, sinceWhen } from "@/lib/time";
-import { recheckDomain, removeDomain, stateWords, type Domain } from "@/lib/domains";
+import { planRemoveDomain, recheckDomain, removeDomain, stateWords, type DnsCleanup, type Domain } from "@/lib/domains";
 import { change, pendingFor, usePending } from "@/lib/staged";
 
 /** Domain · Serves · Status · HTTPS · actions. Phones stack the middle under the name. */
@@ -46,6 +47,7 @@ type Props = {
 export function DomainRow({ project, d, www, writer, local, open, onToggle, apps, manifest, admin }: Props) {
   const qc = useQueryClient();
   const [removing, setRemoving] = useState(false);
+  const removed = useRef<DnsCleanup | undefined>(undefined);
   const [changing, setChanging] = useState(false);
   const pending = usePending(project);
   const staged = pendingFor(pending, `set:domains/${d.domain}`);
@@ -167,21 +169,33 @@ export function DomainRow({ project, d, www, writer, local, open, onToggle, apps
         body={
           <>
             Visitors to {d.domain}
-            {wwwOn ? ` and www.${d.domain}` : ""} get an error page from now on{routesOf(d).paths.length ? ", including the paths sent to other apps" : ""}. Your DNS records stay as they are; delete them at your DNS host if you no longer need them.
-            You can undo this from History.
+            {wwwOn ? ` and www.${d.domain}` : ""} get an error page from now on{routesOf(d).paths.length ? ", including the paths sent to other apps" : ""}.
+            You can undo this from History (DNS records come back only if you add them again).
+            {removing && <RemovePlan project={project} domain={d.domain} />}
           </>
         }
         action="Remove domain"
-        run={() => removeDomain(project, d.domain)}
+        run={async () => {
+          const plan = qc.getQueryData<Awaited<ReturnType<typeof planRemoveDomain>>>(["remove-plan", project, d.domain]);
+          removed.current = (await removeDomain(project, d.domain, plan?.hash)).dns;
+        }}
         done={() => {
           void qc.invalidateQueries({ queryKey: ["domains", project] });
           for (const k of [["manifest", project], ["project", project], ["changes"]]) void qc.invalidateQueries({ queryKey: k });
-          toast({ title: `Removed ${d.domain} from ${project}.` });
+          toast({ title: `Removed ${d.domain} from ${project}.`, detail: dnsCleanupWords(removed.current) });
         }}
       />
     </li>
     </A.Item>
   );
+}
+
+/** What removing the domain does to its DNS records (the box plans it; nothing changes yet). */
+function RemovePlan({ project, domain }: { project: string; domain: string }) {
+  const plan = useQuery({ queryKey: ["remove-plan", project, domain], queryFn: () => planRemoveDomain(project, domain), retry: false, staleTime: 0 });
+  if (plan.isPending) return <span className="mt-2 block text-sm text-ink-3">Checking its DNS records…</span>;
+  if (plan.isError) return null;
+  return <DnsCleanupNote dns={plan.data.dns} />;
 }
 
 /** One line of the list: the name, what it shows, its state and its certificate. */

@@ -3,6 +3,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ApiError, request, type ApplyResult, type Plan } from "@/api/client";
 import { asTier } from "@/lib/changes";
+import type { DnsCleanup } from "@/lib/domains";
+import { DnsCleanupNote, dnsCleanupWords } from "./dns-cleanup";
 import { lossEmpty, lossParts } from "./loss";
 import { ProblemNote } from "./problem";
 import { Skeleton } from "./page";
@@ -21,6 +23,8 @@ import {
 
 const destroy = (project: string, confirm?: string) =>
   request<ApplyResult>("POST", `/v1/projects/${encodeURIComponent(project)}/destroy`, confirm ? { confirm, intent: `Delete ${project}` } : {});
+
+type DestroyPlan = { plan: Plan; dns?: DnsCleanup };
 
 /**
  * Delete a project: the box plans removing everything in it (POST destroy
@@ -65,7 +69,7 @@ function Body({ project, onClose, onDeleted }: { project: string; onClose: () =>
         await destroy(project);
         return null;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 428 && e.problem.plan) return e.problem.plan as Plan;
+        if (e instanceof ApiError && e.status === 428 && e.problem.plan) return { plan: e.problem.plan as Plan, dns: e.problem.dns ?? undefined } satisfies DestroyPlan;
         throw e;
       }
     },
@@ -73,16 +77,17 @@ function Body({ project, onClose, onDeleted }: { project: string; onClose: () =>
     staleTime: 0,
   });
   const run = useMutation({
-    mutationFn: () => destroy(project, plan.data!.hash),
-    onSuccess: () => {
+    mutationFn: () => destroy(project, plan.data!.plan.hash),
+    onSuccess: (res) => {
       void qc.invalidateQueries();
       onClose();
-      toast({ title: `Deleted ${project}.`, detail: "Its databases keep a snapshot and its files sit in the trash for 7 days." });
+      const dns = dnsCleanupWords(res.dns);
+      toast({ title: `Deleted ${project}.`, detail: `Its databases keep a snapshot and its files sit in the trash for 7 days.${dns ? ` ${dns}` : ""}` });
       if (onDeleted) onDeleted();
       else void navigate({ to: "/" });
     },
   });
-  const losses = (plan.data?.ops ?? []).filter((o) => asTier(o.risk) === "irreversible" && o.loss && !lossEmpty(o.loss)).flatMap((o) => lossParts(o.loss!));
+  const losses = (plan.data?.plan.ops ?? []).filter((o) => asTier(o.risk) === "irreversible" && o.loss && !lossEmpty(o.loss)).flatMap((o) => lossParts(o.loss!));
   return (
     <>
       <AlertDialogHeader>
@@ -105,6 +110,11 @@ function Body({ project, onClose, onDeleted }: { project: string; onClose: () =>
             )}
             <p className="mt-1 text-sm text-ink-2">Databases keep a snapshot and files sit in the trash for 7 days, then they’re gone for good.</p>
           </div>
+        )}
+        {plan.data?.dns && (
+          <p className="text-ink-2">
+            <DnsCleanupNote dns={plan.data.dns} />
+          </p>
         )}
         <label className="block text-sm text-ink-2">
           Type <b className="ident font-[550] text-ink">{project}</b> to confirm
