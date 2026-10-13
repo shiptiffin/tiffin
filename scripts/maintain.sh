@@ -6,7 +6,8 @@
 #      pass: security fixes always, every other update with --all (a Bun
 #      release waits for scripts/bun-canary.sh, which runs the demo apps),
 #   3. with --deploy, updates the box (HCLOUD_TOKEN from .env) once anything
-#      was merged.
+#      was merged,
+#   4. clears the Go, staticcheck and Bun caches its checks filled.
 #
 #   scripts/maintain.sh                  # defensive: scan + security fixes
 #   scripts/maintain.sh --all --deploy   # the weekly full pass
@@ -83,6 +84,12 @@ if [ "$DEPLOY" = 1 ] && [ ${#merged[@]} -gt 0 ]; then
     bin/tiffin up --provider hetzner --name "$BOX" --ssh-key ~/.ssh/shiptiffin_ed25519 >/dev/null) ||
     failed+=("box update")
 fi
+
+step "build caches"
+# Every check rebuilds everything: give the disk back (the next run fills them again).
+go clean -cache -testcache
+rm -rf "${XDG_CACHE_HOME:-$HOME/Library/Caches}/staticcheck" "$HOME/.cache/staticcheck"
+bun pm cache rm >/dev/null 2>&1 || true
 
 step "summary"
 [ "$found" = 1 ] && echo "! known vulnerabilities reported above; fix them or wait for Renovate's pull request"
