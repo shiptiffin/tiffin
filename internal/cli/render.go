@@ -57,11 +57,15 @@ func (a *app) emit(status int, raw []byte) {
 			fmt.Fprintf(w, "%s %s\n", a.paint("next:", dim), p.Hint)
 		}
 		if p.Code == "confirm_required" || p.Code == "plan_mismatch" {
+			a.renderPlanRecords(out, raw)
 			fmt.Fprintf(out, "%s nothing has changed yet. Re-run with %s\n", a.paint("→", amber), a.paint("--confirm "+p.Plan.Hash[:12], bold))
 		}
 		return
 	}
 	// Recognise the shapes worth rendering specially.
+	if a.renderDomainShapes(out, raw) {
+		return
+	}
 	var probe map[string]json.RawMessage
 	if json.Unmarshal(raw, &probe) == nil {
 		if _, ok := probe["ops"]; ok {
