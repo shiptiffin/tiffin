@@ -142,6 +142,8 @@ set `runtime: "node"` for them:
   - A manifest sent to the API with a key counts as a config file unless the call says
     `source: "edit"`. An agent that applies its own edited manifest without it is
     recorded as a config apply, so a stale file later reverts its change without a mark.
+  - A project made by import or duplicate marks nothing it copied. A move keeps its
+    history, so what was made outside the config before the move is still marked.
   - The box reads at most the last 1,000 changes of a project to decide. Anything older
     is never marked.
 

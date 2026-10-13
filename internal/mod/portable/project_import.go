@@ -196,7 +196,7 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 			undoHistory()
 			return err
 		}
-		req := change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Intent: o.intent}
+		req := change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Intent: o.intent, Via: change.ViaCopy}
 		if o.principal != nil {
 			req.Actor, req.Authorize = o.principal.Actor(), o.principal.Authorizer()
 		}

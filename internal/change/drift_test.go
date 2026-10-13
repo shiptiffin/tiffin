@@ -154,3 +154,25 @@ func TestDriftOnlyOutsideConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A copied project (import, duplicate, move) says nothing about where its
+// resources came from: drift looks past it, into the history it carried.
+func TestDriftLooksPastCopies(t *testing.T) {
+	mk := func(id, via string, ops ...Op) *Change {
+		return &Change{ID: id, Via: via, Actor: Actor{Name: id}, Plan: Plan{Ops: ops}}
+	}
+	create := func(addr string) Op { return Op{Action: Create, Address: addr, After: json.RawMessage(`{}`)} }
+	del := Op{Action: Delete, Address: "domain/reelbird.app", Before: json.RawMessage(`{}`)}
+	moved := []*Change{ // newest first, as a move carries history over
+		mk("copy", ViaCopy, create("app/web"), create("domain/reelbird.app")),
+		mk("added", "tiffin domains add", create("domain/reelbird.app")),
+		mk("config", ViaConfig, create("app/web")),
+	}
+	if d := driftOf(del, moved); d == nil || d.Change != "added" {
+		t.Errorf("the domain's origin is before the copy: %+v", d)
+	}
+	// A copy alone marks nothing.
+	if d := driftOf(del, moved[:1]); d != nil {
+		t.Errorf("copy only: %+v", d)
+	}
+}

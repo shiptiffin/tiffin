@@ -21,6 +21,10 @@ const (
 	ViaAPI = "api"
 	// ViaSystem is the box itself (disk guard, a verified sender...).
 	ViaSystem = "system"
+	// ViaCopy is a whole project made from another (import, duplicate,
+	// move). It copies what was there, so drift looks past it: into the
+	// history a move carries over, or to nothing.
+	ViaCopy = "copy"
 )
 
 type viaKey struct{}
@@ -202,8 +206,12 @@ func newDrift(c *Change, fields []string) *Drift {
 	return &Drift{Change: c.ID, By: by, At: c.At, Via: c.Via, Fields: fields}
 }
 
-// opOn returns c's op on address, or nil.
+// opOn returns c's op on address, or nil. A copy touches nothing: where
+// the copied state came from is in the history before it, if anywhere.
 func opOn(c *Change, address string) *Op {
+	if c.Via == ViaCopy {
+		return nil
+	}
 	for i := range c.Plan.Ops {
 		if c.Plan.Ops[i].Address == address {
 			return &c.Plan.Ops[i]
