@@ -212,9 +212,11 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
 ## In the dashboard
 
 - **A project › Settings › Domains** (also linked from the project's overview): add a
-  domain, pick the app that shows it and whether `www.` comes along. The page lists
-  the exact records to add, with a copy button for each, and watches DNS until the
-  domain is live with HTTPS. With Cloudflare connected, one button adds the records.
+  domain, pick the app that shows it and whether `www.` comes along. The dialog shows the
+  exact records before you add it, with a copy button for each; then the page watches
+  DNS until the domain is live with HTTPS, says when the box last checked and when it
+  checks next, and has **Check now**. A domain still on its registrar's parking page
+  says what to delete and where. With Cloudflare connected, one button adds the records.
 - **Settings › Your box › Domain**: the box's address and where apps live, *Use your
   own domain* (optionally with *Put apps on a domain of their own*; check the two
   records, then switch; the page follows the dashboard to its new address) and *Go
