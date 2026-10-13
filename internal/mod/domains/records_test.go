@@ -35,7 +35,7 @@ func TestZoneRecords(t *testing.T) {
 	}
 	for k, want := range map[string]string{
 		"A @ " + boxIP:                       "tiffin", // the box's own records for the domain
-		"A www " + boxIP:                     "tiffin",
+		"CNAME www shop.test":                "tiffin", // www follows the domain
 		"TXT @ google-site-verification=abc": "",
 		"MX @ 10 mail.shop.test":             "",
 		"NS @ ns1.shop.test":                 "host",

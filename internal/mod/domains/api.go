@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -93,20 +94,21 @@ type Domain struct {
 	Routes     []route `json:"routes" doc:"Path prefixes and the app serving each."`
 	RedirectTo string  `json:"redirectTo,omitempty" doc:"For www.<domain>: where it redirects."`
 	WWW        bool    `json:"wwwRedirect" doc:"www.<domain> redirects here."`
-	// State: waiting_for_dns (it does not point at the box yet; checked
-	// again with backoff, from 15 s up to every 30 min), issuing (the
-	// certificate is being obtained), live, or error (see reason).
-	State       string          `json:"state" enum:"waiting_for_dns,issuing,live,error"`
+	// State: waiting_for_dns (it does not point at the box yet), issuing
+	// (the certificate is being obtained), live, or error (see reason).
+	State       string          `json:"state" enum:"waiting_for_dns,issuing,live,error" doc:"waiting_for_dns: it does not point at the box yet (checked every 30 s for 30 minutes after it is added or its DNS changes, then less often, up to every 30 min); issuing: it points here and the certificate is on its way; live; error: see reason."`
 	Reason      string          `json:"reason,omitempty"`
 	Since       time.Time       `json:"since"`
-	Records     []dnskit.Record `json:"records" doc:"Point the name at the box with these (all of them)."`
-	Alternative []dnskit.Record `json:"alternative,omitempty" doc:"For a subdomain, instead of records: one CNAME to the box's own name."`
+	Records     []dnskit.Record `json:"records" doc:"Point the name at the box with these (all of them): A/AAAA to the box for a domain or subdomain; for www.<domain> when <domain> is served here, one CNAME to <domain>."`
+	Alternative []dnskit.Record `json:"alternative,omitempty" doc:"Another way to point it here, instead of records: for www.<domain>, A/AAAA records; for a subdomain, one CNAME to the box's domain (absent when apps live on a domain of their own)."`
 	Found       []string        `json:"found" doc:"The addresses DNS gives for the name now."`
 	CNAME       string          `json:"cname,omitempty"`
+	Registrar   *Registrar      `json:"registrar,omitempty" doc:"The registrar or DNS host its records are kept at, when the box recognises it (from its parking records or nameservers), and whether its parking records are still there."`
 	ManagedBy   string          `json:"managedBy,omitempty" doc:"The connected DNS provider that holds its zone (records can be created for you)."`
-	Certificate *edge.CertInfo  `json:"certificate,omitempty"`
-	CheckedAt   time.Time       `json:"checkedAt,omitzero"`
-	NextCheckAt time.Time       `json:"nextCheckAt,omitzero"`
+	Certificate *edge.CertInfo  `json:"certificate,omitempty" doc:"Once DNS points here: the certificate (state issuing until it is served)."`
+	CheckedAt   time.Time       `json:"checkedAt,omitzero" doc:"When the box last looked its DNS up."`
+	NextCheckAt time.Time       `json:"nextCheckAt,omitzero" doc:"When the box looks again on its own (domains check looks now)."`
+	Checked     string          `json:"checked" doc:"The same in words: Checked 2 min ago · next check in 30 s."`
 	URL         string          `json:"url"`
 	Summary     string          `json:"summary"`
 }
@@ -453,38 +455,27 @@ func validDomain(d string) (string, error) {
 
 func (m *Module) projectDomains(ctx context.Context, p *platform.Platform, project string) []Domain {
 	wants := m.scan(ctx, p)
+	served := servedHosts(wants)
 	out := []Domain{}
 	for _, w := range wants {
 		if w.Project == project {
-			out = append(out, m.domainStatus(ctx, p, w))
+			out = append(out, m.domainStatus(ctx, p, w, served))
 		}
 	}
 	return out
 }
 
-func (m *Module) domainStatus(ctx context.Context, p *platform.Platform, w want) Domain {
+func (m *Module) domainStatus(ctx context.Context, p *platform.Platform, w want, served map[string]bool) Domain {
 	d := Domain{Domain: w.Host, Project: w.Project, Routes: w.Routes, RedirectTo: w.RedirectTo, WWW: w.WWW,
-		State: StateWaiting, Records: dnskit.AddressRecords(w.Host, p.Reach.PublicIPs), Found: []string{}, URL: p.URL(w.Host)}
+		State: StateWaiting, Found: []string{}, URL: p.URL(w.Host)}
+	d.Records, d.Alternative = suggest(p, w.Host, w.RedirectTo != "" || apexHere(w.Host, served))
 	if d.Routes == nil {
 		d.Routes = []route{}
-	}
-	if d.Records == nil {
-		d.Records = []dnskit.Record{}
-	}
-	if !dnskit.IsApex(w.Host) && p.Reach.ACME && !platform.IsLocalDomain(p.Domain) {
-		// A name the box's own records point here: the box domain, or the
-		// dashboard's host when apps live elsewhere (the apex is not needed then).
-		target := p.Domain
-		if p.AppsDomain() != p.Domain {
-			target = p.DashboardHost()
-		}
-		if w.Host != target {
-			d.Alternative = []dnskit.Record{dnskit.CNAMERecord(w.Host, target)}
-		}
 	}
 	if st, _ := m.providerFor(w.Host); st != nil {
 		d.ManagedBy = st.rec.Name
 	}
+	now := m.now()
 	m.mu.Lock()
 	if r := m.recs[w.Host]; r != nil {
 		d.State, d.Reason, d.Since = r.State, r.Reason, r.Since
@@ -492,38 +483,66 @@ func (m *Module) domainStatus(ctx context.Context, p *platform.Platform, w want)
 		if r.Found != nil {
 			d.Found = r.Found
 		}
+		if reg := registrarByKey(r.Registrar); reg != nil && !r.Ready {
+			d.Registrar = reg.hint(r.Parked)
+		}
 		if r.Ready {
 			ci := edge.CertStatus(w.Host)
+			if ci.State == "none" && r.State == StateIssuing {
+				ci.State = "issuing" // handed to the edge; it asks on the first visit or right away
+			}
 			d.Certificate = &ci
 		}
 	} else {
 		d.Reason = "not checked yet"
 	}
 	m.mu.Unlock()
+	d.Checked = checkedWords(d.CheckedAt, d.NextCheckAt, now)
 	if len(p.Reach.PublicIPs) == 0 {
 		d.Reason = "this box has no public IP address (a local box); custom domains need a server"
 	}
+	check := fmt.Sprintf("tiffin domains check %s %s", w.Project, w.Host)
 	switch d.State {
 	case StateLive:
 		d.Summary = fmt.Sprintf("%s is live with a public certificate.", d.URL)
 	case StateIssuing:
 		d.Summary = fmt.Sprintf("%s points at this box; its certificate is on the way (usually under a minute).", w.Host)
 	case StateError:
-		d.Summary = fmt.Sprintf("%s: %s", w.Host, d.Reason)
+		d.Summary = fmt.Sprintf("%s: %s. %s; after a fix, %s looks now.", w.Host, d.Reason, d.Checked, check)
 	default:
-		var recs []string
-		for _, r := range d.Records {
-			recs = append(recs, r.String())
-		}
-		d.Summary = fmt.Sprintf("Waiting for DNS (%s). Add: %s", d.Reason, strings.Join(recs, "; "))
-		if len(d.Alternative) > 0 {
-			d.Summary += fmt.Sprintf(" — or instead one record: %s", d.Alternative[0].String())
-		}
-		if d.ManagedBy != "" {
-			d.Summary += fmt.Sprintf(". %s holds this zone: add the domain again with createRecords to set them for you.", d.ManagedBy)
-		}
+		d.Summary = waitingSummary(d) + fmt.Sprintf(" %s; after a change, %s looks now.", d.Checked, check)
 	}
 	return d
+}
+
+// waitingSummary says what to do for a domain waiting for DNS: the
+// registrar's parking records to delete (and where), then the records to add.
+func waitingSummary(d Domain) string {
+	var recs []string
+	for _, r := range d.Records {
+		recs = append(recs, r.String())
+	}
+	add := strings.Join(recs, "; ")
+	var s string
+	switch rg := d.Registrar; {
+	case rg != nil && rg.Parked:
+		s = fmt.Sprintf("%s still points to %s. In %s › %s, delete %s, then add: %s.", d.Domain, rg.Parking, rg.Name, rg.Where, rg.Remove, add)
+	case rg != nil:
+		s = fmt.Sprintf("Waiting for DNS (%s). In %s › %s, add: %s.", d.Reason, rg.Name, rg.Where, add)
+	default:
+		s = fmt.Sprintf("Waiting for DNS (%s). Add: %s.", d.Reason, add)
+	}
+	if len(d.Alternative) > 0 {
+		var alt []string
+		for _, r := range d.Alternative {
+			alt = append(alt, r.String())
+		}
+		s += fmt.Sprintf(" Or instead: %s.", strings.Join(alt, "; "))
+	}
+	if d.ManagedBy != "" {
+		s += fmt.Sprintf(" %s holds this zone: add the domain again with createRecords to set them for you.", d.ManagedBy)
+	}
+	return s
 }
 
 // editManifest loads a project's manifest, lets edit change it, and plans
@@ -838,7 +857,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		"List a project's own domains",
 		"Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: "+
 			"waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). "+
-			"The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).", tag),
+			"The box re-checks waiting domains on its own: every 30 s for 30 minutes after one is added or its DNS answer changes, then less often, up to every 30 min (checkedAt, nextCheckAt, and checked in words). "+
+			"When DNS still answers with a registrar's parking records (Namecheap, GoDaddy, Porkbun, Squarespace, Gandi), registrar says which, where to click and what to delete.", tag),
 		api.Wrap(func(ctx context.Context, in *projectPath) (*struct{ Body []Domain }, error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
@@ -853,7 +873,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		"Add a domain to a project",
 		"Serves <domain> (optionally only <path>) from one of the project's apps: adds \"<domain>[/path]\" to the app's routes in the manifest (and www: \"redirect\" under domains), "+
 			"through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. "+
-			"The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). "+
+			"The plan answer (428) already lists the DNS records to add (records), so you can set them before confirming: A/AAAA to this box; for www.<domain>, one CNAME to <domain>. "+
+			"The answer after confirming lists them again with the domain's state, and another way to point it (alternative: for a subdomain, one CNAME to the box's domain). "+
 			"The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).", tag)
 	add.Errors = append(add.Errors, 404, 409, 428)
 	add.Extensions[api.ExtConfirm] = true
@@ -929,18 +950,31 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			}
 			return nil
 		})
-		if err != nil {
-			return nil, err
-		}
 		names := []string{d}
 		if in.Body.WWW {
 			names = append(names, "www."+d)
 		}
-		if in.Body.CreateRecords {
-			var recs []dnskit.Record
+		// The records the names need, as the plan answer shows them before
+		// anything changes: d is served once the change applies.
+		var recs []dnskit.Record
+		if !boxName {
+			served := servedHosts(m.scan(ctx, p))
+			served[d] = true
 			for _, n := range names {
-				recs = append(recs, dnskit.AddressRecords(n, p.Reach.PublicIPs)...)
+				r, _ := suggest(p, n, apexHere(n, served))
+				recs = append(recs, r...)
 			}
+		}
+		if err != nil {
+			var cr *change.ConfirmRequiredError
+			if errors.As(err, &cr) && len(recs) > 0 {
+				pr := api.AsProblem(err)
+				pr.Records = recs
+				return nil, pr
+			}
+			return nil, err
+		}
+		if in.Body.CreateRecords {
 			if st, _ := m.providerFor(d); st == nil || len(recs) == 0 {
 				pr := api.NewProblem(http.StatusPreconditionFailed, "precondition", "the domain was added, but no connected DNS provider holds the zone of "+d+" (or the box has no public IP), so add the records yourself")
 				pr.Hint = "tiffin domains list " + in.Project + " shows the records"
@@ -1015,8 +1049,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	ck := api.Outbound(api.Op("domain-recheck", http.MethodPost, "/v1/projects/{project}/domains/{domain}/check", "domains check", api.RiskWrite,
 		"Check a domain's DNS now",
-		"Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and resets its backoff. "+
-			"If it now points here, the certificate is requested at once.", tag))
+		"Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and checks it every 30 s again for the next 30 minutes. "+
+			"If it now points here, the certificate is requested at once, and its www (or bare) sibling is looked up too.", tag))
 	ck.Errors = append(ck.Errors, 404)
 	huma.Register(a, ck, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -1029,10 +1063,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil, err
 		}
 		d := strings.TrimSuffix(strings.ToLower(in.Domain), ".")
-		for _, w := range m.scan(ctx, p) {
+		wants := m.scan(ctx, p)
+		for _, w := range wants {
 			if w.Host == d && w.Project == in.Project {
 				m.recheck(ctx, d)
-				return &struct{ Body Domain }{m.domainStatus(ctx, p, w)}, nil
+				return &struct{ Body Domain }{m.domainStatus(ctx, p, w, servedHosts(wants))}, nil
 			}
 		}
 		return nil, api.NewProblem(404, "not_found", fmt.Sprintf("project %s does not serve %s", in.Project, d))
@@ -1044,10 +1079,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 // recheck checks hosts now and reloads the edge if one became ready.
 func (m *Module) recheck(ctx context.Context, hosts ...string) {
 	m.tickScanOnly(ctx)
+	now := m.now()
 	m.mu.Lock()
 	for _, h := range hosts {
 		if r := m.recs[h]; r != nil {
-			r.NextCheckAt, r.Attempts = time.Time{}, 0
+			r.NextCheckAt, r.Attempts, r.FastUntil = time.Time{}, 0, now.Add(fastWindow)
 		}
 	}
 	m.mu.Unlock()
@@ -1062,7 +1098,7 @@ func (m *Module) tickScanOnly(ctx context.Context) {
 	defer m.mu.Unlock()
 	for _, w := range wants {
 		if m.recs[w.Host] == nil {
-			m.recs[w.Host] = &record{Host: w.Host, State: StateWaiting, Since: now}
+			m.recs[w.Host] = newRecord(w.Host, now)
 		}
 	}
 }

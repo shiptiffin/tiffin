@@ -226,13 +226,16 @@ func TestCustomDomainLifecycle(t *testing.T) {
 	if d["found"].([]any)[0] != "5.6.7.8" {
 		t.Errorf("found: %v", d["found"])
 	}
-	// Backoff: checks space out.
+	// Checked every 30 s while it was just added (TestCheckSchedule has the rest).
 	r := h.m.recs["example.test"]
 	first := r.NextCheckAt.Sub(h.clock)
 	h.clock = r.NextCheckAt
 	h.m.tick(t.Context())
-	if second := h.m.recs["example.test"].NextCheckAt.Sub(h.clock); first != 15*time.Second || second != 30*time.Second {
-		t.Errorf("backoff %s then %s", first, second)
+	if second := h.m.recs["example.test"].NextCheckAt.Sub(h.clock); first != 30*time.Second || second != 30*time.Second {
+		t.Errorf("fast checks %s then %s", first, second)
+	}
+	if !strings.Contains(d["checked"].(string), "next check in 30 s") || !strings.Contains(d["summary"].(string), "tiffin domains check shop example.test") {
+		t.Errorf("checked words: %v / %v", d["checked"], d["summary"])
 	}
 
 	// Fixed: the domain becomes ready and the edge reloads.
@@ -475,8 +478,8 @@ func TestAppsDomain(t *testing.T) {
 		t.Errorf("same again: %d", code)
 	}
 	// Project domains: the dashboard's name is refused, a name on the box
-	// becomes a route (a plan to confirm), and a subdomain's CNAME
-	// alternative targets the dashboard's host (the apex need not exist).
+	// becomes a route (a plan to confirm), and a subdomain
+	// gets A records only (no name of the box is a neutral CNAME target).
 	h.project("shop")
 	for own, want := range map[string]int{"dashboard.example.test": 422, "web.apps.test": 428} {
 		if code, _ := h.call("POST", "/v1/projects/shop/domains", map[string]any{"domain": own, "app": "web"}); code != want {
@@ -497,9 +500,11 @@ func TestAppsDomain(t *testing.T) {
 	if !strings.Contains(st["summary"].(string), "apps.test itself sends visitors to https://example.test/ until an app uses it.") {
 		t.Errorf("summary: %s", st["summary"])
 	}
-	out = h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "www.shop.test", "app": "web"})
-	if alt, _ := json.Marshal(out["domain"].(map[string]any)["alternative"]); !strings.Contains(string(alt), "dashboard.example.test") {
-		t.Errorf("CNAME alternative: %s", alt)
+	// A subdomain gets A records only: the dashboard's host is never a CNAME
+	// target, and nothing else under these domains must point here.
+	out = h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "app.shop.test", "app": "web"})
+	if d := out["domain"].(map[string]any); d["alternative"] != nil || d["records"].([]any)[0].(map[string]any)["type"] != "A" {
+		t.Errorf("subdomain with apps elsewhere: %v", d)
 	}
 	// Back to one domain: the apps domain's names keep working for a while,
 	// and so does box.test, whose grace period has not run out yet.
