@@ -63,7 +63,7 @@ while IFS=$'\t' read -r n title labels; do
   echo "#$n $title"
   gh pr update-branch "$n" -R "$REPO" >/dev/null 2>&1 # on top of today's main
   sleep 5
-  if gh pr checkout -q "$n" -R "$REPO" && checks; then
+  if gh pr checkout "$n" -R "$REPO" >/dev/null 2>&1 && checks; then
     git checkout -q main
     if gh pr merge "$n" -R "$REPO" --squash --delete-branch >/dev/null; then
       merged+=("#$n $title")
