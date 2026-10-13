@@ -18,11 +18,12 @@ import { ProjectIconSettings } from "@/components/project-icon-settings";
 import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
 import { DeployAddresses } from "@/components/deploy-addresses";
+import { KeepVersions } from "@/components/keep-versions";
 import { SettingsNav, useSettingsSection, type SettingsSection } from "@/components/settings-nav";
 
 /**
  * A project's settings, one section at a time (the sub-navigation keeps the
- * section in the URL's #hash): General (icon, sleep), Apps (how each runs and
+ * section in the URL's #hash): General (icon, sleep, earlier versions), Apps (how each runs and
  * builds), Services (sign-in on or off; the other parts are always there), API keys, Copy & move,
  * and the Danger zone (Delete all data in a part, its restore, Delete project). Environment variables and domains have their own pages.
  */
@@ -72,8 +73,14 @@ export function ProjectSettingsPage({ project }: { project: string }) {
               )}
 
               {apps.length > 0 && (
-                <Section title="Version addresses" note="Every version you deploy keeps its own address while the box keeps it (the last 20), so you can open it next to the live one. Who can open them:">
+                <Section title="Version addresses" note="Every version you deploy keeps its own address while the box keeps it, so you can open it next to the live one. Who can open them:">
                   <DeployAddresses project={project} live={man?.deployAddresses} staged={pendingSet(["deployAddresses"])} />
+                </Section>
+              )}
+
+              {apps.length > 0 && (
+                <Section title="Earlier versions kept" note="Each app keeps this many earlier versions, built and ready to roll back to or open. Each one takes disk space; past 85% full the box keeps at most 3.">
+                  <KeepVersions project={project} live={man?.keepVersions} staged={pendingSet(["keepVersions"])} />
                 </Section>
               )}
             </>

@@ -991,7 +991,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 	r.removeDir(r.diskDir(project, app, name))
 	r.quotas.forget(ctx, project+"/"+app+"/"+envDirName(name)+"/")
 	forgetDiskBytes(project)
-	r.gcLocked(ctx, project, app, name, r.rollbackTargets(name))
+	r.gcLocked(ctx, project, app, name, r.rollbackTargets(ctx, project, name))
 	r.dropPreviewBranch(ctx, project, name)
 	return nil
 }

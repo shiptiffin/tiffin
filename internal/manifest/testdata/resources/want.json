@@ -7,6 +7,7 @@
     "maxSharePercent": 25
   },
   "sleepAfter": "7d",
+  "keepVersions": 0,
   "apps": {
     "jobs": {
       "path": ".",

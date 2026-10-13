@@ -496,6 +496,8 @@ export interface TiffinConfig {
    * dashboard; "public", anyone with the address.
    */
   deployAddresses?: "signed-in" | "public";
+  /** How many earlier production builds each app keeps to roll back to, 0 to 20 (default 5; 0 keeps only the live one). */
+  keepVersions?: number;
   /** Apps keyed by name (same slug rules as `project`). */
   apps?: Record<Slug, AppConfig>;
   /**

@@ -8804,6 +8804,8 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+            /** Format: int64 */
+            keepVersions?: number;
             project: string;
             queues?: {
                 [key: string]: components["schemas"]["ManifestQueue"];
