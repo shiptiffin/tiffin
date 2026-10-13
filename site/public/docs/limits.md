@@ -129,6 +129,23 @@ set `runtime: "node"` for them:
   over. Connect a DNS provider for a wildcard certificate instead.
 - A cleaned-up version's address answers its "cleaned up" page while the box keeps its
   record (the last 50 per app), then "nothing here".
+- **Changes made outside your config** (see [Concepts](https://shiptiffin.com/docs/concepts.md#changes-made-outside-your-config)):
+  the box can't see what your file has seen, only what it holds now. So:
+  - After `tiffin pull`, deleting something that was added outside the file (removing the
+    domain from your config) is still marked once, until a config apply touches it.
+  - A plan that adds back something removed outside the file (a domain removed with
+    `tiffin domains remove`) is not marked.
+  - An update that changes a field to a new value is not marked, even when that value
+    also drops something set outside (a route list your file edited and that
+    `domains add` also changed). Only putting back an older value is marked. The domain
+    itself is still marked.
+  - A manifest sent to the API with a key counts as a config file unless the call says
+    `source: "edit"`. An agent that applies its own edited manifest without it is
+    recorded as a config apply, so a stale file later reverts its change without a mark.
+  - A project made by import or duplicate marks nothing it copied. A move keeps its
+    history, so what was made outside the config before the move is still marked.
+  - The box reads at most the last 1,000 changes of a project to decide. Anything older
+    is never marked.
 
 ## Monorepos
 
@@ -362,6 +379,27 @@ The box adds nothing for LLMs:
   served after a switch get no redirect. A wildcard certificate does not cover the domain
   itself, so it gets its own over HTTP-01 on its first visit; a box whose port 80 is closed
   to the internet cannot get it.
+- **A primary domain redirects only the addresses its app serves whole.** A name
+  where another app serves a path (`old.com/api`) keeps serving, and so do previews and
+  deploy addresses; nothing redirects to a primary domain until it is live, and on a
+  local box custom domains never go live. An app's `TIFFIN_URL` (and its sign-in
+  address) stays its first route, usually its name on the box, whose links then take one
+  redirect; put the primary domain first in `routes` to make it the app's URL.
+- **Registrar parking is recognised for five registrars.** Namecheap, GoDaddy, Porkbun,
+  Squarespace and Gandi's known parking and forwarding records are named, with what to
+  delete; Cloudflare, Hostinger, IONOS, Dynadot and Name.com are recognised by their
+  nameservers only (where to click). Any other parking page shows as "points to
+  <address>, not this box". A registrar that changes its parking addresses needs a new
+  release to be recognised again.
+- **No CNAME shortcut for a project subdomain when apps live on a domain of their own.**
+  Only `dashboard.<domain>` and `*.<apps domain>` must point at the box then, and neither
+  is a safe CNAME target (the dashboard's host can move; a name under a shared apps domain
+  can belong to another box), so `shop.example.com` gets A and AAAA records.
+- **Domains are checked every 30 seconds only for 30 minutes** after they are added, their
+  DNS answer changes or someone checks by hand. A record that shows up later is seen
+  within the backoff (up to 30 minutes) unless you check by hand.
+- **`tiffin deploy` names the first live domain of the app's routes.** With several own
+  domains it picks the first that is live, in route order.
 - **`tiffin.config.ts` sees no environment** on your computer or the box (`process.env` is
   empty) and imports only files of its repository. Values that differ per environment
   belong in secrets or `env`.

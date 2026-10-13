@@ -115,7 +115,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a manifest
-         * @description Plans the manifest and applies it if `confirm` matches the plan hash. Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. Applying needs a key with full access to the project; a read key can only plan.
+         * @description Plans the manifest and applies it if `confirm` matches the plan hash. Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. A plan whose ops carry `drift` (they delete or revert changes made outside the config file) also needs discardDrift, else 428 with code drift: usually run `tiffin pull` instead, to keep those changes. Applying needs a key with full access to the project; a read key can only plan.
          */
         post: operations["apply"];
         delete?: never;
@@ -2011,7 +2011,7 @@ export interface paths {
         put?: never;
         /**
          * Plan a manifest
-         * @description Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. `warnings` lists things the manifest probably did not mean (auth without email, env that replaces what the box sets): fix them before applying. A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.
+         * @description Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. `warnings` lists things the manifest probably did not mean (auth without email, env that replaces what the box sets): fix them before applying. Drift: when a config file's plan would delete or revert changes made outside it (a domain added with domains add, an edit in the dashboard), those ops carry `drift` (who, when, how) and the first warning lists them. Don't apply that over a live change: run `tiffin pull` (or GET /v1/projects/{project}/manifest) to bring them into the config, then plan again; applying it anyway needs discardDrift. A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.
          */
         post: operations["plan"];
         delete?: never;
@@ -2785,13 +2785,13 @@ export interface paths {
         };
         /**
          * List a project's own domains
-         * @description Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).
+         * @description Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own: every 30 s for 30 minutes after one is added or its DNS answer changes, then less often, up to every 30 min (checkedAt, nextCheckAt, and checked in words). When DNS still answers with a registrar's parking records (Namecheap, GoDaddy, Porkbun, Squarespace, Gandi), registrar says which, where to click and what to delete.
          */
         get: operations["domains-list"];
         put?: never;
         /**
          * Add a domain to a project
-         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).
+         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The plan answer (428) already lists the DNS records to add (records), so you can set them before confirming: A/AAAA to this box; for www.<domain>, one CNAME to <domain>. The answer after confirming lists them again with the domain's state, and another way to point it (alternative: for a subdomain, one CNAME to the box's domain). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).
          */
         post: operations["domain-add"];
         delete?: never;
@@ -2811,7 +2811,7 @@ export interface paths {
         put?: never;
         /**
          * Check a domain's DNS now
-         * @description Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and resets its backoff. If it now points here, the certificate is requested at once.
+         * @description Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and checks it every 30 s again for the next 30 minutes. If it now points here, the certificate is requested at once, and its www (or bare) sibling is looked up too.
          */
         post: operations["domain-recheck"];
         delete?: never;
@@ -6080,12 +6080,19 @@ export interface components {
         ApplyBody: {
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428. */
             confirm?: string;
+            /** @description Also needed, with confirm, when the plan has ops with drift: it deletes or reverts changes made outside the config file (a domain added with tiffin domains add, a dashboard edit). Without it such a plan is refused with 428 (code drift). Prefer tiffin pull (GET /v1/projects/{project}/manifest) to keep those changes. */
+            discardDrift?: boolean;
             /** @description Why you are making this change, in one sentence. Shown in the activity timeline. */
             intent?: string;
             /** @description The project manifest (the evaluated tiffin.config.ts). Only `project` is required; everything else has defaults. Full schema: GET /v1/schema/manifest. */
             manifest: {
                 [key: string]: unknown;
             };
+            /**
+             * @description Where the manifest comes from, as for plan: config (the default with an API key) or edit (the project's current manifest, edited).
+             * @enum {string}
+             */
+            source?: "config" | "edit";
         };
         ApplyResult: {
             /** @description False when the plan was empty (nothing to do). */
@@ -7667,6 +7674,7 @@ export interface components {
             undoneBy?: string;
             /** Format: int64 */
             version: number;
+            via?: string;
         };
         Check: {
             detail?: string;
@@ -7851,10 +7859,16 @@ export interface components {
             values: string[] | null;
         };
         DomainsDomain: {
-            /** @description For a subdomain, instead of records: one CNAME to the box's own name. */
+            /** @description Another way to point it here, instead of records: for www.<domain>, A/AAAA records; for a subdomain, one CNAME to the box's domain (absent when apps live on a domain of their own). */
             alternative?: components["schemas"]["Record"][] | null;
+            /** @description Once DNS points here: the certificate (state issuing until it is served). */
             certificate?: components["schemas"]["CertInfo"];
-            /** Format: date-time */
+            /** @description The same in words: Checked 2 min ago · next check in 30 s. */
+            checked: string;
+            /**
+             * Format: date-time
+             * @description When the box last looked its DNS up.
+             */
             checkedAt?: string;
             cname?: string;
             domain: string;
@@ -7862,7 +7876,10 @@ export interface components {
             found: string[] | null;
             /** @description The connected DNS provider that holds its zone (records can be created for you). */
             managedBy?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the box looks again on its own (domains check looks now).
+             */
             nextCheckAt?: string;
             /** @description Its app's primary domain: once it is live, the app's other addresses redirect here (308, path and query kept). */
             primary: boolean;
@@ -7870,7 +7887,7 @@ export interface components {
             primaryDomain?: string;
             project: string;
             reason?: string;
-            /** @description Point the name at the box with these (all of them). */
+            /** @description Point the name at the box with these (all of them): A/AAAA to the box for a domain or subdomain; for www.<domain> when <domain> is served here, one CNAME to <domain>. */
             records: components["schemas"]["Record"][] | null;
             /** @description On a primary domain: the app's other addresses that redirect here (once it is live; see redirecting). */
             redirectFrom?: string[] | null;
@@ -7878,11 +7895,16 @@ export interface components {
             redirectTo?: string;
             /** @description The primary redirect is on: the primary domain is live. Until then every address keeps serving. */
             redirecting?: boolean;
+            /** @description The registrar or DNS host its records are kept at, when the box recognises it (from its parking records or nameservers), and whether its parking records are still there. */
+            registrar?: components["schemas"]["DomainsRegistrar"];
             /** @description Path prefixes and the app serving each. */
             routes: components["schemas"]["DomainsRoute"][] | null;
             /** Format: date-time */
             since: string;
-            /** @enum {string} */
+            /**
+             * @description waiting_for_dns: it does not point at the box yet (checked every 30 s for 30 minutes after it is added or its DNS changes, then less often, up to every 30 min); issuing: it points here and the certificate is on its way; live; error: see reason.
+             * @enum {string}
+             */
             state: "waiting_for_dns" | "issuing" | "live" | "error";
             summary: string;
             url: string;
@@ -7960,6 +7982,18 @@ export interface components {
             type: string;
             value: string;
         };
+        DomainsRegistrar: {
+            /** @description The registrar or DNS host, e.g. Namecheap. */
+            name: string;
+            /** @description DNS still answers with its parking page or forwarding: delete those records first (see remove). */
+            parked?: boolean;
+            /** @description What its parking records lead to, when parked, e.g. Namecheap's parking page. */
+            parking?: string;
+            /** @description Which of its default records to delete, when parked. */
+            remove?: string;
+            /** @description Where its DNS records are edited, e.g. Domain List › Manage › Advanced DNS. */
+            where: string;
+        };
         DomainsRemoveBody: {
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan. */
             confirm?: string;
@@ -8004,6 +8038,17 @@ export interface components {
             summary: string;
             /** @description The zone that holds the name asked about, e.g. example.com. */
             zone: string;
+        };
+        Drift: {
+            /** Format: date-time */
+            at: string;
+            /** @description Who made it (a person, an agent's key name, or the box) */
+            by: string;
+            /** @description The change that made what this op would delete or revert */
+            change: string;
+            fields?: string[] | null;
+            /** @description How it was made: dashboard, api, system, or the command (tiffin domains add) */
+            via?: string;
         };
         "Email-box-setRequest": {
             /** @description The sender, with or without a name; empty for the default */
@@ -9593,6 +9638,7 @@ export interface components {
             address: string;
             after?: unknown;
             before?: unknown;
+            drift?: components["schemas"]["Drift"];
             fields?: string[] | null;
             loss?: components["schemas"]["Loss"];
             reason: string;
@@ -9724,6 +9770,11 @@ export interface components {
             manifest: {
                 [key: string]: unknown;
             };
+            /**
+             * @description Where the manifest comes from. config (the default with an API key): a config file such as tiffin.config.ts, so the plan marks ops that would delete or revert changes made outside it (op.drift) and warns. edit (the dashboard's default): the project's current manifest (GET /v1/projects/{project}/manifest), edited; nothing is marked.
+             * @enum {string}
+             */
+            source?: "config" | "edit";
         };
         PortableAppResult: {
             app: string;
@@ -10534,15 +10585,17 @@ export interface components {
              * @description Stable machine-readable code
              * @enum {string}
              */
-            code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "reauth_required" | "plan_mismatch" | "internal";
+            code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "drift" | "reauth_required" | "plan_mismatch" | "internal";
             /** @description What went wrong */
             detail?: string;
             /** @description Per-field problems */
             errors?: components["schemas"]["FieldError"][] | null;
             /** @description What to do next */
             hint?: string;
-            /** @description The plan to review and confirm (confirm_required, plan_mismatch), or the plan the key may not apply (forbidden) */
+            /** @description The plan to review and confirm (confirm_required, plan_mismatch, drift), or the plan the key may not apply (forbidden) */
             plan?: components["schemas"]["Plan"];
+            /** @description DNS records to add at your DNS host once the change is applied (domains add: the domain's, and www's with www) */
+            records?: components["schemas"]["Record"][] | null;
             /**
              * Format: int64
              * @description HTTP status code
@@ -11530,7 +11583,7 @@ export interface components {
         };
         RuntimeDeploy: {
             app: string;
-            /** @description The app's address, where whichever deploy is live serves (a preview's address for a preview). Open this for the live site; url opens this exact version. */
+            /** @description The app's address, where whichever deploy is live serves: its own domain once that is live (tiffin domains add), else its first address on the box; a preview's address for a preview. Open this for the live site; url opens this exact version. */
             appUrl?: string;
             /** @description Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day) */
             assets?: components["schemas"]["AssetDir"][] | null;
@@ -11594,6 +11647,8 @@ export interface components {
             liveAt?: string;
             /** @description The commit's message (first line), for deploys from GitHub */
             message?: string;
+            /** @description Production: the app's other addresses that answer too, such as <project>.<apps domain> once its own domain is appUrl. An own domain still waiting for DNS is not listed. */
+            otherUrls?: string[] | null;
             /** @description Preview name, empty for production */
             preview?: string;
             project: string;

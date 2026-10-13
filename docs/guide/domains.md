@@ -93,8 +93,8 @@ website. If it points at the box, it behaves as [above](#the-domain-itself), and
 `example.app` itself. `tiffin domain check --domain example.com --apps-domain example.app` lists
 them and what DNS says now; with `--create-records`, the box adds the ones in zones
 your connected DNS provider holds and tells you exactly which to add by hand (a
-Cloudflare token for *All zones* holds both). A custom domain's CNAME then points at
-`dashboard.example.com`.
+Cloudflare token for *All zones* holds both). A project's own subdomain then points
+at the box with A (and AAAA) records: the dashboard's host is never a CNAME target.
 
 `tiffin domain set` is the whole setting: running it again without `--apps-domain`
 puts the apps back on the box domain. Either way the old app names keep working until
@@ -109,7 +109,8 @@ Give an app its own name, `example.com` or `shop.example.com`:
 tiffin domains add shop --domain example.com --app web --www
 ```
 
-This is a normal change: you see the plan, then confirm it. It adds `"example.com"` to
+This is a normal change: you see the plan, then confirm it. The plan already lists the
+DNS records to add, so you can set them before you confirm. It adds `"example.com"` to
 the app's `routes` (and `www: "redirect"` under `domains`), so `tiffin pull` brings it
 into your `tiffin.config.ts`:
 
@@ -121,18 +122,54 @@ apps: {
 domains: { "example.com": { www: "redirect" } },
 ```
 
-The answer lists the records to add: an A (and AAAA) record to the server, or, for a
-subdomain, one CNAME to the box's own domain. `tiffin domains list shop` shows each
-name's state:
+### Before you start: remove your registrar's parking records
+
+A domain you just bought usually points at the registrar's parking page. Delete those
+records first, or they stay beside yours and the domain never points only at the box:
+
+| Registrar | Where | Delete |
+|---|---|---|
+| Namecheap | Domain List › Manage › Advanced DNS | the URL Redirect Record on `@` and the CNAME Record for `www` (`parkingpage.namecheap.com`) |
+| GoDaddy | My Products › your domain › DNS | the `@` A record to the parking page (3.33.130.190 or 15.197.148.33), and any forwarding |
+| Porkbun | Domain Management › your domain › DNS | the ALIAS and CNAME records to `pixie.porkbun.com` |
+| Squarespace | Domains › your domain › DNS › DNS Settings | the default Squarespace records on `@` and `www` |
+| Gandi | Domain › your domain › DNS Records | the default `@` A record (217.70.184.38) and `www` CNAME (`webredir.vip.gandi.net`) |
+
+If DNS still answers with one of these, the box says so: "example.com still points to
+Namecheap's parking page. In Namecheap › Domain List › Manage › Advanced DNS, delete
+…, then add: …". It also names where to click for Cloudflare, Hostinger, IONOS, Dynadot
+and Name.com, from the domain's nameservers.
+
+### The records
+
+| Name | Record |
+|---|---|
+| `example.com` | A (and AAAA) to the server |
+| `www.example.com`, when `example.com` is on the box | CNAME `example.com` (or the same A and AAAA records) |
+| `shop.example.com` | A (and AAAA) to the server, or one CNAME to the box's domain |
+
+The CNAME to the box's domain is only offered while apps live on the box domain; with a
+separate apps domain, use the A and AAAA records.
+
+### Watching it go live
+
+`tiffin domains list shop` shows each name's state:
 
 - **waiting_for_dns**, with the reason ("points to 5.6.7.8, not this box", "no A or
-  AAAA record yet"). The box checks again on its own: after 15 seconds, then less and
-  less often, up to every 30 minutes. `tiffin domains check shop example.com` checks
-  now.
+  AAAA record yet", or the registrar's parking page). The box checks every 30 seconds for
+  the first 30 minutes after you add a domain, and again for 30 minutes whenever its DNS
+  answer changes; after that less and less often, up to every 30 minutes. Each name says
+  when: "Checked 2 min ago · next check in 30 s". `tiffin domains check shop example.com`
+  (or **Check now** in the dashboard) checks at once. When `example.com` starts pointing
+  here, `www.example.com` is checked right away too, and the other way round.
 - **issuing**: it points here; the certificate takes a few seconds.
-- **live**.
+- **live**. `tiffin deploy` then names the app by this domain ("web is live at
+  https://example.com") and lists its other addresses below.
 - **error**, with what to do: a CAA record that doesn't allow Let's Encrypt, a rate
   limit, ports 80 and 443 closed.
+
+DNS checks are cheap. A certificate is only requested once DNS points here, so frequent
+checks never use up Let's Encrypt's limits.
 
 `tiffin domains remove shop example.com` stops serving it. Your DNS records stay.
 
@@ -212,9 +249,11 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
 ## In the dashboard
 
 - **A project › Settings › Domains** (also linked from the project's overview): add a
-  domain, pick the app that shows it and whether `www.` comes along. The page lists
-  the exact records to add, with a copy button for each, and watches DNS until the
-  domain is live with HTTPS. With Cloudflare connected, one button adds the records.
+  domain, pick the app that shows it and whether `www.` comes along. The dialog shows the
+  exact records before you add it, with a copy button for each; then the page watches
+  DNS until the domain is live with HTTPS, says when the box last checked and when it
+  checks next, and has **Check now**. A domain still on its registrar's parking page
+  says what to delete and where. With Cloudflare connected, one button adds the records.
 - **Settings › Your box › Domain**: the box's address and where apps live, *Use your
   own domain* (optionally with *Put apps on a domain of their own*; check the two
   records, then switch; the page follows the dashboard to its new address) and *Go

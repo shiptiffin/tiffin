@@ -60,6 +60,11 @@ func (m *Module) boxNames(ctx context.Context, p *platform.Platform) (hosts map[
 		ips = append(ips, a.Unmap().String())
 	}
 	targets = []string{p.Domain, p.DashboardHost(), apps}
+	for h := range hosts {
+		if !strings.HasPrefix(h, "*.") && !slices.Contains(targets, h) {
+			targets = append(targets, h) // www.example.com CNAME example.com
+		}
+	}
 	return hosts, ips, targets
 }
 

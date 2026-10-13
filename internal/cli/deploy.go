@@ -36,22 +36,23 @@ func (a *app) runtimeCmds() []*cobra.Command {
 
 // rtDeploy mirrors the API's deploy record (the fields the CLI uses).
 type rtDeploy struct {
-	ID         string  `json:"id"`
-	Project    string  `json:"project"`
-	App        string  `json:"app"`
-	Preview    string  `json:"preview,omitempty"`
-	Status     string  `json:"status"`
-	Source     string  `json:"source"`
-	Image      string  `json:"image,omitempty"`
-	Digest     string  `json:"digest,omitempty"`
-	URL        string  `json:"url,omitempty"`
-	AppURL     string  `json:"appUrl,omitempty"`
-	Error      string  `json:"error,omitempty"`
-	Hint       string  `json:"hint,omitempty"`
-	BuildSecs  float64 `json:"buildSeconds,omitempty"`
-	TotalSecs  float64 `json:"durationSeconds,omitempty"`
-	CreatedAt  string  `json:"createdAt,omitempty"`
-	SourceSize int64   `json:"sourceBytes,omitempty"`
+	ID         string   `json:"id"`
+	Project    string   `json:"project"`
+	App        string   `json:"app"`
+	Preview    string   `json:"preview,omitempty"`
+	Status     string   `json:"status"`
+	Source     string   `json:"source"`
+	Image      string   `json:"image,omitempty"`
+	Digest     string   `json:"digest,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	AppURL     string   `json:"appUrl,omitempty"`
+	OtherURLs  []string `json:"otherUrls,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	Hint       string   `json:"hint,omitempty"`
+	BuildSecs  float64  `json:"buildSeconds,omitempty"`
+	TotalSecs  float64  `json:"durationSeconds,omitempty"`
+	CreatedAt  string   `json:"createdAt,omitempty"`
+	SourceSize int64    `json:"sourceBytes,omitempty"`
 }
 
 func (d *rtDeploy) terminal() bool {
@@ -529,6 +530,9 @@ func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
 				fmt.Fprintf(a.io.Out, ", %s", c)
 			}
 			fmt.Fprintln(a.io.Out, ")")
+			if len(d.OtherURLs) > 0 {
+				fmt.Fprintf(a.io.Out, "  %s %s\n", a.paint("also at:", dim), strings.Join(d.OtherURLs, ", "))
+			}
 			if d.Preview == "" && d.URL != "" && d.URL != d.AppURL {
 				fmt.Fprintf(a.io.Out, "  %s %s\n", a.paint("this version, kept at its own address:", dim), d.URL)
 			}

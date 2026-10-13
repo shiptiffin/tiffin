@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/shiptiffin/tiffin/internal/change"
+	"github.com/shiptiffin/tiffin/internal/dnskit"
 	"github.com/shiptiffin/tiffin/internal/manifest"
 	"github.com/shiptiffin/tiffin/internal/page"
 	"github.com/shiptiffin/tiffin/internal/tokens"
@@ -25,6 +26,8 @@ type Problem struct {
 	Hint   string       `json:"hint,omitempty" doc:"What to do next"`
 	Errors []FieldError `json:"errors,omitempty" doc:"Per-field problems"`
 	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch, drift), or the plan the key may not apply (forbidden)"`
+	// Records: DNS records the planned change needs (domains add).
+	Records []dnskit.Record `json:"records,omitempty" doc:"DNS records to add at your DNS host once the change is applied (domains add: the domain's, and www's with www)"`
 }
 
 // FieldError points at one bad input field.
@@ -95,6 +98,19 @@ const authHint = "create a key in the dashboard (Settings › API keys) or with 
 
 // keyHint is what to do about a key that cannot reach something.
 const keyHint = "each API key reaches only its projects, at full or read access; ask the box owner to do it, or for a key that reaches it"
+
+// AsProblem is the Problem the API answers for err (a handler that adds
+// to it, such as the records a plan needs). Nil for a nil error; an error
+// the API does not know becomes a 500.
+func AsProblem(err error) *Problem {
+	if err == nil {
+		return nil
+	}
+	if p, ok := toProblem(err).(*Problem); ok {
+		return p
+	}
+	return problem(500, "internal", "internal error")
+}
 
 // toProblem maps domain errors to API problems.
 func toProblem(err error) error {

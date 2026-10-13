@@ -168,6 +168,22 @@ func (m *Module) primaryTick(ctx context.Context, p *platform.Platform) bool {
 	return changed
 }
 
+// RedirectTarget is the primary domain a host redirects to, or "" when it
+// serves (no primary, or the primary is not live yet). The runtime uses it to
+// name the primary as an app's address.
+func RedirectTarget(host string) string { return std.redirectTarget(host) }
+
+func (m *Module) redirectTarget(host string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, k := range m.lastPrimary {
+		if from, to, ok := strings.Cut(k, ">"); ok && from == host {
+			return to
+		}
+	}
+	return ""
+}
+
 // describePrimary adds the primary redirect to a domain's status.
 func (m *Module) describePrimary(ctx context.Context, p *platform.Platform, d *Domain) {
 	for _, pr := range primaries(ctx, p) {

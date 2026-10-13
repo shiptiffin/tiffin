@@ -62,6 +62,7 @@ func (a *app) emit(status int, raw []byte) {
 			fmt.Fprintf(w, "%s %s\n", a.paint("next:", dim), p.Hint)
 		}
 		if p.Code == "confirm_required" || p.Code == "plan_mismatch" {
+			a.renderPlanRecords(out, raw)
 			if p.Plan.HasDrift() {
 				a.driftNext(out, p.Plan)
 			} else {
@@ -71,6 +72,9 @@ func (a *app) emit(status int, raw []byte) {
 		return
 	}
 	// Recognise the shapes worth rendering specially.
+	if a.renderDomainShapes(out, raw) {
+		return
+	}
 	var probe map[string]json.RawMessage
 	if json.Unmarshal(raw, &probe) == nil {
 		if _, ok := probe["ops"]; ok {
