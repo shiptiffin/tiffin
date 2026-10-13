@@ -78,3 +78,35 @@ func TestDeployNamesOwnDomain(t *testing.T) {
 		t.Errorf("deploy output:\n%s", got)
 	}
 }
+
+// domains remove and projects destroy say what happens to DNS records: in
+// the plan, then after the change.
+func TestRenderDNSCleanup(t *testing.T) {
+	var out bytes.Buffer
+	a := ttyApp(&out)
+	plan := `{"status":428,"code":"confirm_required","detail":"confirmation required","plan":{"hash":"0123456789abcdef","summary":"1 to change","ops":[]},
+	"dns":{"hosts":["shop.example.com"],"delete":[{"type":"A","name":"shop.example.com","host":"shop","value":"198.51.100.7"}],
+	"byHand":[{"type":"AAAA","name":"shop.example.com","host":"shop","value":"2001:db8::7"}],"kept":[{"type":"CNAME","name":"www.shop.example.com","host":"www.shop","value":"elsewhere.example"}],"summary":"x"}}`
+	a.emit(428, []byte(plan))
+	got := out.String()
+	for _, want := range []string{
+		"deleted once applied (--keep-dns keeps them):", "A  shop  198.51.100.7  (shop.example.com)",
+		"Delete these at your DNS host", "AAAA  shop  2001:db8::7",
+		"Left alone, as they point elsewhere now:", "--confirm 0123456789ab",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("plan: missing %q in:\n%s", want, got)
+		}
+	}
+
+	out.Reset()
+	done := `{"applied":true,"change":{"id":"chg_1","project":"shop","version":0,"plan":{"summary":"3 to delete"}},
+	"dns":{"hosts":["shop.example.com"],"deleted":[{"type":"A","name":"shop.example.com","host":"shop","value":"198.51.100.7"}],"error":"fake refused","summary":"x"}}`
+	a.emit(200, []byte(done))
+	got = out.String()
+	for _, want := range []string{"✓ applied chg_1", "✓ Deleted the DNS records the box created:", "A  shop  198.51.100.7", "! The DNS provider failed: fake refused", "undo with tiffin undo chg_1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("applied: missing %q in:\n%s", want, got)
+		}
+	}
+}

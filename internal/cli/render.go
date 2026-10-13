@@ -111,6 +111,12 @@ func (a *app) emit(status int, raw []byte) {
 				}
 				c := r.Change
 				fmt.Fprintf(out, "%s %s  %s (project %s, version %d)\n", a.paint("✓ applied", green), c.ID, c.Plan.Summary, c.Project, c.Version)
+				var d struct {
+					DNS *dnsCleanup `json:"dns"`
+				}
+				if json.Unmarshal(raw, &d) == nil {
+					a.renderDNSCleanup(out, d.DNS)
+				}
 				fmt.Fprintf(out, "%s undo with %s\n", a.paint("→", amber), a.paint("tiffin undo "+c.ID, bold))
 				return
 			}
