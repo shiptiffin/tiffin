@@ -400,6 +400,7 @@ type undoBody struct {
 type destroyBody struct {
 	Confirm string `json:"confirm,omitempty" doc:"The hash of the plan that deletes the project (or its first 8+ characters), which you reviewed. Without it nothing is deleted and the plan comes back with status 428."`
 	Intent  string `json:"intent,omitempty" maxLength:"500" doc:"Why you are deleting the project, in one sentence."`
+	KeepDNS bool   `json:"keepDns,omitempty" doc:"Keep the DNS records the box created for the project's domains (by default it deletes the ones that still point at this box)."`
 }
 
 // ApplyResult is the outcome of a confirmed apply or undo.
@@ -407,6 +408,8 @@ type ApplyResult struct {
 	Applied bool           `json:"applied" doc:"False when the plan was empty (nothing to do)."`
 	Change  *change.Change `json:"change,omitempty" doc:"The applied change; its plan is change.plan."`
 	Plan    *change.Plan   `json:"plan,omitempty" doc:"The (empty) plan, only when nothing was applied."`
+	// DNS: after projects destroy, what happened to its domains' records.
+	DNS *platform.DNSCleanup `json:"dns,omitempty" doc:"After projects destroy: the DNS records the box deleted (ones it created for the project's domains that pointed here), and the ones to delete at your DNS host."`
 }
 
 // ProjectSummary is one row of the project list.
@@ -712,7 +715,9 @@ func (a *API) register() {
 	de := op("project-destroy", http.MethodPost, "/v1/projects/{project}/destroy", "projects destroy", RiskDestructive, "Destroy a project",
 		"Plans deleting every resource of a project (its apps, databases, buckets, auth users, secrets, everything) and applies it with confirm. "+
 			"The plan lists each secret it deletes (secret/NAME), so nothing is left behind for a new project of the same name. "+
-			"Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.", "projects")
+			"Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428. "+
+			"Its domains' DNS records: the ones the box created (createRecords) that still point at this box are deleted too (keepDns keeps them), and dns lists them in the plan; "+
+			"records it did not create are listed under dns.byHand, to delete at your DNS host. A DNS provider that fails does not stop the destroy: the answer lists what to delete by hand.", "projects")
 	de.Errors = append(de.Errors, 404, 409, 428)
 	de.Extensions[ExtConfirm] = true
 	huma.Register(api, de, wrap(func(ctx context.Context, in *struct {
@@ -738,7 +743,28 @@ func (a *API) register() {
 		if intent == "" {
 			intent = "destroy project " + in.Project
 		}
-		return a.apply(ctx, p, plan, in.Body.Confirm, intent)
+		// Its domains, read before they go: their DNS records are tidied
+		// after the change (see platform.DNSCleaner).
+		var cleaner platform.DNSCleaner
+		var hosts []string
+		if a.deps.Platform != nil {
+			if c, ok := a.deps.Platform.DNS.(platform.DNSCleaner); ok {
+				cleaner, hosts = c, c.ProjectHosts(ctx, in.Project)
+			}
+		}
+		res, err := a.apply(ctx, p, plan, in.Body.Confirm, intent)
+		var cr *change.ConfirmRequiredError
+		switch {
+		case err != nil && errors.As(err, &cr) && len(hosts) > 0:
+			pr := AsProblem(err)
+			pr.DNS = cleaner.CleanupDNS(ctx, hosts, in.Body.KeepDNS, false, "")
+			return nil, pr
+		case err != nil:
+			return nil, err
+		case res.Body.Applied && len(hosts) > 0:
+			res.Body.DNS = cleaner.CleanupDNS(ctx, hosts, in.Body.KeepDNS, true, p.Name)
+		}
+		return res, nil
 	}))
 
 	type changesQuery struct {

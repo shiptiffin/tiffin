@@ -11,6 +11,7 @@ import (
 	"github.com/shiptiffin/tiffin/internal/dnskit"
 	"github.com/shiptiffin/tiffin/internal/manifest"
 	"github.com/shiptiffin/tiffin/internal/page"
+	"github.com/shiptiffin/tiffin/internal/platform"
 	"github.com/shiptiffin/tiffin/internal/tokens"
 )
 
@@ -28,6 +29,9 @@ type Problem struct {
 	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch, drift), or the plan the key may not apply (forbidden)"`
 	// Records: DNS records the planned change needs (domains add).
 	Records []dnskit.Record `json:"records,omitempty" doc:"DNS records to add at your DNS host once the change is applied (domains add: the domain's, and www's with www)"`
+	// DNS: what the planned change does to DNS records (domains remove,
+	// projects destroy).
+	DNS *platform.DNSCleanup `json:"dns,omitempty" doc:"What happens to the DNS records of the names the change stops serving (domains remove, projects destroy): records the box created that will be deleted, and ones to delete at your DNS host"`
 }
 
 // FieldError points at one bad input field.

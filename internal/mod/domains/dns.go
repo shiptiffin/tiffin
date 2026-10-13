@@ -181,7 +181,8 @@ func (m *Module) setRecords(ctx context.Context, recs []dnskit.Record, del bool)
 	return nil
 }
 
-// dnsManager is Platform.DNS.
+// dnsManager is Platform.DNS (and a platform.DNSCleaner, see cleanup.go).
+// The records it sets are remembered as the box's own.
 type dnsManager struct{ m *Module }
 
 func (d *dnsManager) Manages(_ context.Context, name string) bool {
@@ -193,6 +194,7 @@ func (d *dnsManager) SetRecords(ctx context.Context, recs []dnskit.Record, by st
 	if err := d.m.setRecords(ctx, recs, false); err != nil {
 		return err
 	}
+	d.m.noteCreated(ctx, recs, by)
 	_ = d.m.p.DB.Audit(ctx, by, "dns.records.set", "box", recs)
 	return nil
 }
@@ -201,6 +203,11 @@ func (d *dnsManager) DeleteRecords(ctx context.Context, recs []dnskit.Record, by
 	if err := d.m.setRecords(ctx, recs, true); err != nil {
 		return err
 	}
+	forget := make([]dnskit.Record, len(recs))
+	for i, r := range recs {
+		forget[i] = dnskit.Record{Name: r.Name, Type: r.Type} // every value
+	}
+	d.m.forgetCreated(ctx, forget)
 	_ = d.m.p.DB.Audit(ctx, by, "dns.records.delete", "box", recs)
 	return nil
 }

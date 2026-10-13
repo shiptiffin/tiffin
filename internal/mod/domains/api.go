@@ -125,6 +125,8 @@ type DomainChange struct {
 	Plan    *change.Plan    `json:"plan"`
 	Domain  *Domain         `json:"domain,omitempty" doc:"The domain's status and the records to add (after an add)."`
 	Created []dnskit.Record `json:"created,omitempty" doc:"Records the box created through the connected DNS provider (createRecords)."`
+	// DNS: after domains remove, what happened to the domain's records.
+	DNS *platform.DNSCleanup `json:"dns,omitempty" doc:"After a remove: the DNS records the box deleted (ones it created that pointed here), and the ones to delete at your DNS host."`
 }
 
 // ---- box domain ----
@@ -612,6 +614,7 @@ type addBody struct {
 type removeBody struct {
 	Confirm string `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan."`
 	Intent  string `json:"intent,omitempty" maxLength:"500" doc:"Why, in one sentence."`
+	KeepDNS bool   `json:"keepDns,omitempty" doc:"Keep the DNS records the box created for the domain (by default it deletes the ones that still point at this box)."`
 }
 
 // ---- registration ----
@@ -1020,7 +1023,10 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	rm := api.Op("domain-remove", http.MethodPost, "/v1/projects/{project}/domains/{domain}/remove", "domains remove", api.RiskDestructive,
 		"Remove a domain from a project",
 		"Stops serving <domain>: removes every route of the project's apps on that host (all paths) and its domains entry (www redirect), through plan and apply. "+
-			"Without confirm you get status 428 with the plan. DNS records are left alone.", tag)
+			"Without confirm you get status 428 with the plan, and dns: what happens to the domain's DNS records. "+
+			"Records the box created (createRecords) that still point at this box are deleted through the connected DNS provider once the change is applied (keepDns keeps them), "+
+			"so none is left pointing at this server's address. Records it did not create are never deleted: dns.byHand lists the ones pointing here, to delete at your DNS host. "+
+			"Records you pointed elsewhere are left alone (dns.kept). If the DNS provider fails, the domain is still removed and dns.byHand lists what to delete by hand.", tag)
 	rm.Errors = append(rm.Errors, 404, 409, 428)
 	rm.Extensions[api.ExtConfirm] = true
 	huma.Register(a, rm, api.Wrap(func(ctx context.Context, in *struct {
@@ -1032,6 +1038,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil, err
 		}
 		d := strings.TrimSuffix(strings.ToLower(in.Domain), ".")
+		// The names that stop being served: read before the change.
+		hosts := m.projectHosts(ctx, p, in.Project, d)
 		out, err := m.editManifest(ctx, p, in.Project, in.Body.Confirm, orDefault(in.Body.Intent, "stop serving "+d), func(man *manifest.Manifest) error {
 			found := false
 			for name, app := range man.Apps {
@@ -1059,7 +1067,18 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil
 		})
 		if err != nil {
+			var cr *change.ConfirmRequiredError
+			if errors.As(err, &cr) && len(hosts) > 0 {
+				pr := api.AsProblem(err)
+				pr.DNS = m.cleanupDNS(ctx, p, hosts, in.Body.KeepDNS, false, "")
+				return nil, pr
+			}
 			return nil, err
+		}
+		if out.Applied && len(hosts) > 0 {
+			// After the change: the edge no longer serves them. A DNS
+			// provider that fails does not undo the removal.
+			out.DNS = m.cleanupDNS(ctx, p, hosts, in.Body.KeepDNS, true, actor(ctx))
 		}
 		return &struct{ Body DomainChange }{*out}, nil
 	}))
