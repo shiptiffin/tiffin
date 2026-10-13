@@ -199,6 +199,43 @@ func TestValidationErrorShape(t *testing.T) {
 	}
 }
 
+// keepVersions is a whole number from 0 to 20. 0 (only the live build) is
+// a value of its own, not "unset": it survives Canonical, Parse and
+// RenderConfig, and absent stays absent.
+func TestKeepVersions(t *testing.T) {
+	for raw, want := range map[string]string{
+		"-1":  "/keepVersions: must be at least 0 (got -1)",
+		"21":  "/keepVersions: must be at most 20 (got 21)",
+		"2.5": "/keepVersions: expected integer, got number",
+	} {
+		if _, err := Parse([]byte(`{"project":"ok","keepVersions":` + raw + `}`)); err == nil || err.Error() != want {
+			t.Errorf("keepVersions %s: got %v, want %q", raw, err, want)
+		}
+	}
+	for _, raw := range []string{"", "0", "5", "20"} {
+		src := `{"project":"ok"}`
+		if raw != "" {
+			src = `{"project":"ok","keepVersions":` + raw + `}`
+		}
+		m, err := Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("keepVersions %q: %v", raw, err)
+		}
+		canon, _ := Canonical(m)
+		m2, err := Parse(canon)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := string(RenderConfig(m2, ""))
+		switch {
+		case raw == "" && (m2.KeepVersions != nil || strings.Contains(string(canon)+cfg, "keepVersions")):
+			t.Errorf("absent keepVersions came back: %s\n%s", canon, cfg)
+		case raw != "" && (m2.KeepVersions == nil || strconv.Itoa(*m2.KeepVersions) != raw || !strings.Contains(cfg, "keepVersions: "+raw+" ")):
+			t.Errorf("keepVersions %s did not round-trip: %s\n%s", raw, canon, cfg)
+		}
+	}
+}
+
 func TestNormalizeDefaults(t *testing.T) {
 	m, err := Parse([]byte(`{
 		"project":"p",

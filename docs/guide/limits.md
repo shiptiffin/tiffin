@@ -413,7 +413,7 @@ The box adds nothing for LLMs:
 | `sendTx` outbox rows | payload 1 MB, options 16 KB; a larger row goes to the dead-letter queue without its payload | |
 | Live progress streams | 200 open per project | |
 | Email | 300 messages an hour | `tiffin email rate-limit set` |
-| Rollbacks and version addresses | the last 20 production deploys (3 while the data disk is past the disk guard's warning level); previews keep none | |
+| Rollbacks and version addresses | the last 5 production deploys, 0 to 20 per project (at most 3 while the data disk is past the disk guard's warning level); previews keep none | `keepVersions` in `tiffin.config.ts`, or Settings › General |
 | Earlier versions awake at their own addresses | 2 per project; each sleeps after 5 idle minutes | |
 | Previews | deleted after 7 days with no request or deploy | |
 | Build cache | 15% of the data disk (4 to 20 GiB), less while under 15% of the disk is free; no BuildKit build history is kept | |

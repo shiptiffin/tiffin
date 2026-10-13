@@ -29,6 +29,12 @@
       "type": "string",
       "enum": ["signed-in", "public"]
     },
+    "keepVersions": {
+      "description": "How many earlier production builds each app keeps to roll back to, each at its own deploy address: 0 to 20, where 0 keeps only the live one. Default 5. While the data disk is past the disk guard's warning level (85% by default) at most 3 are kept. Lowering it removes the extra builds at the app's next deploy or within the hour. Previews keep none.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20
+    },
     "apps": {
       "description": "Apps keyed by name. App names follow the same slug rules as `project`. An app is one deployable unit.",
       "type": "object",
