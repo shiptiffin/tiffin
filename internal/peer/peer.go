@@ -16,12 +16,8 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
-	"sync"
-	"syscall"
 )
 
 // ForeignError is a connection answered by a process outside the cgroup
@@ -92,62 +88,4 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 		return nil, err
 	}
 	return c, nil
-}
-
-// owners caches cgroup IDs found inside a directory. A cgroup's ID is its
-// directory's inode number and is never reused (kernfs IDs are 64-bit and
-// only grow), so a found ID stays valid for good.
-var owners = struct {
-	sync.Mutex
-	m map[uint64]string
-}{m: map[uint64]string{}}
-
-// within reports whether the cgroup with ID id is dir or a cgroup below it
-// (container scopes, and any cgroups a container made inside its own).
-func within(dir string, id uint64) bool {
-	owners.Lock()
-	got, ok := owners.m[id]
-	owners.Unlock()
-	if ok {
-		return got == dir
-	}
-	found := false
-	base := strings.Count(filepath.Clean(dir), string(filepath.Separator))
-	_ = filepath.WalkDir(dir, func(p string, e os.DirEntry, err error) error {
-		if err != nil || found {
-			return filepath.SkipDir
-		}
-		if !e.IsDir() {
-			return nil
-		}
-		if strings.Count(p, string(filepath.Separator))-base > 4 {
-			return filepath.SkipDir
-		}
-		if ino, ok := inode(p); ok && ino == id {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	if found {
-		owners.Lock()
-		if len(owners.m) > 1<<14 {
-			clear(owners.m)
-		}
-		owners.m[id] = dir
-		owners.Unlock()
-	}
-	return found
-}
-
-func inode(p string) (uint64, bool) {
-	fi, err := os.Stat(p)
-	if err != nil {
-		return 0, false
-	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, false
-	}
-	return st.Ino, true
 }
