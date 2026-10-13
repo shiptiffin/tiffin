@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ApiError } from "@/api/client";
 import { HostHints, RecordsTable } from "@/components/dns-records";
 import { agoWords, failedAt, Steps, useNow, withTicks } from "@/components/domains-parts";
@@ -9,13 +9,14 @@ import { Segmented } from "@/components/segmented";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { isApex, providerName, recheckDomain, setRecords, stateWords, type Domain } from "@/lib/domains";
+import { isApex, providerName, recheckDomain, setRecords, stateWords, type DnsRecord, type Domain } from "@/lib/domains";
 
 /**
  * What's left before a domain (and its www) is live, said precisely: where
  * it is on the three steps, the exact records to add with a tick for each
- * one DNS already answers, and a calm line that says when the box last
- * looked and that it keeps looking after you leave.
+ * one DNS already answers, the registrar's parking records to delete first
+ * when DNS still answers with them, and a calm line that says when the box
+ * last looked and when it looks next (it keeps looking after you leave).
  */
 export function DomainSetup({
   project,
@@ -23,7 +24,6 @@ export function DomainSetup({
   www,
   writer,
   local,
-  every,
   className,
 }: {
   project: string;
@@ -31,18 +31,25 @@ export function DomainSetup({
   www?: Domain;
   writer: boolean;
   local: boolean;
-  /** Seconds between the page's own checks, when it is checking. */
-  every?: number;
   className?: string;
 }) {
   const qc = useQueryClient();
   const [byHand, setByHand] = useState(false);
   const pending = [d, www].filter((x): x is Domain => !!x && x.state !== "live");
   const lead = pending[0];
+  // Each name's CNAME and its A/AAAA records, wherever the box put them (records first, alternative second).
+  const ways = (x: Domain) => {
+    const all = [...(x.records ?? []), ...(x.alternative ?? [])];
+    return { cname: all.filter((r) => r.type === "CNAME"), a: all.filter((r) => r.type !== "CNAME") };
+  };
   const hasAlt = pending.some((x) => x.state !== "issuing" && x.alternative?.length);
-  // A name that already answers through a CNAME keeps showing the CNAME; else a subdomain starts with it (one record, and it follows the box).
+  // A name that already answers with addresses of its own keeps showing A records; else a CNAME where one is offered (one record, and it follows the box).
   const [mode, setMode] = useState<"cname" | "a">(() => (pending.some((x) => x.alternative?.length && !x.cname && x.found?.length) ? "a" : "cname"));
-
+  const recordsOf = (x: Domain): DnsRecord[] => {
+    const w = ways(x);
+    if (!x.alternative?.length) return x.records ?? [];
+    return mode === "cname" && w.cname.length ? w.cname : w.a;
+  };
   const check = useMutation({
     mutationFn: () => Promise.all(pending.map((x) => recheckDomain(project, x.domain))),
     onSettled: () => qc.invalidateQueries({ queryKey: ["domains", project] }),
@@ -58,7 +65,9 @@ export function DomainSetup({
   });
 
   if (!lead) return null;
-  const rows = needRecords.flatMap((x) => withTicks(x, x.alternative?.length && mode === "cname" ? x.alternative : (x.records ?? [])));
+  const rows = needRecords.flatMap((x) => withTicks(x, recordsOf(x)));
+  const parked = needRecords.find((x) => x.registrar?.parked);
+  const host = needRecords.find((x) => x.registrar)?.registrar;
   const noAddress = local || (needRecords.length > 0 && needRecords.every((x) => !x.records?.length));
   const failed = pending.find((x) => x.state === "error");
   const issuing = pending.every((x) => x.state === "issuing");
@@ -66,7 +75,10 @@ export function DomainSetup({
     .map((x) => x.checkedAt)
     .filter((x): x is string => !!x)
     .sort()[0];
-  const next = failed?.nextCheckAt;
+  const next = pending
+    .map((x) => x.nextCheckAt)
+    .filter((x): x is string => !!x)
+    .sort()[0];
   const zone = zoneOf(d.domain);
 
   if (noAddress)
@@ -91,7 +103,7 @@ export function DomainSetup({
             {stateWords(failed).detail}
           </p>
           <p className="mt-1 text-[0.8125rem] text-ink-2">
-            The box tries again on its own{next ? `, next ${soonWords(next)}` : ""}. Fix it and press Try again for an answer now.
+            The box tries again on its own{failed.nextCheckAt ? `, next ${soonWords(failed.nextCheckAt)}` : ""}. Fix it and press Try again for an answer now.
           </p>
         </div>
       )}
@@ -114,10 +126,20 @@ export function DomainSetup({
             </div>
           ) : (
             <>
+              {parked?.registrar && (
+                <div className="mb-3.5 rounded-[8px] border border-rule-2 bg-brass-wash px-3.5 py-3">
+                  <p className="text-[0.875rem] text-ink">
+                    <span className="ident text-[0.8125rem]">{parked.domain}</span> still points to {parked.registrar.parking ?? `${parked.registrar.name}’s parking page`}.
+                  </p>
+                  <p className="mt-1 text-[0.8125rem] text-ink-2">
+                    In {parked.registrar.name} › {parked.registrar.where}, delete {parked.registrar.remove}. Then add the records below.
+                  </p>
+                </div>
+              )}
               <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
                 <p className="text-[0.875rem] text-ink">
                   {failed ? "Check these records" : `Add ${rows.length === 1 ? "this record" : `these ${rows.length} records`}`} at the DNS host for {zone}
-                  {failed ? ":" : " (where you manage its DNS, usually where you bought it):"}
+                  {failed ? ":" : host && !parked ? ` (${host.name} › ${host.where}):` : " (where you manage its DNS, usually where you bought it):"}
                 </p>
                 {hasAlt && (
                   <Segmented
@@ -133,13 +155,9 @@ export function DomainSetup({
               </div>
               {hasAlt && (
                 <p className="mt-1.5 text-[0.8125rem] text-ink-3">
-                  {needRecords.some((x) => !x.alternative?.length)
-                    ? mode === "cname"
-                      ? `${needRecords.filter((x) => !x.alternative?.length).map((x) => x.domain).join(" and ")} needs A records. For ${needRecords.filter((x) => x.alternative?.length).map((x) => x.domain).join(" and ")}, one CNAME is simplest, and it follows the box if its address changes.`
-                      : "Use A records for both names if your DNS host can’t add a CNAME. Delete any other A or AAAA records for them."
-                    : mode === "cname"
-                      ? "One CNAME is simplest, and it keeps working if the box’s address ever changes."
-                      : "Use these if your DNS host can’t add a CNAME here. Set every one; delete other A or AAAA records for the name."}
+                  {mode === "cname"
+                    ? "One CNAME per name is simplest, and it keeps working if the box’s address ever changes."
+                    : "Use these if your DNS host can’t add a CNAME here. Set every one; delete other A or AAAA records for the name."}
                 </p>
               )}
               <RecordsTable className="mt-2.5" records={rows} />
@@ -153,7 +171,7 @@ export function DomainSetup({
       <div className="mt-4 border-t border-rule pt-3.5">
         <Watch
           looked={looked}
-          every={failed ? undefined : every}
+          next={next}
           checking={check.isPending}
           onCheck={writer ? () => check.mutate() : undefined}
           button={failed ? "Try again" : "Check now"}
@@ -165,7 +183,7 @@ export function DomainSetup({
                 : "Waiting for DNS to point here."
           }
         >
-          {!failed && !issuing && "Most DNS hosts publish new records within a few minutes; a few take some hours. You can leave this page: the box keeps checking and finishes on its own."}
+          {!failed && !issuing && "Most DNS hosts publish new records within a few minutes; a few take some hours. The box checks every 30 seconds for half an hour after a change, then less often. You can leave this page: it finishes on its own."}
         </Watch>
       </div>
       {check.isError && !(check.error instanceof ApiError && check.error.status === 404) && <ProblemNote className="mt-3" error={check.error} />}
@@ -173,11 +191,11 @@ export function DomainSetup({
   );
 }
 
-/** The calm line: a spinner, what it waits for, when it last looked and how often, and Check now. */
+/** The calm line: a spinner, what it waits for, when the box last looked and when it looks next, and Check now. */
 function Watch({
   title,
   looked,
-  every,
+  next,
   checking,
   onCheck,
   button,
@@ -185,7 +203,7 @@ function Watch({
 }: {
   title: string | null;
   looked?: string;
-  every?: number;
+  next?: string;
   checking: boolean;
   onCheck?: () => void;
   button: string;
@@ -199,10 +217,7 @@ function Watch({
           {title && <span className="spinner mt-[3px] shrink-0 text-brass" aria-hidden />}
           <p className="min-w-0 text-[0.875rem] text-ink-2">
             {title && <span className="text-ink">{title} </span>}
-            <span className="text-ink-3">
-              {looked ? `Checked ${agoWords(looked, now)}` : "Not checked yet"}
-              {every ? ` · checking every ${every} seconds while this is open` : ""}.
-            </span>
+            <span className="text-ink-3">{checkedLine(looked, next, now)}.</span>
           </p>
         </div>
         {onCheck && (
@@ -217,37 +232,22 @@ function Watch({
   );
 }
 
-/**
- * While a domain waits for DNS and the page is open, ask the box to look
- * again: every 10 seconds for the first two minutes, then every 30. The box
- * also checks on its own (with backoff), so leaving the page is fine.
- * Returns the current interval in seconds (0 when not checking).
- */
-export function useRecheck(project: string, list: Domain[], writer: boolean): number {
-  const qc = useQueryClient();
-  const waiting = list.filter((d) => d.state === "waiting_for_dns" && d.records?.length).map((d) => d.domain);
-  const key = writer ? waiting.join(",") : "";
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    if (!key) return;
-    const started = Date.now();
-    let t: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      if (document.visibilityState === "visible") {
-        await Promise.allSettled(key.split(",").map((d) => recheckDomain(project, d)));
-        void qc.invalidateQueries({ queryKey: ["domains", project] });
-      }
-      const late = Date.now() - started >= 120_000;
-      setSlow(late);
-      t = setTimeout(tick, late ? 30_000 : 10_000);
-    };
-    t = setTimeout(tick, 10_000);
-    return () => {
-      clearTimeout(t);
-      setSlow(false);
-    };
-  }, [project, key, qc]);
-  return key ? (slow ? 30 : 10) : 0;
+/** "Checked 2 minutes ago · next check in 30 s", as the box says it (domains list's checked). */
+export function checkedLine(looked: string | undefined, next: string | undefined, now: number): string {
+  let s = looked ? `Checked ${agoWords(looked, now)}` : "Not checked yet";
+  if (next) {
+    const secs = Math.round((new Date(next).getTime() - now) / 1000);
+    s += secs <= 0 ? " · checking again now" : ` · next check in ${inWords(secs)}`;
+  }
+  return s;
+}
+
+/** 30 s, 2 min, 1 h 30 min. */
+function inWords(secs: number): string {
+  if (secs < 60) return `${secs} s`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min`;
+  return mins % 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins / 60} h`;
 }
 
 /** example.com for shop.example.com: where its records live. */

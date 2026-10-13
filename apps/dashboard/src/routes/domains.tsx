@@ -8,7 +8,6 @@ import { FreeAddresses } from "@/components/domains-free";
 import { DomainsGuide } from "@/components/domains-guide";
 import { useOpenDomain } from "@/components/domains-parts";
 import { DOMAIN_COLS, DomainRow } from "@/components/domains-row";
-import { useRecheck } from "@/components/domains-setup";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
@@ -50,7 +49,6 @@ export function DomainsPage({ project }: { project: string }) {
   const rows = withWww(domains);
   const shown = filter ? rows.filter((r) => r.d.domain.includes(filter.trim().toLowerCase())) : rows;
   const local = box.data?.certificates === "internal";
-  const every = useRecheck(project, domains, writer);
 
   // A route change (another app, a path, www) lands in the manifest first; refresh the list when it does.
   const version = m.data?.version;
@@ -143,7 +141,6 @@ export function DomainsPage({ project }: { project: string }) {
                   www={www}
                   writer={writer}
                   local={local}
-                  every={every}
                   open={openDomain === d.domain}
                   onToggle={() => setOpenDomain(openDomain === d.domain ? undefined : d.domain)}
                   apps={webApps}
@@ -181,7 +178,6 @@ export function DomainsPage({ project }: { project: string }) {
         box={box.data}
         list={domains}
         local={local}
-        every={every}
         onDone={(d) => setOpenDomain(d)}
       />
     </Page>

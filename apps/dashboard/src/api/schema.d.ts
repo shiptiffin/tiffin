@@ -2785,13 +2785,13 @@ export interface paths {
         };
         /**
          * List a project's own domains
-         * @description Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).
+         * @description Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own: every 30 s for 30 minutes after one is added or its DNS answer changes, then less often, up to every 30 min (checkedAt, nextCheckAt, and checked in words). When DNS still answers with a registrar's parking records (Namecheap, GoDaddy, Porkbun, Squarespace, Gandi), registrar says which, where to click and what to delete.
          */
         get: operations["domains-list"];
         put?: never;
         /**
          * Add a domain to a project
-         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).
+         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The plan answer (428) already lists the DNS records to add (records), so you can set them before confirming: A/AAAA to this box; for www.<domain>, one CNAME to <domain>. The answer after confirming lists them again with the domain's state, and another way to point it (alternative: for a subdomain, one CNAME to the box's domain). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).
          */
         post: operations["domain-add"];
         delete?: never;
@@ -2811,7 +2811,7 @@ export interface paths {
         put?: never;
         /**
          * Check a domain's DNS now
-         * @description Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and resets its backoff. If it now points here, the certificate is requested at once.
+         * @description Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and checks it every 30 s again for the next 30 minutes. If it now points here, the certificate is requested at once, and its www (or bare) sibling is looked up too.
          */
         post: operations["domain-recheck"];
         delete?: never;
@@ -7829,10 +7829,16 @@ export interface components {
             values: string[] | null;
         };
         DomainsDomain: {
-            /** @description For a subdomain, instead of records: one CNAME to the box's own name. */
+            /** @description Another way to point it here, instead of records: for www.<domain>, A/AAAA records; for a subdomain, one CNAME to the box's domain (absent when apps live on a domain of their own). */
             alternative?: components["schemas"]["Record"][] | null;
+            /** @description Once DNS points here: the certificate (state issuing until it is served). */
             certificate?: components["schemas"]["CertInfo"];
-            /** Format: date-time */
+            /** @description The same in words: Checked 2 min ago · next check in 30 s. */
+            checked: string;
+            /**
+             * Format: date-time
+             * @description When the box last looked its DNS up.
+             */
             checkedAt?: string;
             cname?: string;
             domain: string;
@@ -7840,19 +7846,27 @@ export interface components {
             found: string[] | null;
             /** @description The connected DNS provider that holds its zone (records can be created for you). */
             managedBy?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the box looks again on its own (domains check looks now).
+             */
             nextCheckAt?: string;
             project: string;
             reason?: string;
-            /** @description Point the name at the box with these (all of them). */
+            /** @description Point the name at the box with these (all of them): A/AAAA to the box for a domain or subdomain; for www.<domain> when <domain> is served here, one CNAME to <domain>. */
             records: components["schemas"]["Record"][] | null;
             /** @description For www.<domain>: where it redirects. */
             redirectTo?: string;
+            /** @description The registrar or DNS host its records are kept at, when the box recognises it (from its parking records or nameservers), and whether its parking records are still there. */
+            registrar?: components["schemas"]["DomainsRegistrar"];
             /** @description Path prefixes and the app serving each. */
             routes: components["schemas"]["DomainsRoute"][] | null;
             /** Format: date-time */
             since: string;
-            /** @enum {string} */
+            /**
+             * @description waiting_for_dns: it does not point at the box yet (checked every 30 s for 30 minutes after it is added or its DNS changes, then less often, up to every 30 min); issuing: it points here and the certificate is on its way; live; error: see reason.
+             * @enum {string}
+             */
             state: "waiting_for_dns" | "issuing" | "live" | "error";
             summary: string;
             url: string;
@@ -7919,6 +7933,18 @@ export interface components {
             /** @description A, AAAA, CNAME, TXT or CAA. */
             type: string;
             value: string;
+        };
+        DomainsRegistrar: {
+            /** @description The registrar or DNS host, e.g. Namecheap. */
+            name: string;
+            /** @description DNS still answers with its parking page or forwarding: delete those records first (see remove). */
+            parked?: boolean;
+            /** @description What its parking records lead to, when parked, e.g. Namecheap's parking page. */
+            parking?: string;
+            /** @description Which of its default records to delete, when parked. */
+            remove?: string;
+            /** @description Where its DNS records are edited, e.g. Domain List › Manage › Advanced DNS. */
+            where: string;
         };
         DomainsRemoveBody: {
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan. */
@@ -10502,6 +10528,8 @@ export interface components {
             hint?: string;
             /** @description The plan to review and confirm (confirm_required, plan_mismatch), or the plan the key may not apply (forbidden) */
             plan?: components["schemas"]["Plan"];
+            /** @description DNS records to add at your DNS host once the change is applied (domains add: the domain's, and www's with www) */
+            records?: components["schemas"]["Record"][] | null;
             /**
              * Format: int64
              * @description HTTP status code
@@ -11489,7 +11517,7 @@ export interface components {
         };
         RuntimeDeploy: {
             app: string;
-            /** @description The app's address, where whichever deploy is live serves (a preview's address for a preview). Open this for the live site; url opens this exact version. */
+            /** @description The app's address, where whichever deploy is live serves: its own domain once that is live (tiffin domains add), else its first address on the box; a preview's address for a preview. Open this for the live site; url opens this exact version. */
             appUrl?: string;
             /** @description Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day) */
             assets?: components["schemas"]["AssetDir"][] | null;
@@ -11553,6 +11581,8 @@ export interface components {
             liveAt?: string;
             /** @description The commit's message (first line), for deploys from GitHub */
             message?: string;
+            /** @description Production: the app's other addresses that answer too, such as <project>.<apps domain> once its own domain is appUrl. An own domain still waiting for DNS is not listed. */
+            otherUrls?: string[] | null;
             /** @description Preview name, empty for production */
             preview?: string;
             project: string;

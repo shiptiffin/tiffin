@@ -66,9 +66,9 @@ export const disconnectDns = (provider: string) => request<Providers>("DELETE", 
  * call answers 428 with the plan, the second applies that plan's hash. The
  * person already said what they want by clicking, so this does both.
  */
-async function planned<T>(call: (confirm?: string) => Promise<T>): Promise<T> {
+async function planned<T>(call: (confirm?: string) => Promise<T>, reviewed?: string): Promise<T> {
   try {
-    return await call();
+    return await call(reviewed);
   } catch (e) {
     const plan = e instanceof ApiError && e.status === 428 ? (e.problem.plan as Plan | undefined) : undefined;
     if (!plan?.hash) throw e;
@@ -76,10 +76,29 @@ async function planned<T>(call: (confirm?: string) => Promise<T>): Promise<T> {
   }
 }
 
-export const addDomain = (project: string, body: { domain: string; app: string; www?: boolean; createRecords?: boolean }) =>
-  planned((confirm) =>
-    request<DomainChange>("POST", projectPath(project), { ...body, ...(confirm ? { confirm, intent: `Serve ${body.domain} from ${body.app}` } : {}) }),
+type AddBody = { domain: string; app: string; www?: boolean; createRecords?: boolean };
+
+/**
+ * Adds a domain. With `reviewed` (the hash of a plan the person saw, from
+ * planAddDomain), that plan is applied; if it changed meanwhile, the new one is.
+ */
+export const addDomain = (project: string, body: AddBody, reviewed?: string) =>
+  planned(
+    (confirm) => request<DomainChange>("POST", projectPath(project), { ...body, ...(confirm ? { confirm, intent: `Serve ${body.domain} from ${body.app}` } : {}) }),
+    reviewed,
   );
+
+/** What adding a domain would do, without doing it: the plan's hash and the DNS records it needs. */
+export async function planAddDomain(project: string, body: AddBody): Promise<{ hash?: string; records: DnsRecord[] }> {
+  try {
+    await request<DomainChange>("POST", projectPath(project), body);
+    return { records: [] }; // nothing to change: it is there already
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 428) throw e;
+    const plan = e.problem.plan as Plan | undefined;
+    return { hash: plan?.hash, records: (e.problem as { records?: DnsRecord[] | null }).records ?? [] };
+  }
+}
 
 export const removeDomain = (project: string, domain: string) =>
   planned((confirm) => request<DomainChange>("POST", `${projectPath(project)}/${enc(domain)}/remove`, confirm ? { confirm, intent: `Stop serving ${domain}` } : {}));

@@ -1,6 +1,7 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Check } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { RecordsTable } from "@/components/dns-records";
 import { kindOf } from "@/components/domains-parts";
 import { DomainSetup } from "@/components/domains-setup";
 import { ProblemNote } from "@/components/problem";
@@ -9,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox, Select } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { addDomain, cleanDomain, looksLikeDomain, type BoxDomain, type Domain } from "@/lib/domains";
+import { useDebounced } from "@/lib/debounced";
+import { addDomain, cleanDomain, looksLikeDomain, planAddDomain, type BoxDomain, type DnsRecord, type Domain } from "@/lib/domains";
 import { undoChange } from "@/lib/staged";
 
 type Props = {
@@ -24,7 +26,6 @@ type Props = {
   /** The project's domains as the page has them (refreshing while one waits). */
   list: Domain[];
   local: boolean;
-  every: number;
   /** Closed after adding: the page opens that domain's row. */
   onDone: (domain: string) => void;
 };
@@ -47,7 +48,7 @@ export function AddDomainDialog(props: Props) {
 /** ShipTiffin's own domain: managed boxes get names under it, and nobody else can set its DNS. */
 const SHARED = "shiptiffin.app";
 
-function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onDone }: Props) {
+function Flow({ onOpenChange, project, apps, taken, box, list, local, onDone }: Props) {
   const qc = useQueryClient();
   const [raw, setRaw] = useState("");
   const [app, setApp] = useState("");
@@ -66,11 +67,22 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
   const freeName = under && !domain.slice(0, -box!.appsDomain.length - 1).includes(".") && domain !== box!.dashboard;
   const boxName = !!box && (domain === box.dashboard || (under && !freeName));
   const shared = !under && (domain === SHARED || domain.endsWith(`.${SHARED}`));
-  const target = box && box.certificates === "acme" ? (box.appsDomain !== box.domain ? box.dashboard : box.domain) : "";
   const ips = box?.publicIps ?? [];
+  const problem = raw.trim() === "" ? null : !valid ? "bad" : dup ? "dup" : boxName ? "box" : shared ? "shared" : null;
+
+  // What adding it would do, asked of the box without changing anything: the plan, and the exact records to set.
+  const body = { domain, app: chosen, www: apex && www };
+  const asked = useDebounced(JSON.stringify(body), 350);
+  const preview = useQuery({
+    queryKey: ["domain-plan", project, asked],
+    queryFn: () => planAddDomain(project, JSON.parse(asked) as typeof body),
+    enabled: asked === JSON.stringify(body) && valid && !!chosen && !problem && !freeName,
+    retry: false,
+    staleTime: 30_000,
+  });
 
   const add = useMutation({
-    mutationFn: () => addDomain(project, { domain, app: chosen, www: apex && www }),
+    mutationFn: () => addDomain(project, body, preview.data?.hash),
     onSuccess: (r) => {
       setAdded(r.domain ?? ({ domain, state: "waiting_for_dns", routes: [{ path: "/", app: chosen }] } as Domain));
       void qc.invalidateQueries({ queryKey: ["domains", project] });
@@ -115,7 +127,7 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
               </a>
             </div>
           ) : (
-            <DomainSetup project={project} d={d} www={w} writer local={local} every={every} />
+            <DomainSetup project={project} d={d} www={w} writer local={local} />
           )}
         </DialogBody>
         <DialogFooter>
@@ -132,8 +144,6 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
     e.preventDefault();
     if (valid && chosen && !dup && !boxName && !shared && !add.isPending) add.mutate();
   };
-  const problem = raw.trim() === "" ? null : !valid ? "bad" : dup ? "dup" : boxName ? "box" : shared ? "shared" : null;
-
   return (
     <form onSubmit={submit} className="contents">
       <DialogHeader>
@@ -187,7 +197,7 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
               <span className="text-ink-3">A whole domain (example.com) or a subdomain (shop.example.com).</span>
             ) : null}
           </div>
-          {valid && !problem && !freeName && <Kind domain={domain} target={target} ips={ips} local={local} />}
+          {valid && !problem && !freeName && <Kind domain={domain} ips={ips} local={local} records={preview.data?.records} />}
         </div>
 
         {apps.length > 1 ? (
@@ -231,35 +241,24 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, every, onD
   );
 }
 
-/** What kind of name it is, and what that means for its records. */
-function Kind({ domain, target, ips, local }: { domain: string; target: string; ips: string[]; local: boolean }) {
+/** What kind of name it is, and the exact records it will need (from the box's plan, before anything changes). */
+function Kind({ domain, ips, local, records }: { domain: string; ips: string[]; local: boolean; records?: DnsRecord[] }) {
   const apex = kindOf(domain) === "apex";
   const v4 = ips.filter((a) => !a.includes(":"));
-  const v6 = ips.filter((a) => a.includes(":"));
+  const rest = domain.split(".").slice(1).join(".");
   return (
     <div className="mt-3 rounded-[8px] bg-paper-sunk px-3.5 py-3 text-[0.8125rem] leading-5">
       <p className="font-[550] text-ink">{apex ? "A whole domain" : "A subdomain"}</p>
       <p className="mt-0.5 text-ink-2">
-        {local ? (
-          apex ? (
-            "It will need A records pointing at your box’s address once the box runs on a server."
-          ) : (
-            "It will need one CNAME record pointing at your box once the box runs on a server."
-          )
-        ) : apex ? (
-          <>
-            It points at your box with {v4.length === 1 ? "an A record" : "A records"}
-            {v4.length > 0 && <> to <span className="ident text-[0.75rem] text-ink">{v4.join(", ")}</span></>}
-            {v6.length > 0 && <> and an AAAA record to <span className="ident text-[0.75rem] text-ink">{v6.join(", ")}</span></>}. Most DNS hosts don’t allow a CNAME on a whole domain.
-          </>
-        ) : target ? (
-          <>
-            One CNAME record to <span className="ident text-[0.75rem] text-ink">{target}</span> points it at your box. The rest of {domain.split(".").slice(1).join(".")} stays where it is.
-          </>
-        ) : (
-          <>It points at your box with A records. The rest of {domain.split(".").slice(1).join(".")} stays where it is.</>
-        )}
+        {local
+          ? "It will need DNS records pointing at your box once the box runs on a server."
+          : records?.length
+            ? `Once you add it, set ${records.length === 1 ? "this record" : `these ${records.length} records`} where you manage its DNS. You can set them now.${apex ? "" : ` The rest of ${rest} stays where it is.`}`
+            : apex
+              ? `It points at your box with ${v4.length === 1 ? "an A record" : "A records"}. Most DNS hosts don’t allow a CNAME on a whole domain.`
+              : `It points at your box with its own records. The rest of ${rest} stays where it is.`}
       </p>
+      {!local && !!records?.length && <RecordsTable className="mt-2.5" records={records} />}
     </div>
   );
 }

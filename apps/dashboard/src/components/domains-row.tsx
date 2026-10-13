@@ -28,7 +28,6 @@ type Props = {
   www?: Domain;
   writer: boolean;
   local: boolean;
-  every: number;
   open: boolean;
   onToggle: () => void;
   apps: string[];
@@ -43,7 +42,7 @@ type Props = {
  * where it is on the way to live with the exact records, or, once live, the
  * certificate, what DNS says, its paths and the www switch.
  */
-export function DomainRow({ project, d, www, writer, local, every, open, onToggle, apps, manifest, admin }: Props) {
+export function DomainRow({ project, d, www, writer, local, open, onToggle, apps, manifest, admin }: Props) {
   const qc = useQueryClient();
   const [removing, setRemoving] = useState(false);
   const [changing, setChanging] = useState(false);
@@ -114,7 +113,7 @@ export function DomainRow({ project, d, www, writer, local, every, open, onToggl
       <A.Content className="pb-5 sm:pl-[22px]">
           {anyPending && (
             <div className="rounded-[10px] border border-rule-2 bg-paper-raised px-4 py-4 shadow-[var(--top-light)] sm:px-5">
-              <DomainSetup project={project} d={d} www={www} writer={writer} local={local} every={every} />
+              <DomainSetup project={project} d={d} www={www} writer={writer} local={local} />
             </div>
           )}
           <Details
