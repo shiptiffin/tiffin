@@ -89,7 +89,7 @@ export default function MoveFromVercel() {
                   ["Deploy on git push", <>A GitHub App per box: every push to the production branch deploys (<Link href="/docs/apps#deploy-from-github">GitHub</Link>)</>],
                   ["Preview deployments", "One per pull request at its own address, with its own copy of the database; removed when the pull request closes"],
                   ["Deployment URLs", <>Every production deploy keeps an address, <code>d-&lt;id&gt;--&lt;name&gt;</code>, read-only and behind your dashboard sign-in by default</>],
-                  ["Instant Rollback", <><code>tiffin rollback &lt;app&gt;</code>, to any of the last 20 production deploys</>],
+                  ["Instant Rollback", <><code>tiffin rollback &lt;app&gt;</code>, to any of the last 5 production deploys (up to 20 with <code>keepVersions</code>)</>],
                   ["Environment variables", <>Plain values in <code>tiffin.config.ts</code>, secrets with <code>tiffin secrets set</code> or the dashboard</>],
                   ["Cron jobs (vercel.json)", <>Run by the box: a <code>GET</code> to the path with <code>CRON_SECRET</code>, as Vercel calls it (<Link href="/docs/queues">jobs</Link>)</>],
                   ["Function duration", <><code>timeoutSeconds</code>: 15 minutes by default, up to 24 hours</>],

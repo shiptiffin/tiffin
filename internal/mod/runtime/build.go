@@ -420,6 +420,9 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 	if err := checkStartCommand(planPath, req, env["RAILPACK_START_CMD"]); err != nil {
 		return BuildResult{}, err
 	}
+	if _, err := narrowInstall(planPath, req.SrcDir, env, req.Log); err != nil {
+		return BuildResult{}, fmt.Errorf("narrow the build plan's install step: %w", err)
+	}
 	if imageEnv != nil {
 		if err := setDeployEnv(planPath, imageEnv); err != nil {
 			return BuildResult{}, fmt.Errorf("add the adapter to the build plan: %w", err)

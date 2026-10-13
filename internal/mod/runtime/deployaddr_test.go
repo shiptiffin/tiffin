@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -244,11 +245,11 @@ func TestOldVersionsAwakeCap(t *testing.T) {
 	}
 }
 
-// Production keeps a sliding window of KeepImages earlier builds (20 on a
+// Production keeps a sliding window of KeepImages earlier builds (5 on a
 // box), fewer (pressureKeep) once the data disk is past the disk guard's
 // warning level; the disk guard trims at once.
 func TestRetentionWindowAndDiskPressure(t *testing.T) {
-	if o := defaultOptions(); o.KeepImages != 20 || o.VersionIdle != 5*time.Minute {
+	if o := defaultOptions(); o.KeepImages != 5 || o.VersionIdle != 5*time.Minute {
 		t.Fatalf("defaults: keep %d, idle %s", o.KeepImages, o.VersionIdle)
 	}
 	h := newHarness(t)
@@ -280,6 +281,103 @@ func TestRetentionWindowAndDiskPressure(t *testing.T) {
 	}
 	if _, err := h.r.rollback(ctx, "shop", "api", ds[2].ID); err == nil {
 		t.Fatal("rolled back to a trimmed version")
+	}
+}
+
+// A project's keepVersions replaces the box's default: 0 keeps only the
+// live build, disk pressure still caps it at pressureKeep and previews keep
+// none. Changing it restarts nothing; the hourly sweep and the next gc drop
+// the builds it no longer keeps.
+func TestKeepVersionsPerProject(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	used := 50.0
+	h.r.opt.DiskUsedPercent = func() float64 { return used }
+	h.r.opt.KeepImages = 2
+	keep := func(n *int) {
+		t.Helper()
+		h.mf.KeepVersions = n
+		h.apply()
+	}
+	spec, _ := h.r.appSpec(ctx, "shop", "api")
+	var ds []*Deploy
+	deploy := func() {
+		ds = append(ds, h.deploy("api", "", map[string]string{"index.ts": fmt.Sprint(len(ds))}))
+	}
+	retention := func() string {
+		var b strings.Builder
+		for _, d := range ds {
+			cur, _ := h.r.st.getDeploy(ctx, "shop", "api", d.ID)
+			h.r.present(cur, spec)
+			b.WriteString(cur.Retention[:1])
+		}
+		return b.String()
+	}
+	for range 6 {
+		deploy()
+	}
+	if got := retention(); got != "ccckkk" {
+		t.Fatalf("box default of 2 + live: %s", got)
+	}
+
+	// 4: no restart, and the next deploy keeps 4.
+	runs, live := h.eng.runs, h.state("api", "").Instances
+	keep(new(4))
+	if h.eng.runs != runs || !slices.Equal(h.state("api", "").Instances, live) {
+		t.Fatalf("changing keepVersions restarted the app: %d runs (was %d)", h.eng.runs, runs)
+	}
+	if n := h.r.rollbackTargets(ctx, "shop", ""); n != 4 {
+		t.Fatalf("production keeps %d, want 4", n)
+	}
+	if n := h.r.rollbackTargets(ctx, "shop", "pr-1"); n != 0 {
+		t.Fatalf("a preview keeps %d, want 0", n)
+	}
+	deploy()
+	if got := retention(); got != "ccckkkk" {
+		t.Fatalf("4 + live (two were cleaned before): %s", got)
+	}
+
+	// Past the disk guard's warning level at most pressureKeep.
+	keep(new(10))
+	used = 90
+	if n := h.r.rollbackTargets(ctx, "shop", ""); n != pressureKeep {
+		t.Fatalf("under pressure production keeps %d, want %d", n, pressureKeep)
+	}
+	used = 50
+	if n := h.r.rollbackTargets(ctx, "shop", ""); n != 10 {
+		t.Fatalf("production keeps %d, want 10", n)
+	}
+
+	// 0: the sweep finds the earlier builds unneeded, and gc removes them.
+	keep(new(0))
+	h.r.drains.Wait()
+	dry, err := h.r.sweepImages(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var swept []string
+	for _, s := range dry.Removed {
+		swept = append(swept, s.Name)
+	}
+	slices.Sort(swept)
+	var want []string
+	for _, d := range ds[3:6] {
+		cur, _ := h.r.st.getDeploy(ctx, "shop", "api", d.ID)
+		want = append(want, cur.Image)
+	}
+	slices.Sort(want)
+	if !slices.Equal(swept, want) {
+		t.Fatalf("with keepVersions 0 the sweep would remove %v, want %v (kept: %v)", swept, want, dry.Kept)
+	}
+	h.r.trimVersions(ctx)
+	if got := retention(); got != "cccccck" || h.imageCount() != 1 {
+		t.Fatalf("0 keeps only the live build: %s, %d images", got, h.imageCount())
+	}
+
+	// Unset: the box's default again.
+	keep(nil)
+	if n := h.r.rollbackTargets(ctx, "shop", ""); n != 2 {
+		t.Fatalf("unset keeps %d, want the default 2", n)
 	}
 }
 

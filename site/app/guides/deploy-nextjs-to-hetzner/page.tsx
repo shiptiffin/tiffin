@@ -279,7 +279,7 @@ export default function DeployNextToHetzner() {
                   "$ tiffin logs web -f",
                   "# follow them",
                   "$ tiffin rollback web",
-                  "# back to an earlier production deploy (the last 20 are kept)",
+                  "# back to an earlier production deploy (the last 5 are kept, up to 20 with keepVersions)",
                 ]}
               />
               <p>
@@ -420,7 +420,7 @@ export default function DeployNextToHetzner() {
                   ["HTTPS", "Certificates issued and renewed for every app, preview and domain", "A proxy you add and configure (Caddy, Traefik, nginx)"],
                   ["Postgres", "One database per project, behind a pooler, with branches", "A container you configure, tune and upgrade"],
                   ["Backups", "Every 6 hours; Postgres to any second of the last 7 days", "Scripts you write, schedule and test"],
-                  ["Deploys", "Health-checked switch with no dropped requests; rollback to the last 20", "Yours to build, or a restart with a gap"],
+                  ["Deploys", "Health-checked switch with no dropped requests; rollback to any of the last 5 (up to 20)", "Yours to build, or a restart with a gap"],
                   ["Previews", "One per pull request, with its own database copy", "More tooling"],
                   ["Sign-in", "Passwords, magic links, passkeys, Google and more, on the box", "A library you add, host and keep patched"],
                   ["The server itself", "SSH keys only, a firewall, CrowdSec, daily security updates", "Yours to set up"],

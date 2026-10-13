@@ -51,7 +51,10 @@ type Options struct {
 	// SleepAfter replaces the sleepAfter of every project that sets one
 	// (0: each project's own). TIFFIN_SLEEP_AFTER sets it, for tests.
 	SleepAfter time.Duration
-	KeepImages int // rollback targets kept per production environment (previews keep none); each has its own address
+	// KeepImages is how many rollback targets a production environment
+	// keeps when its project sets no keepVersions (previews keep none);
+	// each has its own address.
+	KeepImages int
 	// VersionIdle: an old version woken at its own address sleeps after
 	// this long without requests.
 	VersionIdle time.Duration
@@ -467,8 +470,9 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 // loop runs housekeeping: sleeping idle apps, deleting long-unused
 // previews, stopping drained releases, saving activity every minute (and
 // on the way out), every 5 minutes removing orphaned containers and
-// database branches of previews that are gone, and hourly the image sweep
-// (sweepImages), first 5 minutes after start.
+// database branches of previews that are gone, and hourly gc of every
+// production environment (a project may have lowered keepVersions) and the
+// image sweep (sweepImages), first 5 minutes after start.
 func (r *rt) loop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -507,6 +511,7 @@ func (r *rt) loop(ctx context.Context) {
 			// Hourly, and once 5 minutes after start: a box updated more
 			// often than hourly would otherwise never sweep.
 			if tick%sweepEveryTicks == 0 || tick == sweepFirstTick {
+				r.trimVersions(ctx)
 				if _, err := r.sweepImages(ctx, false); err != nil {
 					r.p.Log.Warn("runtime: image sweep", "err", err)
 				}
