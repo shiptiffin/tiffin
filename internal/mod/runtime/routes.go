@@ -164,7 +164,9 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 		}
 		if st.Preview != "" {
 			who += "@" + st.Preview
-			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain()), Rules: rules, NextCache: next}
+			// Previews stay out of search engines, like deploy addresses:
+			// a copy of the site on another host competes with production.
+			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain()), Rules: rules, NoIndex: true, NextCache: next}
 			if static {
 				files[rt.Host] = env
 				rt.FileRoot, rt.SPA, rt.SPAPage = r.staticLink(st.Project, st.App, st.Preview), spa, d.SPAPage

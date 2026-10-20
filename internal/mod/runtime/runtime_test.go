@@ -1385,6 +1385,37 @@ func TestAppsDomainHosts(t *testing.T) {
 	}
 }
 
+// Previews and deploy addresses say noindex, so search engines never list a
+// second copy of the site; production's own addresses stay indexable.
+func TestOnlyProductionIsIndexable(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	spec, _ := h.r.appSpec(ctx, "shop", "api")
+	prod := h.deploy("api", "", map[string]string{"index.ts": "prod"})
+	h.deploy("api", "feat-x", map[string]string{"index.ts": "preview"})
+	routes, _, err := h.r.routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := previewHost("feat-x", "shop", "api", spec, h.p.AppsDomain())
+	deploy := deployHost(prod.ID, "shop", "api", spec, h.p.AppsDomain())
+	seen := map[string]bool{}
+	for _, r := range routes {
+		switch {
+		case r.Host == preview || r.Host == deploy:
+			seen[r.Host] = true
+			if !r.NoIndex {
+				t.Errorf("%s%s must say noindex", r.Host, r.PathPrefix)
+			}
+		case r.NoIndex:
+			t.Errorf("production route %s%s says noindex", r.Host, r.PathPrefix)
+		}
+	}
+	if !seen[preview] || !seen[deploy] {
+		t.Fatalf("missing routes: preview %v, deploy %v in %+v", seen[preview], seen[deploy], routes)
+	}
+}
+
 // TestPreviewHost: previews are named after the app's own address, and a
 // name too long for DNS is cut and made unique with a hash.
 func TestPreviewHost(t *testing.T) {
