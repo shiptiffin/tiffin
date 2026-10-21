@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	filippo.io/age v1.3.2
 	github.com/BurntSushi/toml v1.6.0
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/caddyserver/caddy/v2 v2.11.7
 	github.com/caddyserver/certmagic v0.25.6
 	github.com/corazawaf/coraza-caddy/v2 v2.6.2
@@ -63,7 +64,6 @@ require (
 	github.com/DeRuina/timberjack v1.4.8 // indirect
 	github.com/KimMachineGun/automemlimit v1.0.0 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
-	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

@@ -184,7 +184,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 
 func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) error {
 	if opt.Builder == nil {
-		opt.Builder = &boxBuilder{eng: opt.Engine, staticDir: filepath.Join(opt.DataDir, "static"), cacheDir: filepath.Join(opt.DataDir, buildCacheDir), memoryMB: buildMemoryMB(memTotalMB())}
+		opt.Builder = &boxBuilder{eng: opt.Engine, staticDir: filepath.Join(opt.DataDir, "static"), cacheDir: filepath.Join(opt.DataDir, buildCacheDir), memoryMB: buildMemoryMB(memTotalMB()), nodeReleases: newNodeReleases()}
 	}
 	if opt.Branches == nil {
 		opt.Branches = pgBranches{}

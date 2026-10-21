@@ -119,6 +119,9 @@ type boxBuilder struct {
 	memoryMB  int    // cap for static build containers
 	cgroupDir string // the build cgroup ("" → /sys/fs/cgroup/tiffin-build)
 	binDir    string // where railpack, buildctl and nerdctl are ("" → /usr/local/bin)
+	// nodeReleases resolves an app's own Node.js range to the newest
+	// matching release (nil: the build resolves it, from a list it caches).
+	nodeReleases *releaseList
 }
 
 // tool is the path of one of the build tools.
@@ -280,6 +283,8 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 	}
 	if !pinsNode(req.SrcDir) {
 		env["RAILPACK_NODE_VERSION"] = NodeVersion
+	} else if b.nodeReleases != nil {
+		pinNodeRange(ctx, req.SrcDir, b.nodeReleases, req.Log)
 	}
 	var imageEnv map[string]string
 	appDir := req.appDir()
