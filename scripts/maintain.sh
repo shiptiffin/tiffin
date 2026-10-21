@@ -7,29 +7,36 @@
 #      release waits for scripts/bun-canary.sh, which runs the demo apps),
 #   3. with --deploy, updates the box (HCLOUD_TOKEN from .env) once anything
 #      was merged,
-#   4. clears the Go, staticcheck and Bun caches its checks filled.
+#   4. with --box, looks after the box itself: installs every pending Ubuntu
+#      update (Postgres packages stay with Tiffin's maintenance window),
+#      reboots when the kernel or a running service needs it, and rebuilds
+#      each running app from its live source so base images, Node and Bun
+#      pick up their fixes (zero downtime, like any deploy),
+#   5. clears the Go, staticcheck and Bun caches its checks filled.
 #
-#   scripts/maintain.sh                  # defensive: scan + security fixes
-#   scripts/maintain.sh --all --deploy   # the weekly full pass
+#   scripts/maintain.sh                        # defensive: scan + security fixes
+#   scripts/maintain.sh --all --deploy --box   # the weekly full pass (Sunday agent)
 #
-# The box itself takes Ubuntu security patches daily (unattended-upgrades)
-# and Postgres minor updates in its maintenance window.
+# Between passes the box takes Ubuntu security patches daily (unattended-upgrades)
+# and Postgres minor updates in its maintenance window. scripts/box-inventory.sh
+# prints what it runs, to check against new advisories.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 REPO=shiptiffin/tiffin
 BOX=shiptiffin
-ALL=0 DEPLOY=0
+ALL=0 DEPLOY=0 BOXPASS=0
 for a in "$@"; do
   case $a in
     --all) ALL=1 ;;
     --deploy) DEPLOY=1 ;;
-    *) echo "usage: scripts/maintain.sh [--all] [--deploy]" >&2; exit 2 ;;
+    --box) BOXPASS=1 ;;
+    *) echo "usage: scripts/maintain.sh [--all] [--deploy] [--box]" >&2; exit 2 ;;
   esac
 done
 
 step() { printf '\n==> %s\n' "$*"; }
-merged=() failed=() skipped=() found=0
+merged=() failed=() skipped=() box=() found=0
 
 checks() {
   make ci >/dev/null 2>&1 || { echo "  make ci failed"; return 1; }
@@ -85,6 +92,70 @@ if [ "$DEPLOY" = 1 ] && [ ${#merged[@]} -gt 0 ]; then
     failed+=("box update")
 fi
 
+if [ "$BOXPASS" = 1 ]; then
+  srv=$(jq -r --arg b "$BOX" '.boxes[$b].server' ~/.tiffin/boxes.json)
+  SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15
+    -o UserKnownHostsFile="$(jq -r .knownHosts <<<"$srv")"
+    -i "$(jq -r .identity <<<"$srv")" "$(jq -r .ssh <<<"$srv")")
+  tf() { bin/tiffin "$@"; }
+
+  step "box: Ubuntu updates"
+  # Everything pending except PGDG: Postgres minors go through Tiffin's own
+  # maintenance window, which restarts Postgres safely.
+  if "${SSH[@]}" 'bash -s' <<'EOF'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+pkgs=$(apt list --upgradable 2>/dev/null | awk -F/ 'NR>1 && $2 !~ /pgdg/ {print $1}')
+if [ -n "$pkgs" ]; then
+  echo "$pkgs" | tr '\n' ' '; echo
+  apt-get install -y -qq --only-upgrade -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold $pkgs >/dev/null
+fi
+apt-get autoremove -y -qq --purge >/dev/null
+apt-get clean
+EOF
+  then box+=("Ubuntu updates installed"); else failed+=("box: Ubuntu updates"); fi
+
+  step "box: reboot if needed"
+  why=$("${SSH[@]}" '[ -f /var/run/reboot-required ] && echo "kernel/system: $(tr "\n" " " </var/run/reboot-required.pkgs 2>/dev/null)";
+    needrestart -b 2>/dev/null | sed -n "s/^NEEDRESTART-SVC: //p" | tr "\n" " "')
+  if [ -n "${why// /}" ]; then
+    echo "rebooting for: $why"
+    "${SSH[@]}" 'systemctl reboot' >/dev/null 2>&1
+    sleep 30
+    back=0
+    for _ in $(seq 60); do # up to 10 minutes
+      if "${SSH[@]}" true 2>/dev/null && [ "$(tf health --json 2>/dev/null | jq -r .status)" = ok ]; then back=1; break; fi
+      sleep 10
+    done
+    if [ "$back" = 1 ]; then box+=("rebooted ($why) and healthy again"); else failed+=("box: not healthy 10 minutes after reboot"); fi
+  else
+    echo "no reboot needed"
+  fi
+
+  step "box: rebuild running apps"
+  # Static sites have no runtime to patch. One build at a time: the box is small.
+  for p in $(tf projects list --json | jq -r '.[].name'); do
+    for a in $(tf projects get "$p" --json | jq -r '
+        [.resources[] | select(.address|startswith("app/")) | select(.spec.framework != "static") | .address] as $apps
+        | .status | to_entries[] | select(.key as $k | $apps | index($k)) | select(.value.release == "live")
+        | .key | sub("app/";"")'); do
+      printf '%s/%s: ' "$p" "$a"
+      id=$(tf deploys redeploy "$p" "$a" --json 2>/dev/null | jq -r '.id // empty')
+      if [ -z "$id" ]; then echo "cannot rebuild (prebuilt image or no source kept)"; skipped+=("$p/$a (no source to rebuild: redeploy it from its source)"); continue; fi
+      for _ in $(seq 8); do # the API waits at most 300s per call: up to 40 minutes
+        st=$(tf deploys get "$p" "$a" "$id" --wait 300 --json 2>/dev/null | jq -r '.status // "unknown"')
+        case $st in queued | building | starting | restarting) ;; *) break ;; esac
+      done
+      echo "$st"
+      if [ "$st" = live ]; then box+=("rebuilt $p/$a"); else failed+=("box: rebuild of $p/$a ($id: $st; tiffin deploys build-log $p $a $id)"); fi
+    done
+  done
+
+  step "box: health"
+  tf doctor >/dev/null 2>&1 && echo ok || failed+=("box: tiffin doctor reports a problem")
+fi
+
 step "build caches"
 # Every check rebuilds everything: give the disk back (the next run fills them again).
 go clean -cache -testcache
@@ -94,7 +165,8 @@ bun pm cache rm >/dev/null 2>&1 || true
 step "summary"
 [ "$found" = 1 ] && echo "! known vulnerabilities reported above; fix them or wait for Renovate's pull request"
 for x in ${merged[@]+"${merged[@]}"}; do echo "merged   $x"; done
+for x in ${box[@]+"${box[@]}"}; do echo "box      $x"; done
 for x in ${failed[@]+"${failed[@]}"}; do echo "FAILED   $x"; done
 for x in ${skipped[@]+"${skipped[@]}"}; do echo "waiting  $x"; done
-[ ${#merged[@]} -eq 0 ] && [ ${#failed[@]} -eq 0 ] && echo "nothing to merge"
+[ ${#merged[@]} -eq 0 ] && [ ${#failed[@]} -eq 0 ] && [ ${#box[@]} -eq 0 ] && echo "nothing to merge"
 [ ${#failed[@]} -eq 0 ] && [ "$found" = 0 ]
