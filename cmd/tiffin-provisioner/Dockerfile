@@ -1,6 +1,6 @@
 # ShipTiffin's control plane worker (the `worker` app of the `provisioner` project).
 # Built by the box with the repository's top as the context.
-FROM golang:1.27.2-bookworm AS build
+FROM golang:1.27.3-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

@@ -64,6 +64,12 @@
       "allowedVersions": "<19"
     },
     {
+      "description": "App images stay on Node.js 24 (internal/mod/runtime/versions.go): patch and minor releases only.",
+      "matchFileNames": ["internal/mod/runtime/versions.go"],
+      "matchPackageNames": ["node"],
+      "allowedVersions": "<25"
+    },
+    {
       "description": "Better Auth packages move together: the auth engine and the vendored SDK must agree on one release.",
       "matchPackageNames": ["better-auth", "@better-auth/**"],
       "groupName": "better-auth",
@@ -94,6 +100,14 @@
       "depNameTemplate": "oven-sh/bun",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^bun-v(?<version>.+)$"
+    },
+    {
+      "description": "Node.js in app images, pinned in Go to the exact release so rebuilds pick up its security fixes. Stays on 24.x: a new major is a Tiffin release.",
+      "customType": "regex",
+      "managerFilePatterns": ["/internal/mod/runtime/versions\\.go$/"],
+      "matchStrings": ["NodeVersion\\s+= \"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version"
     }
   ]
 }

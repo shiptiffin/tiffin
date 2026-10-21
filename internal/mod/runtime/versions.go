@@ -10,11 +10,14 @@ package runtime
 //	Bun 1.4.2 (MIT) builds static sites; Railpack installs Bun inside app images.
 //	Node.js 24 is the major Railpack installs in app images. Railpack's own
 //	default is "lts", which moves to a new major without a Tiffin release.
+//	The exact release is pinned: the build cache keys on it, so a bare "24"
+//	keeps the first 24.x a box built with and rebuilds miss Node's security
+//	fixes. Renovate bumps it within 24.x.
 const (
 	NerdctlVersion  = "2.4.1"
 	RailpackVersion = "0.40.1"
 	BunVersion      = "1.4.2"
-	NodeVersion     = "24"
+	NodeVersion     = "24.22.1"
 )
 
 // nerdctlFullSHA256 is per GOARCH (nerdctl-full-<v>-linux-<arch>.tar.gz).
