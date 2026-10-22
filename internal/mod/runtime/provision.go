@@ -47,7 +47,10 @@ func (m *Module) Provision(ctx context.Context, s *platform.System) error {
 	if nerdctlFullSHA256[arch] == "" {
 		return fmt.Errorf("no pinned container runtime for %s", arch)
 	}
-	if err := s.Apt(ctx, "nftables", "git"); err != nil {
+	// pigz: containerd unpacks image layers with unpigz when it is on PATH
+	// (several cores; Go's gzip uses one), after every build and on a box
+	// import. Each layer is still checked against its diff ID.
+	if err := s.Apt(ctx, "nftables", "git", "pigz"); err != nil {
 		return err
 	}
 	for _, d := range []string{DataDir, LogDir, containerdDir, buildkitDir, nerdctlDir, "/etc/containerd", "/etc/buildkit", "/etc/nerdctl", "/usr/local/lib/tiffin"} {
