@@ -98,6 +98,8 @@ type Engine interface {
 	// (relative to its working directory) as `cp -a` copies them, or empty
 	// where the image has none, owned by user ("": root).
 	SeedDirs(ctx context.Context, image, user string, dirs []string, dest string) error
+	// ImageManifest is the rootfs manifest of an image (rootfs.go).
+	ImageManifest(ctx context.Context, ref string) ([]string, error)
 }
 
 // nerdctl drives containerd through the pinned nerdctl CLI.

@@ -398,6 +398,17 @@ func (e *fakeEngine) ImageConfig(ctx context.Context, ref string) (string, strin
 	return "/app", "", nil
 }
 
+// ImageManifest is the manifest of the source an image was built from.
+func (e *fakeEngine) ImageManifest(ctx context.Context, ref string) ([]string, error) {
+	e.mu.Lock()
+	tree := e.trees[dockerName(ref)]
+	e.mu.Unlock()
+	if tree == "" {
+		return nil, fmt.Errorf("ctr images mount: image %q: not found", ref)
+	}
+	return rootfsManifest(tree)
+}
+
 // SeedDirs copies directories of the source an image was built from.
 func (e *fakeEngine) SeedDirs(ctx context.Context, image, user string, dirs []string, dest string) error {
 	if err := e.CopyOut(ctx, image, dirs, dest); err != nil {
