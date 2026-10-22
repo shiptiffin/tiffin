@@ -455,6 +455,8 @@ type fakeBuilder struct {
 	warmBlock atomic.Bool
 	// failAll fails every build.
 	failAll atomic.Bool
+	// panicAll makes every build panic.
+	panicAll atomic.Bool
 	// prunes counts build cache prunes; pruneTo is the last one's cap.
 	prunes  atomic.Int32
 	pruneTo atomic.Int64
@@ -475,6 +477,9 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 	}
 	b.runEnvs[req.Deploy.ID] = req.RunEnv
 	b.mu.Unlock()
+	if b.panicAll.Load() {
+		panic("builder bug")
+	}
 	if b.failAll.Load() {
 		return BuildResult{}, &BuildError{Msg: "the build failed", Hint: "read the log"}
 	}
@@ -675,6 +680,9 @@ func newHarnessQuota(t *testing.T, q quotaFS) *harness {
 	pgb := &fakeBranches{made: map[string]postgres.PGBranch{}}
 	opt.Branches = pgb
 	opt.ReadAccess = fakeReadAccess{}
+	// A quiet data disk: the machine's own (past 85% on a full laptop)
+	// would put gc under disk pressure. Tests of pressure set their own.
+	opt.DiskUsedPercent = func() float64 { return 10 }
 	h := &harness{t: t, m: m, p: p, eng: eng, bld: bld, pgb: pgb, edge: fe}
 	opt.pipelineDone = func(id string) { close(h.doneCh(id)) }
 	ctx, cancel := context.WithCancel(context.Background())
