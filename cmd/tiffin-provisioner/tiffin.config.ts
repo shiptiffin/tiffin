@@ -17,6 +17,7 @@ import { defineConfig } from "@shiptiffin/sdk";
 // makes the key pairs. Apply with: tiffin apply (from cmd/tiffin-provisioner).
 export default defineConfig({
   project: "provisioner",
+  keepVersions: 2,
   apps: {
     worker: {
       role: "worker",

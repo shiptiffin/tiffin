@@ -27,6 +27,7 @@ import { defineConfig } from "@shiptiffin/sdk";
 // https://shiptiffin.com in email links.
 export default defineConfig({
   project: "website",
+  keepVersions: 2,
   apps: {
     web: {
       framework: "next",
