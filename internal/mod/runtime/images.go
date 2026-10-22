@@ -56,10 +56,10 @@ const (
 var projectName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 
 // managedImage reports whether the sweep may remove an image of this name:
-// a deploy's, or a digest name a load left. Base and cache images (Bun's,
-// anything pulled) are never touched.
+// a deploy's, a shared base (sharedbase.go), or a digest name a load left.
+// Pulled images (Bun's, Railpack's) are never touched.
 func managedImage(name string) bool {
-	return strings.HasPrefix(name, imageRepo) || isLoadDigestName(name)
+	return strings.HasPrefix(name, imageRepo) || strings.HasPrefix(name, baseRepo+":") || isLoadDigestName(name)
 }
 
 // SweptImage is one image the sweep removed (or, dry, would remove).
@@ -372,6 +372,15 @@ func (r *rt) neededImages(ctx context.Context, inv *inventory) map[string]string
 			need[imageKey(d.Image)] = why
 		}
 	}
+	// A shared base stays while a build the box keeps stacks on it: the
+	// next build then shares its layers too.
+	for _, ds := range inv.envs {
+		for _, d := range ds {
+			if d.Base != "" && d.Image != "" && need[imageKey(d.Image)] != "" {
+				need[imageKey(d.Base)] = "shared base of deploy " + d.ID
+			}
+		}
+	}
 	return need
 }
 
@@ -381,6 +390,9 @@ func (inv *inventory) why(key, name string) string {
 	if d == nil {
 		if isLoadDigestName(name) {
 			return "digest name a load left behind"
+		}
+		if strings.HasPrefix(name, baseRepo+":") {
+			return "shared base no kept build stacks on"
 		}
 		for _, p := range inv.gone {
 			if strings.HasPrefix(name, imageRepo+p+"-") {

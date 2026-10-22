@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -34,6 +36,9 @@ func rootfsManifest(root string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		if volatilePath(filepath.ToSlash(rel)) {
+			return nil
+		}
 		fi, err := os.Lstat(p)
 		if err != nil {
 			return err
@@ -47,6 +52,14 @@ func rootfsManifest(root string) ([]string, error) {
 	})
 	sort.Strings(lines)
 	return lines, err
+}
+
+// volatilePath reports whether a path holds what a package manager writes
+// about its own run (logs, ldconfig's cache of file times): today's builder
+// already writes new ones whenever its apt step runs again, and no app reads
+// them, so like times they are left out.
+func volatilePath(rel string) bool {
+	return strings.HasPrefix(rel, "var/log/") || rel == "var/cache/ldconfig/aux-cache"
 }
 
 // manifestLine is one path's line: path, type, mode, uid:gid, size,
@@ -124,6 +137,8 @@ func manifestDiff(a, b []string) (int, []string) {
 		switch {
 		case !ok:
 			diffs = append(diffs, p+": only in the new image")
+		case ra != rb && strings.HasPrefix(p, configPrefix):
+			diffs = append(diffs, p+": "+ra+" vs "+rb)
 		case ra != rb:
 			diffs = append(diffs, p+": "+fieldsDiffer(ra, rb))
 		}
@@ -209,5 +224,49 @@ func (n *nerdctl) ImageManifest(ctx context.Context, ref string) ([]string, erro
 		defer cancel()
 		_ = run(cctx, "images", "unmount", "--rm", dir)
 	}()
-	return rootfsManifest(dir)
+	lines, err := rootfsManifest(dir)
+	if err != nil {
+		return nil, err
+	}
+	out, err := n.run(ctx, "image", "inspect", "--format", "{{json .Config}}", dockerName(ref))
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := configLines(out)
+	return append(lines, cfg...), err
 }
+
+// configLines are the manifest lines of an image's config (what the
+// container runs with): #config/<field> and its value, env sorted.
+func configLines(raw string) ([]string, error) {
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, fmt.Errorf("image config: %w", err)
+	}
+	var lines []string
+	for k, v := range cfg {
+		if k == "Image" {
+			continue // nerdctl's own: the name inspected, not what runs
+		}
+		val := string(v)
+		if k == "Env" {
+			var env []string
+			if json.Unmarshal(v, &env) == nil {
+				env = slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, builtAtEnv+"=") })
+				sort.Strings(env)
+				b, _ := json.Marshal(env)
+				val = string(b)
+			}
+		}
+		lines = append(lines, configPrefix+k+"\t"+val)
+	}
+	sort.Strings(lines)
+	return lines, nil
+}
+
+// builtAtEnv is the build's time, which Railpack sets in every image's env:
+// like file times, it is left out.
+const builtAtEnv = "RAILPACK_BUILT_AT"
+
+// configPrefix starts the manifest lines of the image config.
+const configPrefix = "#config/"

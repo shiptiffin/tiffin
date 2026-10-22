@@ -263,7 +263,15 @@ func TestSweepImages(t *testing.T) {
 	h.eng.ctrs["leftover"] = &fakeCtr{spec: RunSpec{Name: "leftover", Image: inUse}}
 	h.eng.mu.Unlock()
 
-	want := []string{digestName, goneImg, orphan, stale}
+	// Shared bases: one the live build stacks on, one no build uses.
+	usedBase, oldBase := baseRepo+":1111111111111111", baseRepo+":2222222222222222"
+	h.eng.putImage(usedBase)
+	h.eng.putImage(oldBase)
+	d3, _ := h.r.st.getDeploy(ctx, "shop", "api", ds[3].ID)
+	d3.Base = usedBase
+	_ = h.r.st.putDeploy(ctx, d3)
+
+	want := []string{digestName, goneImg, oldBase, orphan, stale}
 	sort.Strings(want)
 	names := func(res *SweepResult) []string {
 		var out []string
@@ -288,6 +296,9 @@ func TestSweepImages(t *testing.T) {
 		t.Fatal("a dry run changed something")
 	}
 	for _, s := range dry.Removed {
+		if s.Name == oldBase && s.Why != "shared base no kept build stacks on" {
+			t.Errorf("why %s: %s", s.Name, s.Why)
+		}
 		if s.Name == goneImg && !strings.Contains(s.Why, "project gone was destroyed") {
 			t.Errorf("why %s: %s", s.Name, s.Why)
 		}
@@ -311,7 +322,7 @@ func TestSweepImages(t *testing.T) {
 			t.Errorf("%s survived", n)
 		}
 	}
-	for _, n := range []string{base, fresh, inUse, h.image("api", ds[3].ID), h.image("api", ds[2].ID), h.image("api", ds[1].ID)} {
+	for _, n := range []string{base, usedBase, fresh, inUse, h.image("api", ds[3].ID), h.image("api", ds[2].ID), h.image("api", ds[1].ID)} {
 		if n == "" || !h.eng.hasImage(n) {
 			t.Errorf("%q was removed", n)
 		}

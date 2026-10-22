@@ -314,6 +314,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	d.BuiltAt = &now
 	d.BuildSecs = round1(time.Since(began).Seconds())
 	d.Image, d.Digest, d.StaticRoot, d.Start, d.SPAPage = res.Image, res.Digest, res.StaticRoot, res.Start, res.SPAPage
+	d.Base = res.Base
 	if d.StaticRoot != "" {
 		r.keepHashed(d, log)
 	}

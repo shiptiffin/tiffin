@@ -87,6 +87,9 @@ func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''
 // BuildResult is what a build produced: an image for container apps or a
 // directory of files for static sites.
 type BuildResult struct {
+	// Base is the shared base image the app's image stacks on (sharedbase.go);
+	// "" for an image built without one.
+	Base       string
 	Image      string
 	Digest     string
 	StaticRoot string
@@ -119,6 +122,7 @@ type boxBuilder struct {
 	memoryMB  int    // cap for static build containers
 	cgroupDir string // the build cgroup ("" → /sys/fs/cgroup/tiffin-build)
 	binDir    string // where railpack, buildctl and nerdctl are ("" → /usr/local/bin)
+	gateDir   string // the shared-base gate's verdicts ("": none kept)
 	// nodeReleases resolves an app's own Node.js range to the newest
 	// matching release (nil: the build resolves it, from a list it caches).
 	nodeReleases *releaseList
@@ -455,21 +459,24 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 	// never land in image layers); their values travel in buildctl's env
 	// under names of the box's own. Railpack prefixes each cache mount with
 	// cache-key: the app's own namespace.
-	bargs := []string{"build",
-		"--progress", "plain",
-		"--local", "context=" + req.SrcDir,
-		"--local", "dockerfile=" + planDir,
-		"--frontend", "gateway.v0",
-		"--opt", "source=" + RailpackFrontend,
-		"--opt", "build-arg:cache-key=" + cacheNamespace(d.Project, d.App),
-		"--opt", "build-arg:secrets-hash=" + envHash(env, keys),
-		"--output", output}
 	sargs, senv := secretArgs(keys, env)
-	bargs = append(bargs, sargs...)
-	out := &buildOutput{}
-	err = runLoggedEnv(ctx, io.MultiWriter(req.Log, out), req.SrcDir, senv, b.tool("buildctl"), bargs...)
-	first, oom, dg := out.result()
-	if err != nil {
+	solve := func(planDir, output string, log io.Writer) (first string, oom bool, dg string, err error) {
+		bargs := []string{"build",
+			"--progress", "plain",
+			"--local", "context=" + req.SrcDir,
+			"--local", "dockerfile=" + planDir,
+			"--frontend", "gateway.v0",
+			"--opt", "source=" + RailpackFrontend,
+			"--opt", "build-arg:cache-key=" + cacheNamespace(d.Project, d.App),
+			"--opt", "build-arg:secrets-hash=" + envHash(env, keys),
+			"--output", output}
+		bargs = append(bargs, sargs...)
+		out := &buildOutput{}
+		err = runLoggedEnv(ctx, io.MultiWriter(log, out), req.SrcDir, senv, b.tool("buildctl"), bargs...)
+		first, oom, dg = out.result()
+		return first, oom, dg, err
+	}
+	buildErr := func(first string, oom bool, err error) error {
 		hint := "Read the build log (deploys build-log): the first error is usually the cause."
 		msg := "the build failed: " + err.Error()
 		if first != "" {
@@ -481,15 +488,30 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		} else {
 			hint += onNodeHint(req.Spec)
 		}
-		return BuildResult{}, &BuildError{Msg: msg, Hint: hint}
+		return &BuildError{Msg: msg, Hint: hint}
 	}
 	if files != nil {
+		if first, oom, _, err := solve(planDir, output, req.Log); err != nil {
+			return BuildResult{}, buildErr(first, oom, err)
+		}
 		return BuildResult{}, nil
 	}
-	if dg == "" {
-		dg, _ = b.eng.ImageDigest(ctx, ref)
+	legacy := func() (BuildResult, error) {
+		first, oom, dg, err := solve(planDir, output, req.Log)
+		if err != nil {
+			return BuildResult{}, buildErr(first, oom, err)
+		}
+		if dg == "" {
+			dg, _ = b.eng.ImageDigest(ctx, ref)
+		}
+		return BuildResult{Image: ref, Digest: dg}, nil
 	}
-	return BuildResult{Image: ref, Digest: dg}, nil
+	var oom bool // of the last build on the shared base
+	return b.onSharedBase(ctx, req, planPath, ref, legacy, func(planDir, name string, log io.Writer) (string, string, error) {
+		first, o, dg, err := solve(planDir, "type=image,name="+name+",unpack=true", log)
+		oom = o
+		return dg, first, err
+	}, func(first string, err error) error { return buildErr(first, oom, err) })
 }
 
 // buildStatic serves the files as they are, or runs `bun run build` first

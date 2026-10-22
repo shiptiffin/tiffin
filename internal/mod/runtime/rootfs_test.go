@@ -13,7 +13,7 @@ import (
 
 func TestRootfsManifest(t *testing.T) {
 	root := t.TempDir()
-	writeFiles(t, root, map[string]string{"app/server.js": "listen()", "app/node_modules/a/index.js": "a"})
+	writeFiles(t, root, map[string]string{"app/server.js": "listen()", "app/node_modules/a/index.js": "a", "var/log/apt/history.log": "x", "var/cache/ldconfig/aux-cache": "x"})
 	if err := os.Symlink("a", filepath.Join(root, "app/node_modules/b")); err != nil {
 		t.Fatal(err)
 	}
@@ -25,6 +25,9 @@ func TestRootfsManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Join(m, "\n")
+	if strings.Contains(got, "var/log/apt") || strings.Contains(got, "aux-cache") {
+		t.Errorf("package manager logs are in the manifest:\n%s", got)
+	}
 	for _, want := range []string{
 		"app/server.js\tf\t755\t",
 		"\t8\t" + sha256Hex("listen()") + "\t",

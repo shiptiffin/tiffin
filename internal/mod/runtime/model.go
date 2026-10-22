@@ -54,6 +54,7 @@ type Deploy struct {
 	Template    string `json:"template,omitempty" doc:"Starter template, for template deploys"`
 	Image       string `json:"image,omitempty" doc:"Image reference in the box's containerd store"`
 	Digest      string `json:"digest,omitempty" doc:"Image manifest digest"`
+	Base        string `json:"base,omitempty" doc:"The shared base image (runtime and toolchain) the image stacks on, which the app's other builds and other apps on the same toolchain share; empty for an image built without one"`
 	URL         string `json:"url,omitempty" doc:"The deploy's own address (web apps): d-<short id>--<app address> for a production deploy, which serves that version for as long as it is kept (an old version wakes on its first request and reads the database read-only); a preview's address for a preview deploy. Absent once the version was cleaned up."`
 	// AppURL is the app's own address (where the live deploy serves).
 	AppURL string `json:"appUrl,omitempty" doc:"The app's address, where whichever deploy is live serves: its own domain once that is live (tiffin domains add), else its first address on the box; a preview's address for a preview. Open this for the live site; url opens this exact version."`
