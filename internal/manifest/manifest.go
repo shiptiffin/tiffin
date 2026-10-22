@@ -22,7 +22,7 @@ const (
 
 // How many earlier production builds each app keeps (Manifest.KeepVersions).
 const (
-	DefaultKeepVersions = 5
+	DefaultKeepVersions = 3
 	MaxKeepVersions     = 20
 )
 
@@ -51,7 +51,7 @@ type Manifest struct {
 	// KeepVersions is how many earlier production builds each app keeps to
 	// roll back to, each at its own deploy address: 0 to 20 (0 keeps only
 	// the live one). Absent means DefaultKeepVersions. Past the disk
-	// guard's warning level at most 3 are kept.
+	// guard's warning level at most 1 is kept.
 	KeepVersions *int `json:"keepVersions,omitempty"`
 	// Apps keyed by name (same slug rules as Project).
 	Apps map[string]App `json:"apps,omitempty"`

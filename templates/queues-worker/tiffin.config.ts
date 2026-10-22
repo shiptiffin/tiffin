@@ -2,6 +2,7 @@ import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "jobs",
+  sleepAfter: "24h", // unused for a day: its apps stop, and the next request wakes them
   apps: {
     // A worker has no public routes: the box pushes jobs, cron ticks and
     // workflow turns to it over the box's internal network.

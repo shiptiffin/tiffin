@@ -34,7 +34,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
    apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch
    then deploys and pull requests get previews. Not connected? Ask the human to click Connect
-   GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 5 production
+   GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 3 production
    deploys (`keepVersions`: 0 to 20), each also open at its own address (the deploy's `url`,
    read-only data, for people signed in to the box; `appUrl` is the live app; `tiffin deploys
    link <url>` gives a browser a one-use way in); a preview keeps only its latest build and is
@@ -65,8 +65,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    86400) for longer renders, or use a queue job. Bodies have no size limit (GB uploads work), but a
    Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its `export default { ... }` (Bun
    cuts a silent request after 10 s and refuses bodies over 128 MB); user files still belong in a
-   bucket. Production never sleeps unless the project sets `sleepAfter: "7d"` ("1h" to "30d"): then
-   apps unused that long stop, and the next request or job wakes them in a few seconds (timers
+   bucket. Production never sleeps unless the project sets `sleepAfter` ("1h" to "30d"; `tiffin init`
+   and the example templates write `"24h"`; delete the line to keep an app always on): apps unused that
+   long stop, and the next request or job wakes them in a few seconds (timers
    inside the app stop meanwhile; recurring work belongs in a cron). `tiffin projects wake <project>`
    starts them ahead of visitors.
    Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`

@@ -101,9 +101,9 @@ func TestKeepVersionsIsAProjectSetting(t *testing.T) {
 		from, to *int
 		reason   string
 	}{
-		{nil, &zero, "keeps 0 earlier versions of each app instead of 5"},
+		{nil, &zero, "keeps 0 earlier versions of each app instead of 3"},
 		{&zero, &ten, "changes the project's settings"},
-		{&ten, nil, "keeps 5 earlier versions of each app instead of 10"},
+		{&ten, nil, "keeps 3 earlier versions of each app instead of 10"},
 	} {
 		ops := Diff(spec(c.from), spec(c.to))
 		if len(ops) != 1 || ops[0].Address != KindProject || ops[0].Action != Update {

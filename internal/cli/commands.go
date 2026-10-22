@@ -276,6 +276,7 @@ const configTemplate = `import { defineConfig } from "@shiptiffin/sdk";
 // Your app in a box. Run "tiffin plan" to see what this would set up.
 export default defineConfig({
   project: %q,
+  sleepAfter: "24h", // unused for a day: its apps stop, and the next request wakes them
   apps: {
     web: { framework: "next" },
   },

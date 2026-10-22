@@ -79,7 +79,7 @@ export function ProjectSettingsPage({ project }: { project: string }) {
               )}
 
               {apps.length > 0 && (
-                <Section title="Earlier versions kept" note="Each app keeps this many earlier versions, built and ready to roll back to or open. Each one takes disk space; past 85% full the box keeps at most 3.">
+                <Section title="Earlier versions kept" note="Each app keeps this many earlier versions, built and ready to roll back to or open. Each one takes disk space; past 85% full the box keeps at most 1.">
                   <KeepVersions project={project} live={man?.keepVersions} staged={pendingSet(["keepVersions"])} />
                 </Section>
               )}
@@ -181,9 +181,11 @@ function ProjectKeys({ project }: { project: string }) {
 
 const SLEEP: Array<{ value?: string; title: string }> = [
   { title: "Never" },
+  { value: "1h", title: "After 1 hour" },
   { value: "24h", title: "After 24 hours" },
+  { value: "3d", title: "After 3 days" },
   { value: "7d", title: "After 7 days" },
-  { value: "14d", title: "After 14 days" },
+  { value: "30d", title: "After 30 days" },
 ];
 
 /** "24h", "1d" → 24; absent → 0. */

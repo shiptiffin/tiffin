@@ -64,7 +64,7 @@ const (
 	keepVersions = manifest.DefaultKeepVersions
 	// pressureKeep is what gc keeps instead while the data disk is past the
 	// disk guard's warning level.
-	pressureKeep = 3
+	pressureKeep = 1
 	// versionIdle: an old version sleeps after this long without requests.
 	versionIdle = 5 * time.Minute
 	// maxAwakeVersions is how many of a project's old versions run at once.

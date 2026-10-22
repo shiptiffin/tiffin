@@ -200,7 +200,8 @@ pre-release) needs a pin.
 ## Sleep and wake
 
 Production apps sleep only when the project sets `sleepAfter`; previews sleep after 15
-idle minutes. A sleeping app's containers are stopped, not removed: its memory and CPU
+idle minutes. `tiffin init` and the example templates write `sleepAfter: "24h"`: delete that line
+to keep a project always on. A sleeping app's containers are stopped, not removed: its memory and CPU
 are freed, and the next request starts the same container again. Measured on the live
 box (2 vCPU x86, Hetzner cx23), the median of 5 wakes, from the request arriving to its
 first byte (runs vary by about 0.1 s):
@@ -465,7 +466,7 @@ The box adds nothing for LLMs:
 | `sendTx` outbox rows | payload 1 MB, options 16 KB; a larger row goes to the dead-letter queue without its payload | |
 | Live progress streams | 200 open per project | |
 | Email | 300 messages an hour | `tiffin email rate-limit set` |
-| Rollbacks and version addresses | the last 5 production deploys, 0 to 20 per project (at most 3 while the data disk is past the disk guard's warning level); previews keep none | `keepVersions` in `tiffin.config.ts`, or Settings › General |
+| Rollbacks and version addresses | the last 3 production deploys, 0 to 20 per project (at most 1 while the data disk is past the disk guard's warning level); previews keep none | `keepVersions` in `tiffin.config.ts`, or Settings › General |
 | Earlier versions awake at their own addresses | 2 per project; each sleeps after 5 idle minutes | |
 | Previews | deleted after 7 days with no request or deploy | |
 | Build cache | 15% of the data disk (4 to 20 GiB), less while under 15% of the disk is free; no BuildKit build history is kept | |

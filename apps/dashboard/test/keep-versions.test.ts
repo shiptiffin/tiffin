@@ -10,11 +10,11 @@ describe("earlier versions kept", () => {
     const e = keepEdit("shop", undefined, 0);
     expect(applyEdits(base, [e]).keepVersions).toBe(0);
     expect(e.what).toBe("Keep only the live version of shop’s apps");
-    expect(e.undo).toBe("shop’s apps keep the last 5 versions again");
+    expect(e.undo).toBe("shop’s apps keep the last 3 versions again");
   });
-  test("another number is stored; the default 5 removes the field", () => {
+  test("another number is stored; the default 3 removes the field", () => {
     expect(applyEdits(base, [keepEdit("shop", undefined, 10)]).keepVersions).toBe(10);
-    const back = applyEdits({ ...base, keepVersions: 10 }, [keepEdit("shop", 10, 5)]);
+    const back = applyEdits({ ...base, keepVersions: 10 }, [keepEdit("shop", 10, 3)]);
     expect("keepVersions" in back).toBe(false);
   });
 });

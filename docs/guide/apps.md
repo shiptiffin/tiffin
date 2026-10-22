@@ -84,7 +84,7 @@ The box builds with Railpack and BuildKit, starts the new instances, waits for t
 health check, switches traffic with no dropped requests, then drains the old ones. A
 failed build or health check leaves the old version serving.
 
-- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 5 production deploys
+- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 3 production deploys
   before the live one (up to 20 with `keepVersions`), each of which you can also open at
   its own address first (see [Every version's own address](#every-versions-own-address)).
   Older builds are cleaned up; their records stay listed.
@@ -189,16 +189,18 @@ own address. Workers have none.
   cleaned up answers with a short page that links to the live site, as long as the box
   keeps its record (the last 50 per app); the record says `"retention": "cleaned"`.
 - **What each one costs.** A kept version holds its image's own layers (once compressed,
-  once unpacked) and its source archive; layers it shares with other versions (the base
-  image, and the dependencies while the lockfile stays the same) are stored once.
+  once unpacked) and its source archive; layers it shares with other versions (the shared
+  base of the runtime and toolchain, which every app on the same toolchain stacks on and the
+  box builds afresh each week, and the dependencies while the lockfile stays the same) are
+  stored once.
   Measured for the Next.js starter (`next build`, without `.next/cache`, which stays in the
   build cache): about 6 MB of build output, 1.5 MB compressed, and a 10 KB source archive,
-  so about 8 MB a version: 40 MB for the default 5, 160 MB for 20. A version that
+  so about 8 MB a version: 24 MB for the default 3, 160 MB for 20. A version that
   changed dependencies also carries its own `node_modules` layer: about 320 MB unpacked
   and 82 MB compressed for that starter (10 MB unpacked for the Hono starter). An earlier
   version that was woken adds its container's writable layer and its own disk folders
   until it is cleaned up. These are estimates from a build of the starters, not a box's
-  image store; past the disk guard's warning level the window shrinks to 3 by itself.
+  image store; past the disk guard's warning level the window shrinks to 1 by itself.
 - **Certificates.** On a box with a wildcard certificate (a connected DNS provider; the
   hosted apps domain has one), the addresses are covered already. Without one, each
   address gets its own certificate on its first visit, as previews' do.

@@ -328,7 +328,7 @@ func (g *guard) round(ctx context.Context) error {
 	if trim {
 		// Past the warning level apps keep fewer earlier versions (at most
 		// the runtime's pressureKeep, instead of their project's
-		// keepVersions, 5 by default): their images go now.
+		// keepVersions, 3 by default): their images go now.
 		go trimVersions(context.WithoutCancel(ctx))
 	}
 	return firstErr

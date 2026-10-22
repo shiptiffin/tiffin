@@ -3,9 +3,9 @@ import { Working, type SetEdit } from "@/components/project-rows";
 import { change } from "@/lib/staged";
 
 /** What a project keeps when its config doesn't say (keepVersions absent). */
-export const DEFAULT_KEEP = 5;
+export const DEFAULT_KEEP = 3;
 
-const CHOICES = [0, 3, 5, 10, 20];
+const CHOICES = [0, 2, 3, 5, 10, 20];
 
 const note = (n: number) => (n === 0 ? "Only the live one" : `Roll back to the last ${n}${n === DEFAULT_KEEP ? " (default)" : ""}`);
 
@@ -24,7 +24,7 @@ export function keepEdit(project: string, live: number | undefined, n: number): 
 
 /**
  * How many earlier versions each app keeps to roll back to or open at their own
- * address: keepVersions in its config, 0 to 20, 5 unless it says.
+ * address: keepVersions in its config, 0 to 20, 3 unless it says.
  */
 export function KeepVersions({ project, live, staged }: { project: string; live?: number; staged?: SetEdit }) {
   const value = (staged ? (staged.to as number | undefined) : live) ?? DEFAULT_KEEP;

@@ -245,11 +245,11 @@ func TestOldVersionsAwakeCap(t *testing.T) {
 	}
 }
 
-// Production keeps a sliding window of KeepImages earlier builds (5 on a
+// Production keeps a sliding window of KeepImages earlier builds (3 on a
 // box), fewer (pressureKeep) once the data disk is past the disk guard's
 // warning level; the disk guard trims at once.
 func TestRetentionWindowAndDiskPressure(t *testing.T) {
-	if o := defaultOptions(); o.KeepImages != 5 || o.VersionIdle != 5*time.Minute {
+	if o := defaultOptions(); o.KeepImages != 3 || o.VersionIdle != 5*time.Minute {
 		t.Fatalf("defaults: keep %d, idle %s", o.KeepImages, o.VersionIdle)
 	}
 	h := newHarness(t)
@@ -276,8 +276,8 @@ func TestRetentionWindowAndDiskPressure(t *testing.T) {
 	}
 	used = 90 // past the default warning level (85)
 	h.m.TrimVersions(ctx)
-	if got := retention(); got != "ccckkkk" || h.imageCount() != 4 {
-		t.Fatalf("under pressure, 3 + live: %s, %d images", got, h.imageCount())
+	if got := retention(); got != "ccccckk" || h.imageCount() != 2 {
+		t.Fatalf("under pressure, 1 + live: %s, %d images", got, h.imageCount())
 	}
 	if _, err := h.r.rollback(ctx, "shop", "api", ds[2].ID); err == nil {
 		t.Fatal("rolled back to a trimmed version")

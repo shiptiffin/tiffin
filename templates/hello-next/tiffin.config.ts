@@ -2,6 +2,7 @@ import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "hello-next",
+  sleepAfter: "24h", // unused for a day: its apps stop, and the next request wakes them
   apps: {
     // Two instances share one cache in Valkey: revalidating on one
     // refreshes both.
