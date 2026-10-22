@@ -201,6 +201,9 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{}, leftover: map[string]bool{},
 		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
+	if bb, ok := opt.Builder.(*boxBuilder); ok && bb.diskPressure == nil {
+		bb.diskPressure = r.diskPressure
+	}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err

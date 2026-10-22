@@ -79,7 +79,7 @@ func TestSplitBase(t *testing.T) {
 
 	// The same plan, the same keys; another toolchain, another base; a
 	// change above the base, the same base and another verdict.
-	if again := splitBase(parsePlan(t, railpackPlan), t.TempDir()); again.key != s.key || again.verdictKey != s.verdictKey {
+	if again := splitBase(parsePlan(t, railpackPlan), t.TempDir()); again.key != s.key || again.verdictKey("sha256:b") != s.verdictKey("sha256:b") {
 		t.Error("keys are not stable")
 	}
 	node := splitBase(parsePlan(t, strings.Replace(railpackPlan, `bun = \"1.4.2\"`, `node = \"24.22.1\"`, 1)), "")
@@ -87,7 +87,7 @@ func TestSplitBase(t *testing.T) {
 		t.Error("another toolchain, the same base")
 	}
 	env := splitBase(parsePlan(t, strings.Replace(railpackPlan, `"NODE_ENV": "production"`, `"NODE_ENV": "staging"`, 1)), "")
-	if env.key != s.key || env.verdictKey == s.verdictKey {
+	if env.key != s.key || env.verdictKey("sha256:b") == s.verdictKey("sha256:b") {
 		t.Error("a change in the deploy stage: the base changed or the verdict did not")
 	}
 	// A step under the base that reads the source: nothing to share.
@@ -129,6 +129,21 @@ type gateEngine struct {
 	*fakeEngine
 	tags   [][2]string
 	remove []string
+	// The base in the store: its name, when it was stored, its digest.
+	baseName    string
+	baseCreated time.Time
+	baseDigest  string
+	panicImages bool
+}
+
+func (e *gateEngine) Images(ctx context.Context) ([]Image, error) {
+	if e.panicImages {
+		panic("images")
+	}
+	if e.baseName == "" {
+		return nil, nil
+	}
+	return []Image{{Name: e.baseName, Created: e.baseCreated, Digest: e.baseDigest}}, nil
 }
 
 func (e *gateEngine) TagImage(ctx context.Context, src, ref string) error {
@@ -143,7 +158,7 @@ func (e *gateEngine) RemoveImage(ctx context.Context, ref string) error {
 
 func (e *gateEngine) ImageDigest(ctx context.Context, ref string) (string, error) {
 	if strings.HasPrefix(ref, baseRepo) {
-		return "sha256:" + strings.Repeat("b", 64), nil // the base is in the store
+		return e.baseDigest, nil
 	}
 	return "sha256:" + strings.Repeat("d", 64), nil
 }
@@ -159,6 +174,8 @@ func TestOnSharedBase(t *testing.T) {
 	writeFiles(t, otherTree, map[string]string{"app/index.js": "2"})
 	const ref = "docker.io/tiffin/shop-web:dep_1"
 
+	bin, calls := fakeTools(t)
+	baseName := splitBase(parsePlan(t, railpackPlan), "").ref()
 	run := func(b *boxBuilder, eng *gateEngine, candTree string, candErr error) (BuildResult, string, int, int) {
 		legacyRuns, candRuns := 0, 0
 		var log bytes.Buffer
@@ -172,6 +189,9 @@ func TestOnSharedBase(t *testing.T) {
 			func(dir, name string, _ io.Writer) (string, string, error) {
 				candRuns++
 				if candErr != nil {
+					if candErr.Error() == "panic" {
+						panic("candidate")
+					}
 					return "", candErr.Error(), candErr
 				}
 				if _, err := os.Stat(filepath.Join(dir, "railpack-plan.json")); err != nil {
@@ -186,14 +206,14 @@ func TestOnSharedBase(t *testing.T) {
 		return res, log.String(), legacyRuns, candRuns
 	}
 	newEngine := func() *gateEngine {
-		e := &gateEngine{fakeEngine: newFakeEngine()}
+		e := &gateEngine{fakeEngine: newFakeEngine(), baseName: baseName, baseCreated: time.Now(), baseDigest: "sha256:" + strings.Repeat("b", 64)}
 		e.trees = map[string]string{}
 		return e
 	}
 
 	// First build: both ways, the same files: the image on the base ships
 	// under the deploy's name, and the verdict is kept.
-	b := &boxBuilder{gateDir: t.TempDir()}
+	b := &boxBuilder{gateDir: t.TempDir(), binDir: bin}
 	eng := newEngine()
 	b.eng = eng
 	res, log, l, c := run(b, eng, sameTree, nil)
@@ -219,7 +239,7 @@ func TestOnSharedBase(t *testing.T) {
 
 	// Different files: today's image ships, and keeps shipping without
 	// another check.
-	b2 := &boxBuilder{gateDir: t.TempDir()}
+	b2 := &boxBuilder{gateDir: t.TempDir(), binDir: bin}
 	eng2 := newEngine()
 	b2.eng = eng2
 	res, log, l, c = run(b2, eng2, otherTree, nil)
@@ -235,8 +255,94 @@ func TestOnSharedBase(t *testing.T) {
 	}
 	// A week later it is compared again.
 	s := splitBase(parsePlan(t, railpackPlan), "")
-	b2.keepVerdict(s.verdictKey, gateVerdict{Why: "x", At: time.Now().Add(-recheckAfter - time.Hour)})
-	if _, _, _, c = run(b2, eng2, sameTree, nil); c != 1 {
-		t.Errorf("an old mismatch was not checked again")
+	b2.keepVerdict(s.verdictKey(eng2.baseDigest), gateVerdict{Why: "x", At: time.Now().Add(-recheckAfter - time.Hour)})
+	if _, _, l, c = run(b2, eng2, sameTree, nil); c != 1 || l != 1 {
+		t.Errorf("an old mismatch was not checked again: legacy %d candidate %d", l, c)
+	}
+	// So is a match.
+	b2.keepVerdict(s.verdictKey(eng2.baseDigest), gateVerdict{Same: true, At: time.Now().Add(-recheckAfter - time.Hour)})
+	if _, _, l, c = run(b2, eng2, sameTree, nil); l != 1 || c != 1 {
+		t.Errorf("an old match was not checked again: legacy %d candidate %d", l, c)
+	}
+
+	// A base past baseMaxAge is built again (its apt step afresh, under a
+	// new cache key), and the new base is checked before it ships.
+	eng.baseCreated = time.Now().Add(-baseMaxAge - time.Hour)
+	_ = os.Truncate(calls, 0)
+	res, log, l, c = run(b, eng, sameTree, nil)
+	if !strings.Contains(readCalls(t, calls), "build-arg:cache-key=tiffin-base-"+time.Now().UTC().Format("20060102")) {
+		t.Errorf("the old base was not built again: %s", readCalls(t, calls))
+	}
+	if res.Base == "" || l != 1 || c != 1 || !strings.Contains(log, "checking the image") {
+		t.Errorf("after a base rebuild: %+v legacy %d candidate %d\n%s", res, l, c, log)
+	}
+
+	// Past the disk guard's warning level: today's image, no second one,
+	// no verdict.
+	b3 := &boxBuilder{gateDir: t.TempDir(), binDir: bin, diskPressure: func() bool { return true }}
+	eng3 := newEngine()
+	b3.eng = eng3
+	res, log, l, c = run(b3, eng3, sameTree, nil)
+	if res.Base != "" || l != 1 || c != 0 || !strings.Contains(log, "disk guard") {
+		t.Errorf("under disk pressure: %+v legacy %d candidate %d\n%s", res, l, c, log)
+	}
+	if b3.verdict(s.verdictKey(eng3.baseDigest)) != nil {
+		t.Error("a verdict without a check")
+	}
+
+	// A fault in the shared-base path ships today's image: the one built
+	// already, else a build of it.
+	b4 := &boxBuilder{gateDir: t.TempDir(), binDir: bin}
+	eng4 := newEngine()
+	b4.eng = eng4
+	res, log, l, _ = run(b4, eng4, sameTree, errors.New("panic"))
+	if res.Digest != "sha256:legacy" || l != 1 || !strings.Contains(log, "the shared-base path failed") {
+		t.Errorf("a panic after today's build: %+v legacy %d\n%s", res, l, log)
+	}
+	eng4.panicImages = true
+	res, _, l, _ = run(b4, eng4, sameTree, nil)
+	if res.Digest != "sha256:legacy" || l != 1 {
+		t.Errorf("a panic before today's build: %+v legacy %d", res, l)
+	}
+}
+
+// A plan of the wrong shape is not shared, and never panics.
+func TestSplitBaseOddPlans(t *testing.T) {
+	for _, raw := range []string{
+		`{}`, `{"deploy": 1}`, `{"deploy": {"base": {"step": 5}}}`,
+		`{"deploy": {"base": {"step": "a"}, "inputs": [{"step": "a"}]}, "steps": [{"name": 5}, {"name": "a", "inputs": [{"image": "x"}]}]}`,
+		`{"deploy": {"base": {"step": "a"}, "inputs": [1, {"step": 2}]}, "steps": [{"name": "a", "inputs": [{"image": "x"}], "commands": [5, {"src": 3}]}]}`,
+	} {
+		func() {
+			defer func() {
+				if p := recover(); p != nil {
+					t.Errorf("%s: panic %v", raw, p)
+				}
+			}()
+			_ = splitBase(parsePlan(t, raw), "")
+		}()
+	}
+}
+
+// The base and the app's image build with the same buildctl flags.
+func TestRailpackArgs(t *testing.T) {
+	b := &boxBuilder{binDir: "/x"}
+	got := strings.Join(b.railpackArgs("/src", "/plan", "ns", "type=image,name=n"), " ")
+	if got != "build --progress plain --local context=/src --local dockerfile=/plan --frontend gateway.v0 --opt source="+RailpackFrontend+" --opt build-arg:cache-key=ns --output type=image,name=n" {
+		t.Errorf("args: %s", got)
+	}
+}
+
+// A panic in a deploy's pipeline fails that deploy; the box carries on.
+func TestDeployPanicFailsTheDeploy(t *testing.T) {
+	h := newHarness(t)
+	h.bld.panicAll.Store(true)
+	d := h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	if d.Status != StatusFailed || !strings.Contains(d.Error, "internal error in the box (builder bug)") {
+		t.Fatalf("deploy after a panic: %s %q", d.Status, d.Error)
+	}
+	h.bld.panicAll.Store(false)
+	if d := h.deploy("api", "", map[string]string{"index.ts": "v2"}); d.Status != StatusLive {
+		t.Fatalf("the next deploy: %s %q", d.Status, d.Error)
 	}
 }

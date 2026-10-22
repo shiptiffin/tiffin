@@ -123,6 +123,9 @@ type boxBuilder struct {
 	cgroupDir string // the build cgroup ("" → /sys/fs/cgroup/tiffin-build)
 	binDir    string // where railpack, buildctl and nerdctl are ("" → /usr/local/bin)
 	gateDir   string // the shared-base gate's verdicts ("": none kept)
+	// diskPressure reports whether the data disk is past the disk guard's
+	// warning level: the gate then builds no second image (nil: never).
+	diskPressure func() bool
 	// nodeReleases resolves an app's own Node.js range to the newest
 	// matching release (nil: the build resolves it, from a list it caches).
 	nodeReleases *releaseList
@@ -461,15 +464,8 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 	// cache-key: the app's own namespace.
 	sargs, senv := secretArgs(keys, env)
 	solve := func(planDir, output string, log io.Writer) (first string, oom bool, dg string, err error) {
-		bargs := []string{"build",
-			"--progress", "plain",
-			"--local", "context=" + req.SrcDir,
-			"--local", "dockerfile=" + planDir,
-			"--frontend", "gateway.v0",
-			"--opt", "source=" + RailpackFrontend,
-			"--opt", "build-arg:cache-key=" + cacheNamespace(d.Project, d.App),
-			"--opt", "build-arg:secrets-hash=" + envHash(env, keys),
-			"--output", output}
+		bargs := append(b.railpackArgs(req.SrcDir, planDir, cacheNamespace(d.Project, d.App), output),
+			"--opt", "build-arg:secrets-hash="+envHash(env, keys))
 		bargs = append(bargs, sargs...)
 		out := &buildOutput{}
 		err = runLoggedEnv(ctx, io.MultiWriter(log, out), req.SrcDir, senv, b.tool("buildctl"), bargs...)
@@ -512,6 +508,21 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		oom = o
 		return dg, first, err
 	}, func(first string, err error) error { return buildErr(first, oom, err) })
+}
+
+// railpackArgs are buildctl's arguments for a Railpack build of the plan in
+// planDir, from the source in contextDir, into output: the same for an
+// app's image and for the shared base it stacks on (sharedbase.go).
+// cacheKey prefixes the names of the plan's cache mounts.
+func (b *boxBuilder) railpackArgs(contextDir, planDir, cacheKey, output string) []string {
+	return []string{"build",
+		"--progress", "plain",
+		"--local", "context=" + contextDir,
+		"--local", "dockerfile=" + planDir,
+		"--frontend", "gateway.v0",
+		"--opt", "source=" + RailpackFrontend,
+		"--opt", "build-arg:cache-key=" + cacheKey,
+		"--output", output}
 }
 
 // buildStatic serves the files as they are, or runs `bun run build` first

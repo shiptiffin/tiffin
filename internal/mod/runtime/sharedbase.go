@@ -50,8 +50,6 @@ type sharedBase struct {
 	// app is the app's plan, its base and the inputs the base carries
 	// taken out; withBase sets the base image in it.
 	app map[string]any
-	// verdictKey: the base and the rest of the deploy stage.
-	verdictKey string
 	// files the base's steps copy from the app's source (in srcDir).
 	srcDir string
 	files  []string
@@ -164,11 +162,14 @@ func splitBase(plan map[string]any, srcDir string) *sharedBase {
 		mark(baseStep)
 	}
 	for _, in := range inputs[:n] {
-		mark(in.(map[string]any)["step"].(string))
+		m, _ := in.(map[string]any)
+		step, _ := m["step"].(string)
+		mark(step)
 	}
 	var baseSteps []any
 	for _, s := range stepList {
-		if m, _ := s.(map[string]any); m != nil && need[m["name"].(string)] {
+		m, _ := s.(map[string]any)
+		if name, _ := m["name"].(string); name != "" && need[name] {
 			baseSteps = append(baseSteps, m)
 		}
 	}
@@ -196,12 +197,27 @@ func splitBase(plan map[string]any, srcDir string) *sharedBase {
 	copy(sum[:], key.Sum(nil))
 
 	app := cloneJSON(plan)
-	ad := app["deploy"].(map[string]any)
+	ad, _ := app["deploy"].(map[string]any)
+	if ad == nil {
+		return nil
+	}
 	ad["inputs"] = cloneJSON(map[string]any{"i": inputs[n:]})["i"]
 	delete(ad, "base")
-	rest, _ := json.Marshal(ad)
-	vsum := sha256.Sum256(append(append(append(sum[:], rest...), RailpackVersion...), gateVersion...))
-	return &sharedBase{key: hex.EncodeToString(sum[:]), plan: bp, app: app, verdictKey: hex.EncodeToString(vsum[:]), srcDir: srcDir, files: files}
+	return &sharedBase{key: hex.EncodeToString(sum[:]), plan: bp, app: app, srcDir: srcDir, files: files}
+}
+
+// verdictKey keys the gate's verdict: the base image (by digest, so a
+// rebuilt base is checked again), the whole plan stacked on it (every step,
+// as env and paths reach the image from them), the Railpack version and how
+// the box compares.
+func (s *sharedBase) verdictKey(baseDigest string) string {
+	raw, _ := json.Marshal(s.app)
+	h := sha256.New()
+	for _, part := range []string{s.key, baseDigest, string(raw), RailpackVersion, gateVersion} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // withBase is the app's plan on the base image (pinned by digest).
@@ -209,7 +225,9 @@ func (s *sharedBase) withBase(digest string) map[string]any {
 	p := cloneJSON(s.app)
 	// name:tag@digest: BuildKit finds a name in the box's store, and the
 	// digest pins it (a bare name@digest is looked up in a registry).
-	p["deploy"].(map[string]any)["base"] = map[string]any{"image": s.ref() + "@" + digest}
+	if d, _ := p["deploy"].(map[string]any); d != nil {
+		d["base"] = map[string]any{"image": s.ref() + "@" + digest}
+	}
 	return p
 }
 
@@ -249,15 +267,24 @@ func (b *boxBuilder) verdict(key string) *gateVerdict {
 		return nil
 	}
 	var v gateVerdict
-	if json.Unmarshal(raw, &v) != nil || (!v.Same && time.Since(v.At) > recheckAfter) {
+	if json.Unmarshal(raw, &v) != nil || time.Since(v.At) > recheckAfter {
 		return nil
 	}
 	return &v
 }
 
-// recheckAfter: an image that differed is compared again after a week (the
-// difference may have come from a step the cache had lost and ran again).
+// recheckAfter: a verdict is checked again after a week, as a base is
+// rebuilt (a difference may also have come from a step the cache had lost
+// and ran again).
 const recheckAfter = 7 * 24 * time.Hour
+
+// baseMaxAge: a base older than this is built again, its apt step afresh,
+// as a legacy build's was whenever BuildKit had evicted it (its cache
+// keeps such records for a week): security fixes in the runtime image and
+// its packages reach apps at least as soon as before. The weekly box
+// maintenance redeploys every app, and the first build past the week
+// rebuilds the base for all of them.
+const baseMaxAge = 7 * 24 * time.Hour
 
 func (b *boxBuilder) keepVerdict(key string, v gateVerdict) {
 	if b.gateDir == "" || os.MkdirAll(b.gateDir, 0o700) != nil {
@@ -270,11 +297,17 @@ func (b *boxBuilder) keepVerdict(key string, v gateVerdict) {
 	}
 }
 
-// ensureBase builds the base image unless the store has it, and returns
-// its digest.
-func (b *boxBuilder) ensureBase(ctx context.Context, s *sharedBase, workDir, cacheKey string, log io.Writer) (string, error) {
-	if dg, err := b.eng.ImageDigest(ctx, s.ref()); err == nil && dg != "" {
-		return dg, nil
+// ensureBase returns the base image's digest, building it unless the store
+// has one younger than baseMaxAge.
+func (b *boxBuilder) ensureBase(ctx context.Context, s *sharedBase, workDir string, log io.Writer) (string, error) {
+	if imgs, err := b.eng.Images(ctx); err == nil {
+		for _, im := range imgs {
+			if imageKey(im.Name) == imageKey(s.ref()) && !im.Created.IsZero() && time.Since(im.Created) < baseMaxAge {
+				if dg, err := b.eng.ImageDigest(ctx, s.ref()); err == nil && dg != "" {
+					return dg, nil
+				}
+			}
+		}
 	}
 	dir := filepath.Join(workDir, "base-plan")
 	if err := writePlan(dir, s.plan); err != nil {
@@ -297,19 +330,14 @@ func (b *boxBuilder) ensureBase(ctx context.Context, s *sharedBase, workDir, cac
 			return "", err
 		}
 	}
-	fmt.Fprintf(log, "==> building the shared base image %s (the runtime and toolchain, once for every app that uses them)\n", s.ref())
+	fmt.Fprintf(log, "==> building the shared base image %s (the runtime and toolchain, once a week for every app that uses them)\n", s.ref())
 	out := &buildOutput{}
-	err := runLogged(ctx, io.MultiWriter(log, out), empty, b.tool("buildctl"), "build",
-		"--progress", "plain",
-		"--local", "context="+empty,
-		"--local", "dockerfile="+dir,
-		"--frontend", "gateway.v0",
-		"--opt", "source="+RailpackFrontend,
-		// The first app's own cache namespace: its steps are the very ones
-		// that app's build ran (cache mounts are named with it), so they are
-		// cache hits and the base holds the same files.
-		"--opt", "build-arg:cache-key="+cacheKey,
-		"--output", "type=image,name="+s.ref()+",unpack=true")
+	// The cache key names the steps' cache mounts, so a new one each day
+	// runs the apt step again, as BuildKit runs it once it has evicted it;
+	// image tags are resolved afresh either way.
+	cacheKey := "tiffin-base-" + time.Now().UTC().Format("20060102")
+	err := runLogged(ctx, io.MultiWriter(log, out), empty, b.tool("buildctl"),
+		b.railpackArgs(empty, dir, cacheKey, "type=image,name="+s.ref()+",unpack=true")...)
 	if err != nil {
 		return "", err
 	}
@@ -328,7 +356,27 @@ func (b *boxBuilder) ensureBase(ctx context.Context, s *sharedBase, workDir, cac
 // candidate builds a plan directory into an image of the given name and
 // returns its digest.
 func (b *boxBuilder) onSharedBase(ctx context.Context, req BuildRequest, planPath, ref string, legacy func() (BuildResult, error),
-	candidate func(planDir, name string, log io.Writer) (dg, first string, err error), fail func(first string, err error) error) (BuildResult, error) {
+	candidate func(planDir, name string, log io.Writer) (dg, first string, err error), fail func(first string, err error) error) (res BuildResult, err error) {
+	// A fault in the shared-base path ships today's image: the one built
+	// already, else a build of it.
+	var built *BuildResult
+	var builtErr error
+	runLegacy := legacy
+	legacy = func() (BuildResult, error) {
+		r, e := runLegacy()
+		built, builtErr = &r, e
+		return r, e
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Fprintf(req.Log, "==> image: built as before (the shared-base path failed: %v)\n", p)
+			if built != nil {
+				res, err = *built, builtErr
+				return
+			}
+			res, err = runLegacy()
+		}
+	}()
 	raw, err := os.ReadFile(planPath)
 	if err != nil {
 		return BuildResult{}, err
@@ -345,14 +393,14 @@ func (b *boxBuilder) onSharedBase(ctx context.Context, req BuildRequest, planPat
 		fmt.Fprintf(req.Log, "==> image: built as before, not on the shared base (%s)\n", why)
 		return legacy()
 	}
-	v := b.verdict(s.verdictKey)
-	if v != nil && !v.Same {
-		return earlier("its files differed when the box checked: " + v.Why)
-	}
-	// The base first: the build after it reuses its steps from the cache.
-	bdg, err := b.ensureBase(ctx, s, req.WorkDir, cacheNamespace(req.Deploy.Project, req.Deploy.App), req.Log)
+	bdg, err := b.ensureBase(ctx, s, req.WorkDir, req.Log)
 	if err != nil {
 		return earlier("the shared base did not build: " + err.Error())
+	}
+	vkey := s.verdictKey(bdg)
+	v := b.verdict(vkey)
+	if v != nil && !v.Same {
+		return earlier("its files differed when the box checked: " + v.Why)
 	}
 	dir := filepath.Join(req.WorkDir, "plan-shared")
 	if err := writePlan(dir, s.withBase(bdg)); err != nil {
@@ -381,11 +429,16 @@ func (b *boxBuilder) onSharedBase(ctx context.Context, req BuildRequest, planPat
 	}
 	// First build of this base and plan: today's image is the one that
 	// ships unless the one on the base has the same files and config.
-	res, err := legacy()
+	res, err = legacy()
 	if err != nil {
 		return res, err
 	}
-	fmt.Fprintf(req.Log, "==> checking the image on the shared base %s against this one (once per base and build plan)\n", s.ref())
+	if b.diskPressure != nil && b.diskPressure() {
+		// Comparing takes a second image's worth of disk: not now.
+		fmt.Fprintf(req.Log, "==> image: as built; the data disk is past the disk guard's warning level, so the image on the shared base is not checked this time\n")
+		return res, nil
+	}
+	fmt.Fprintf(req.Log, "==> checking the image on the shared base %s against this one (once per base and build plan, and weekly)\n", s.ref())
 	cand := ref + "-shared"
 	var clog strings.Builder
 	cdg, _, err := candidate(dir, cand, &clog)
@@ -404,7 +457,7 @@ func (b *boxBuilder) onSharedBase(ctx context.Context, req BuildRequest, planPat
 		fmt.Fprintf(req.Log, "==> image: as built; the box could not compare it with the one on the shared base (%v)\n", err)
 		return res, nil
 	case !same:
-		b.keepVerdict(s.verdictKey, gateVerdict{Why: why, At: time.Now().UTC()})
+		b.keepVerdict(vkey, gateVerdict{Why: why, At: time.Now().UTC()})
 		fmt.Fprintf(req.Log, "==> image: as built; the one on the shared base differs (%s), so this app keeps building this way\n", why)
 		return res, nil
 	}
@@ -412,7 +465,7 @@ func (b *boxBuilder) onSharedBase(ctx context.Context, req BuildRequest, planPat
 		fmt.Fprintf(req.Log, "==> image: as built; could not name the one on the shared base (%v)\n", err)
 		return res, nil
 	}
-	b.keepVerdict(s.verdictKey, gateVerdict{Same: true, At: time.Now().UTC()})
+	b.keepVerdict(vkey, gateVerdict{Same: true, At: time.Now().UTC()})
 	fmt.Fprintf(req.Log, "==> image: on the shared base %s (the same files and config as the image built before it)\n", s.ref())
 	return onBase(cdg), nil
 }

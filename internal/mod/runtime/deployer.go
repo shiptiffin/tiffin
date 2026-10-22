@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -156,7 +157,7 @@ func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Conte
 		fmt.Fprintf(log, "==> deploy %s of %s/%s%s, queued %s\n", d.ID, d.Project, d.App, previewSuffix(d.Preview), d.CreatedAt.Format(time.RFC3339))
 		src, err := fetch(ctx, d, log)
 		if err == nil {
-			err = r.pipeline(ctx, d, src, kind, log)
+			err = r.safePipeline(ctx, d, src, kind, log)
 		}
 		if errors.Is(err, errPreviewRetired) {
 			now := time.Now().UTC()
@@ -365,6 +366,19 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	}
 	r.gc(ctx, d.Project, d.App, d.Preview)
 	return nil
+}
+
+// safePipeline runs the pipeline, turning a panic in it into the deploy's
+// error: the deploy fails (the running version keeps serving) and the box
+// goes on with the others.
+func (r *rt) safePipeline(ctx context.Context, d *Deploy, src, kind string, log io.Writer) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			r.p.Log.Error("runtime: deploy panicked", "deploy", d.ID, "panic", p, "stack", string(debug.Stack()))
+			err = fmt.Errorf("internal error in the box (%v); the running version keeps serving", p)
+		}
+	}()
+	return r.pipeline(ctx, d, src, kind, log)
 }
 
 func (r *rt) fail(ctx context.Context, d *Deploy, err error, hint string, log io.Writer) {
