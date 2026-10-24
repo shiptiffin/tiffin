@@ -386,6 +386,15 @@ The box adds nothing for LLMs:
   local box custom domains never go live. An app's `TIFFIN_URL` (and its sign-in
   address) stays its first route, usually its name on the box, whose links then take one
   redirect; put the primary domain first in `routes` to make it the app's URL.
+- **Buying domains goes through Cloudflare only, and its Registrar API is a beta.** No premium
+  names, and some endings are sold only in Cloudflare's dashboard (search links there).
+  Renewal happens by auto-renew or in Cloudflare's dashboard; contacts, WHOIS privacy and
+  transfers out are changed there too. The account needs a card, a default contact and the
+  registration agreement accepted in Cloudflare's dashboard first; the box can't set those.
+  Registrations can't be refunded.
+- **A bought domain is only added to a project when its zone is reachable.** The Cloudflare
+  token needs Zone Resources: All zones; with a token limited to some zones, the purchase
+  stops at "setting up DNS" and says to widen the token.
 - **Registrar parking is recognised for five registrars.** Namecheap, GoDaddy, Porkbun,
   Squarespace and Gandi's known parking and forwarding records are named, with what to
   delete; Cloudflare, Hostinger, IONOS, Dynadot and Name.com are recognised by their

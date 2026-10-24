@@ -1451,6 +1451,15 @@ The box adds nothing for LLMs:
   local box custom domains never go live. An app's `TIFFIN_URL` (and its sign-in
   address) stays its first route, usually its name on the box, whose links then take one
   redirect; put the primary domain first in `routes` to make it the app's URL.
+- **Buying domains goes through Cloudflare only, and its Registrar API is a beta.** No premium
+  names, and some endings are sold only in Cloudflare's dashboard (search links there).
+  Renewal happens by auto-renew or in Cloudflare's dashboard; contacts, WHOIS privacy and
+  transfers out are changed there too. The account needs a card, a default contact and the
+  registration agreement accepted in Cloudflare's dashboard first; the box can't set those.
+  Registrations can't be refunded.
+- **A bought domain is only added to a project when its zone is reachable.** The Cloudflare
+  token needs Zone Resources: All zones; with a token limited to some zones, the purchase
+  stops at "setting up DNS" and says to widen the token.
 - **Registrar parking is recognised for five registrars.** Namecheap, GoDaddy, Porkbun,
   Squarespace and Gandi's known parking and forwarding records are named, with what to
   delete; Cloudflare, Hostinger, IONOS, Dynadot and Name.com are recognised by their
@@ -5122,6 +5131,42 @@ index one address. Plain HTTP goes straight to the primary in one hop.
   on `POST /v1/projects/{project}/domains`, and `POST
   /v1/projects/{project}/domains/{domain}/edit` (`primary`, `www`).
 
+## Buying a domain
+
+**Domains** in the sidebar searches for a name and buys it, without leaving the dashboard.
+It's registered with Cloudflare Registrar **in your own Cloudflare account**, at Cloudflare's
+price (no markup), and charged to the card on that account. ShipTiffin never holds or resells
+it: the domain is yours in Cloudflare, whatever happens to the box.
+
+1. Type a word or a name (`acme`, `acme.app`). The name you typed comes first, then other
+   names, each with its first-year price and what it costs every year after.
+2. **Buy** shows the facts once more: first year, renewal, auto-renew (on by default),
+   contact details hidden from WHOIS, and which project it's for. **Buy for $14.20**
+   registers it. In the dashboard that needs a sign-in in the last 10 minutes (Confirm it's you).
+3. The same window follows it: registered, DNS ready, then added to the project with
+   its records set by the box. HTTPS follows by itself.
+
+Without a project, it waits under **Your domains** (the same page, with an empty search),
+which lists every domain the box can manage, where each is used, and when registered ones
+renew. **Use on a project** puts one on a project in a click.
+
+It needs the Cloudflare token from [Let Tiffin manage DNS](#let-tiffin-manage-dns-optional) with
+two more things: **Account › Registrar Domains › Admin**, and **Zone Resources: All zones**
+(so the box reaches the zone of a domain you just bought). Editing a token in Cloudflare keeps
+its value, so there's nothing to paste again. Once, in Cloudflare's dashboard, the account needs
+a card, a default contact and the registration agreement accepted (Domains › Registrations).
+
+For agents and the CLI, nothing is bought without the price: `domains buy` without `price`, or
+with a price that's no longer right, answers 428 with the quote. Show it to a person, then send
+its `total` back.
+
+```
+tiffin domains search --q acme
+tiffin domains buy --domain acme.app --auto-renew=true --price 14.20
+tiffin domains buy-status acme.app
+tiffin domains owned
+```
+
 ## Let Tiffin manage DNS (optional)
 
 Connect a Cloudflare API token with **Zone · DNS · Edit** on your zones:
@@ -5208,8 +5253,12 @@ records before you confirm.
 - **Settings › DNS**: connect Cloudflare with a token made from its *Edit zone DNS*
   template (All zones), see which domains it can manage, or disconnect.
 
+- **Domains** (the sidebar): search, buy, and every domain the box can manage
+  ([Buying a domain](#buying-a-domain)).
+
 For agents: `GET /v1/domain`, `POST /v1/domain`, `GET /v1/projects/{project}/domains`,
-`POST /v1/projects/{project}/domains`; the same names as MCP tools.
+`POST /v1/projects/{project}/domains`, `GET /v1/domains/search`, `POST /v1/domains/buy`,
+`GET /v1/domains/owned`; the same names as MCP tools.
 
 ---
 
