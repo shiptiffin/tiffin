@@ -11,7 +11,9 @@
 #    rolls back to its own previous binary.
 #
 # The R2 keys come from .env (CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID,
-# R2_SECRET_ACCESS_KEY, R2_BUCKET) and are never printed.
+# R2_SECRET_ACCESS_KEY) and are never printed. The bucket is always the
+# releases bucket (RELEASE_BUCKET, default shiptiffin-releases), never .env's
+# R2_BUCKET: that one is for backup tests.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,9 +22,11 @@ channels=${2:-stable,edge}
 keep=2
 [[ $version == v* ]] || { echo "version must start with v: $version" >&2; exit 1; }
 
+bucket=${RELEASE_BUCKET:-shiptiffin-releases}
 set -a; . ./.env; set +a
-: "${CLOUDFLARE_ACCOUNT_ID:?}" "${R2_ACCESS_KEY_ID:?}" "${R2_SECRET_ACCESS_KEY:?}" "${R2_BUCKET:?}"
-base="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}"
+: "${CLOUDFLARE_ACCOUNT_ID:?}" "${R2_ACCESS_KEY_ID:?}" "${R2_SECRET_ACCESS_KEY:?}"
+base="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucket}"
+echo "==> bucket $bucket"
 
 r2() { # r2 METHOD KEY [curl args...] -> HTTP status on stdout
 	local m=$1 key=$2; shift 2
