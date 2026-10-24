@@ -189,7 +189,8 @@ func init() {
 		Label: "Cloudflare",
 		Help: "Create an API token at dash.cloudflare.com → My Profile (or Manage Account) → API Tokens → Create Token, " +
 			"with the permission Zone · DNS · Edit on the zones you want the box to manage (adding Zone · Zone · Read helps it list them). " +
-			"Account-owned and user tokens both work. The token is stored encrypted on the box and never shown again.",
+			"Account-owned and user tokens both work. To buy domains from the dashboard too, add Account · Registrar Domains · Admin and set Zone Resources to all zones. " +
+			"The token is stored encrypted on the box and never shown again.",
 		Fields: []Field{{Name: "token", Label: "API token", Help: "Zone · DNS · Edit", Secret: true}},
 		New: func(c map[string]string) (Provider, error) {
 			return &cloudflare.Provider{APIToken: strings.TrimSpace(c["token"])}, nil

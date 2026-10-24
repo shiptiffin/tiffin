@@ -22,6 +22,9 @@ type providerRecord struct {
 	ConnectedAt time.Time `json:"connectedAt"`
 	ConnectedBy string    `json:"connectedBy"`
 	ZonesAt     time.Time `json:"zonesAt"`
+	// Account is the Cloudflare account id the token works in, found the
+	// first time a domain is searched for or bought.
+	Account string `json:"account,omitempty"`
 }
 
 type providerState struct {

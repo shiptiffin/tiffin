@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Activity as ActivityIcon, ArchiveRestore, ArrowLeft, ChevronsUpDown, Gauge, HeartPulse, KeyRound, LayoutGrid, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
+import { Activity as ActivityIcon, ArchiveRestore, ArrowLeft, ChevronsUpDown, Gauge, Globe, HeartPulse, KeyRound, LayoutGrid, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mq } from "@/api/modules";
@@ -314,6 +314,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
       ) : (
         <div className="flex flex-col gap-px pl-1">
           <NavItem to="/" exact label="Projects" lead={<LayoutGrid className={icon} />} />
+          {onBox && <NavItem to="/domains" label="Domains" lead={<Globe className={icon} />} />}
           <NavItem to="/usage" label="Usage" lead={<Gauge className={icon} />} />
           <NavItem to="/ledger" label="Activity" active={under(activityPaths)} lead={<ActivityIcon className={icon} />} />
           <NavItem to="/status" label="Health" active={under(healthPaths)} lead={<HeartPulse className={icon} />} aside={<Trouble />} />

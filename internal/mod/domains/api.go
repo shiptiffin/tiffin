@@ -1110,6 +1110,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	m.registerDNS(a, p, ready)
+	m.registerBuy(a, p, ready)
 	m.registerEdit(a, p, ready)
 }
 

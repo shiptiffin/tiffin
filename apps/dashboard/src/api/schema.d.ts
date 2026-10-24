@@ -1056,6 +1056,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/domains/buy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy a domain
+         * @description Registers a domain with Cloudflare Registrar in the Cloudflare account connected for DNS, charged to that account's card. It can't be refunded. Without price, or when the live price differs from it, nothing is bought: 428 confirm_required with the quote. Show a person the domain, its price and renewal, and send the quote's total as price only once they agree. Answers with the purchase; follow it with domains buy-status until ready, then domains add to put it on a project. Box admins only; in the dashboard it also needs a recent sign-in (reauth_required).
+         */
+        post: operations["domains-buy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains/buy/{domain}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow a domain purchase
+         * @description How a domain bought from this box is getting on: registering, action_required (sentTo: confirm the registry's email), blocked, failed, setting_up_dns, then ready (the box can set its records, so domains add works with createRecords). Box admins only.
+         */
+        get: operations["domains-buy-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check domains live
+         * @description Asks the registries, live, whether up to 20 names can be bought here and what each costs (first year, then each later year). Read-only. Box admins only.
+         */
+        post: operations["domains-check"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains/owned": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your domains
+         * @description Every domain the box can put on projects: the zones the connected DNS provider holds, the domains registered in the Cloudflare account (with renewal and auto-renew), and domains bought from this box, each with the projects and apps that use names under it. Box admins only.
+         */
+        get: operations["domains-owned"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domains/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search for a domain to buy
+         * @description Names like q (a word, a phrase or a domain) from Cloudflare Registrar, with each one's live availability and price: first year, then each later year. Bought through the Cloudflare account connected for DNS, at cost. buy says whether this box can buy, and the fix if not. Box admins only.
+         */
+        get: operations["domains-search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/email": {
         parameters: {
             query?: never;
@@ -7648,6 +7748,22 @@ export interface components {
              */
             diskWarnPercent?: number;
         };
+        BuyInBody: {
+            app?: string;
+            /** @description Renew it every year with the card on the Cloudflare account, 30 days before it expires. Required: say yes or no. */
+            autoRenew: boolean;
+            /** @description The name to buy, e.g. acme.app */
+            domain: string;
+            /** @description The total you agreed to pay now (the quote's total). Without it, or when the live price differs, nothing is bought: you get 428 with the quote. */
+            price?: string;
+            /** @description The project it's for (remembered for the dashboard; adding it to the project is a separate domains add). */
+            project?: string;
+            /**
+             * Format: int64
+             * @description How many years to register for (default 1).
+             */
+            years?: number;
+        };
         CertInfo: {
             /** Format: date-time */
             checkedAt: string;
@@ -7790,6 +7906,13 @@ export interface components {
             /** @description Switch even if DNS does not point here yet (certificates fail until it does). */
             force?: boolean;
         };
+        "Domains-checkRequest": {
+            /** @description Full names, e.g. acme.app */
+            domains: string[] | null;
+        };
+        "Domains-checkResponse": {
+            offers: components["schemas"]["DomainsOffer"][] | null;
+        };
         DomainsAddBody: {
             /** @description The app that serves it (a web app of this project). */
             app: string;
@@ -7852,6 +7975,17 @@ export interface components {
             summary: string;
             /** @description Present when a connected DNS provider holds the apps domain's zone: one *.<appsDomain> certificate covers every app and preview. */
             wildcard?: components["schemas"]["DomainsWildcard"];
+        };
+        DomainsBuyReadiness: {
+            canBuy: boolean;
+            /** @description What to do about it. */
+            fix?: string;
+            /** @description Where to do it: a dashboard path (/settings/dns) or Cloudflare's dashboard. */
+            fixUrl?: string;
+            /** @description Purchases go to Cloudflare's registrar sandbox: nothing is charged and no zone is made. */
+            sandbox?: boolean;
+            /** @description Why it can't, in a sentence. */
+            why?: string;
         };
         DomainsConnectedProvider: {
             /** @description It holds the zone apps live under (the box domain, or the separate apps domain): the box uses one wildcard certificate (DNS-01) for every app. */
@@ -7964,6 +8098,48 @@ export interface components {
             /** @description Also serve www.<domain> and redirect it here (point www at the box too). false (--www=false) stops it. */
             www?: boolean;
         };
+        DomainsOffer: {
+            /** @description It can be bought here now. */
+            available: boolean;
+            /** @description Availability and price come from a live check with the registry (otherwise from Cloudflare's search, which can lag). */
+            checked: boolean;
+            currency?: string;
+            domain: string;
+            /** @description The name searched for. */
+            exact?: boolean;
+            /** @description First-year price, e.g. 10.44 */
+            firstYear?: string;
+            /** @description Where it can be bought instead (Cloudflare's dashboard), when it can. */
+            link?: string;
+            premium?: boolean;
+            /** @description Why it can't be bought here: domain_unavailable, domain_premium, extension_not_supported_via_api, extension_not_supported, extension_disallows_registration */
+            reason?: string;
+            /** @description Price of each later year */
+            renewal?: string;
+            /** @description The reason in words. */
+            why?: string;
+        };
+        DomainsOwned: {
+            buy: components["schemas"]["DomainsBuyReadiness"];
+            domains: components["schemas"]["DomainsOwnedDomain"][] | null;
+        };
+        DomainsOwnedDomain: {
+            autoRenew?: boolean;
+            /** @description The box itself uses it: dashboard, apps, or both. */
+            box?: string;
+            domain: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @description The connected DNS provider holds its zone, so adding it to a project sets the records too. */
+            manageable: boolean;
+            /** @description Bought from this box: who, when, and how far setup got. */
+            purchase?: components["schemas"]["DomainsPurchase"];
+            /** @description Registered with Cloudflare Registrar in this account (renewal and auto-renew below). */
+            registered: boolean;
+            /** @description The registration's status: active, expired, … */
+            status?: string;
+            usedBy: components["schemas"]["DomainsUse"][] | null;
+        };
         DomainsPrevious: {
             /** @description The earlier apps domain, when it was another domain; its names keep working just as long. */
             appsDomain?: string;
@@ -7978,6 +8154,30 @@ export interface components {
             available: components["schemas"]["Kind"][] | null;
             connected: components["schemas"]["DomainsConnectedProvider"][] | null;
             summary: string;
+        };
+        DomainsPurchase: {
+            app?: string;
+            /** Format: date-time */
+            at: string;
+            autoRenew: boolean;
+            by: string;
+            currency: string;
+            /** @description Where it is, in a sentence. */
+            detail: string;
+            domain: string;
+            error?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @description The project it was bought for, if any. */
+            project?: string;
+            sandbox?: boolean;
+            /** @description action_required: the inbox the registry's confirmation email went to. */
+            sentTo?: string;
+            /** @enum {string} */
+            state: "registering" | "action_required" | "blocked" | "failed" | "setting_up_dns" | "ready";
+            total: string;
+            /** Format: int64 */
+            years: number;
         };
         DomainsRecordCheck: {
             /** @description The addresses DNS gives for the name now. */
@@ -8042,6 +8242,16 @@ export interface components {
             app: string;
             /** @description Path prefix; / is everything else. */
             path: string;
+        };
+        DomainsSearchResult: {
+            buy: components["schemas"]["DomainsBuyReadiness"];
+            offers: components["schemas"]["DomainsOffer"][] | null;
+            query: string;
+        };
+        DomainsUse: {
+            app?: string;
+            host: string;
+            project: string;
         };
         DomainsWildcard: {
             certificate: components["schemas"]["CertInfo"];
@@ -10636,6 +10846,8 @@ export interface components {
             hint?: string;
             /** @description The plan to review and confirm (confirm_required, plan_mismatch, drift), or the plan the key may not apply (forbidden) */
             plan?: components["schemas"]["Plan"];
+            /** @description The live price to confirm (domains buy, confirm_required): send its total back as price to buy */
+            quote?: components["schemas"]["Quote"];
             /** @description DNS records to add at your DNS host once the change is applied (domains add: the domain's, and www's with www) */
             records?: components["schemas"]["Record"][] | null;
             /**
@@ -11511,6 +11723,19 @@ export interface components {
             name: string;
             subscriptions: components["schemas"]["QueueSubscription"][] | null;
         };
+        Quote: {
+            /** @description e.g. USD */
+            currency: string;
+            domain: string;
+            /** @description The first year's price, e.g. 10.44 */
+            firstYear: string;
+            /** @description Each later year's price */
+            renewal: string;
+            /** @description What is charged now: the first year plus renewal × (years − 1). Send it back as price. */
+            total: string;
+            /** Format: int64 */
+            years: number;
+        };
         Record: {
             /** @description The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com. */
             host?: string;
@@ -11631,6 +11856,8 @@ export interface components {
             assets?: components["schemas"]["AssetDir"][] | null;
             /** @description Who made the commit (GitHub login or git author name), for deploys from GitHub */
             author?: string;
+            /** @description The shared base image (runtime and toolchain) the image stacks on, which the app's other builds and other apps on the same toolchain share; empty for an image built without one */
+            base?: string;
             /**
              * Format: double
              * @description Time spent building
@@ -18263,6 +18490,391 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DomainsDomainCheck"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domains-buy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuyInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsPurchase"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domains-buy-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                domain: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsPurchase"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domains-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Domains-checkRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Domains-checkResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domains-owned": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsOwned"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domains-search": {
+        parameters: {
+            query: {
+                /** @description A word, a phrase or a domain, e.g. acme or acme.app */
+                q: string;
+                /** @description Answer as soon as Cloudflare's search does: only the name itself is checked live, the rest is checked:false (follow with domains availability). The dashboard does this to show results sooner. */
+                quick?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsSearchResult"];
                 };
             };
             /** @description Bad Request */
