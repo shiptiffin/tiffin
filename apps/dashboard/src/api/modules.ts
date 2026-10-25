@@ -101,6 +101,14 @@ export type AnalyticsSetup = S["AnalyticsSetup"];
 export type AnalyticsCount = S["AnalyticsCount"];
 export type AnalyticsEvent = S["AnalyticsEventSummary"];
 export type AnalyticsVitals = S["AnalyticsVitalsView"];
+export type AnalyticsPrivacy = S["AnalyticsPrivacyView"];
+export type StripeStatus = S["AnalyticsStripeStatus"];
+export type RevenueReport = S["AnalyticsRevenueReport"];
+export type RevenueTotals = S["AnalyticsRevenueTotals"];
+export type RevenueCount = S["AnalyticsRevenueCount"];
+export type UnmatchedPayment = S["AnalyticsUnmatchedPayment"];
+/** A revenue read: a period or days, and the attribution model. */
+export type RevenueQuery = Omit<NonNullable<import("./schema").operations["analytics-revenue"]["parameters"]["query"]>, "project">;
 export type Period = NonNullable<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>["period"]>;
 /** What an analytics read can ask for: a period or days, one app, the step and filters. */
 export type AnalyticsQuery = Omit<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>, "project" | "limit">;
@@ -330,6 +338,18 @@ export const mod2 = {
   events: (p: string, q: AnalyticsQuery) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, ...q, interval: undefined })}`),
   vitals: (p: string, q: AnalyticsQuery) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period: q.period, from: q.from, to: q.to, app: q.app, page: q.page, limit: 8 })}`),
   analyticsSetup: (p: string) => request<AnalyticsSetup>("GET", `/v1/analytics/setup${qs({ project: p })}`),
+  /** The privacy policy text for the project's analytics settings, its version and a hash that changes with it. */
+  analyticsPrivacy: (p: string) => request<AnalyticsPrivacy>("GET", `/v1/analytics/privacy${qs({ project: p })}`),
+  /** Whether Stripe is connected for revenue, the webhook, the import of the last 12 months and what keeps revenue incomplete. */
+  stripe: (p: string) => request<StripeStatus>("GET", `/v1/analytics/stripe${qs({ project: p })}`),
+  /** Connects Stripe with a restricted key (409 while attribution is off; 422 for a key Stripe refuses, with the permissions in the hint). */
+  stripeConnect: (p: string, key: string) => request<StripeStatus>("POST", "/v1/analytics/stripe", { project: p, key }),
+  stripeRepair: (p: string) => request<StripeStatus>("POST", "/v1/analytics/stripe/repair", { project: p }),
+  /** Deletes the webhook endpoint, the key and every payment imported from Stripe. */
+  stripeDisconnect: (p: string) => request<S["Analytics-stripe-disconnectResponse"]>("DELETE", `/v1/analytics/stripe${qs({ project: p })}`),
+  revenue: (p: string, q: RevenueQuery) => request<RevenueReport>("GET", `/v1/analytics/revenue${qs({ project: p, ...q })}`),
+  /** Matches the newest unmatched payments again: accounts may have signed up since. */
+  revenueMatch: (p: string) => request<S["AnalyticsMatchResult"]>("POST", "/v1/analytics/revenue/match", { project: p }),
   // protection
   protect: () => request<ProtectStatus>("GET", "/v1/protect"),
   setProtect: (patch: ProtectPatch) => request<ProtectStatus>("PUT", "/v1/protect", patch),

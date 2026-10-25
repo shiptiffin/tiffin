@@ -1,12 +1,14 @@
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Accordion } from "radix-ui";
-import { ArrowDown, ArrowUp, ChevronRight, Monitor, Smartphone, Tablet } from "lucide-react";
+import { ChevronRight, Monitor, Smartphone, Tablet } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mod2, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview, type AnalyticsQuery } from "@/api/modules";
 import { q as api } from "@/api/queries";
-import { AllRows, change, countryName, isPath, Panel, Rows, RowsHead, shown, visitLength, type Delta, type Row } from "@/components/analytics-kit";
+import { AttributionView } from "@/components/analytics-attribution";
+import { RevenueView } from "@/components/analytics-revenue";
+import { AllRows, change, countryName, DeltaBadge, isPath, Panel, Rows, RowsHead, shown, visitLength, type Delta, type Row } from "@/components/analytics-kit";
 import { SetupDialog, SetupGuide } from "@/components/analytics-setup";
 import { AppPicker, customPer, DAY, FilterChips, FilterMenu, HOUR, isoDay, LiveNow, periods, RangePicker, type Per } from "@/components/analytics-toolbar";
 import { WebVitals } from "@/components/analytics-vitals";
@@ -21,6 +23,7 @@ import { Segmented } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { ViewToggle } from "@/components/usage-charts";
+import { fromSpec, specOf } from "@/lib/attribution";
 import { cn } from "@/lib/cn";
 import { deploysQuery } from "@/lib/pulse";
 import { dec, int, num, pct } from "@/lib/format";
@@ -66,6 +69,82 @@ const metrics: Record<Metric, { label: string; format: (v: number) => string; ax
 };
 
 export function AnalyticsPage({ project, search }: { project: string; search: AnalyticsSearch }) {
+  if (search.tab === "attribution") return <AttributionPage project={project} />;
+  if (search.tab === "revenue") return <RevenuePage project={project} search={search} />;
+  return <OverviewPage project={project} search={search} />;
+}
+
+type PageTab = "overview" | "revenue" | "attribution";
+const tabSearch = (t: PageTab) => (t === "overview" ? {} : { tab: t });
+
+/** Overview and Attribution, the tab in the address (?tab=attribution). */
+function AnalyticsTabs({ project, tab }: { project: string; tab: PageTab }) {
+  const navigate = useNavigate();
+  const tabs = [
+    { v: "overview", label: "Overview" },
+    { v: "revenue", label: "Revenue" },
+    { v: "attribution", label: "Attribution" },
+  ] as const;
+  return (
+    <nav className="mt-6 -mb-px flex gap-1 overflow-x-auto border-b border-rule [scrollbar-width:none]" aria-label="Analytics">
+      {tabs.map((t) => (
+        <button
+          key={t.v}
+          type="button"
+          onClick={() => void navigate({ to: "/projects/$project/analytics", params: { project }, search: tabSearch(t.v) } as never)}
+          aria-current={tab === t.v ? "page" : undefined}
+          className={cn(
+            "relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] transition-colors first:pl-0 first:after:left-0 hover:text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full",
+            tab === t.v ? "font-[550] text-ink after:bg-ink" : "text-ink-3 after:bg-transparent",
+          )}
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function useTabNav(project: string) {
+  const navigate = useNavigate();
+  return (t: PageTab) => void navigate({ to: "/projects/$project/analytics", params: { project }, search: tabSearch(t) } as never);
+}
+
+function AttributionPage({ project }: { project: string }) {
+  useTitle(`${project} · Attribution`);
+  const to = useTabNav(project);
+  return (
+    <Page wide>
+      <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }]} />} title="Analytics" />
+      <AnalyticsTabs project={project} tab="attribution" />
+      <AttributionView project={project} onRevenue={() => to("revenue")} />
+    </Page>
+  );
+}
+
+function RevenuePage({ project, search }: { project: string; search: AnalyticsSearch }) {
+  useTitle(`${project} · Revenue`);
+  const navigate = useNavigate();
+  const to = useTabNav(project);
+  const m = useQuery({ ...api.manifest(project), retry: false, staleTime: 5_000 });
+  const go = (patch: Partial<AnalyticsSearch>, replace = false) =>
+    void navigate({
+      to: "/projects/$project/analytics",
+      params: { project },
+      search: (prev: AnalyticsSearch) => analyticsSearch({ ...prev, ...patch }),
+      replace,
+      resetScroll: false,
+    } as never);
+  return (
+    <Page wide>
+      <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }]} />} title="Analytics" />
+      <AnalyticsTabs project={project} tab="revenue" />
+      <RevenueView project={project} attribution={m.data ? fromSpec(specOf(m.data.manifest)) : undefined} search={search} go={go} onAttribution={() => to("attribution")} />
+    </Page>
+  );
+}
+
+function OverviewPage({ project, search }: { project: string; search: AnalyticsSearch }) {
   useTitle(`${project} · Analytics`);
   const navigate = useNavigate();
   const custom = !!search.from;
@@ -105,6 +184,18 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
   });
   const m = useQuery({ ...api.manifest(project), retry: false, staleTime: 60_000 });
   const apps = Object.keys(m.data?.manifest.apps ?? {}).sort();
+  const campaigns = fromSpec(specOf(m.data?.manifest)).campaigns;
+  const toAttribution = () => void navigate({ to: "/projects/$project/analytics", params: { project }, search: { tab: "attribution" } } as never);
+  // Basic analytics drops campaign tags: say so where they would show, with the way to keep them.
+  const tagsOff = !!m.data && !campaigns;
+  const turnItOn = (
+    <button type="button" onClick={toAttribution} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+      Turn on attribution
+    </button>
+  );
+  const noTags = (tag: string, example: string): ReactNode =>
+    tagsOff ? <>Campaign tags are kept only with marketing attribution. {turnItOn}</> : `No ${tag} tags. Add ?${tag}=${example} to links you share.`;
+  const tagsNote = tagsOff ? <>New visits keep campaign tags only with marketing attribution. {turnItOn}</> : undefined;
   const markers = useDeployMarkers(project, apps, search.app);
   const first = useFirstVisit(project);
   // The days before only count as a baseline if visits were being counted for all of them.
@@ -138,8 +229,9 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
   return (
     <Page wide>
       <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }]} />} title="Analytics" actions={setup.data ? <SetupDialog setup={setup.data} open={guide} onOpenChange={setGuide} /> : undefined} />
+      <AnalyticsTabs project={project} tab="overview" />
 
-      <div className="mt-6 flex flex-wrap items-center gap-2">
+      <div className="mt-5 flex flex-wrap items-center gap-2">
         {apps.length > 1 && <AppPicker apps={apps} app={search.app} onChange={(a) => go({ app: a })} />}
         <RangePicker
           per={per}
@@ -247,9 +339,9 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
                 rowsOf={rowsOf}
                 tabs={[
                   { label: "Referrers", key: "source", name: "Referrer", empty: "No referrers: visits came directly, or from sites that don’t say where from." },
-                  { label: "UTM source", key: "utmSource", name: "utm_source", empty: "No utm_source tags. Add ?utm_source=newsletter to links you share." },
-                  { label: "Medium", key: "utmMedium", name: "utm_medium", empty: "No utm_medium tags, like ?utm_medium=email." },
-                  { label: "Campaign", key: "utmCampaign", name: "utm_campaign", empty: "No utm_campaign tags, like ?utm_campaign=launch." },
+                  { label: "UTM source", key: "utmSource", name: "utm_source", empty: noTags("utm_source", "newsletter"), note: tagsNote },
+                  { label: "Medium", key: "utmMedium", name: "utm_medium", empty: noTags("utm_medium", "email"), note: tagsNote },
+                  { label: "Campaign", key: "utmCampaign", name: "utm_campaign", empty: noTags("utm_campaign", "launch"), note: tagsNote },
                 ]}
               />
               <Countries d={d} rows={rowsOf("country")} selected={filters.country} onFilter={toggle("country")} onAll={() => setAll("country")} />
@@ -335,24 +427,6 @@ function Loading() {
         <Skeleton className="h-72 rounded-[12px]" />
       </div>
     </div>
-  );
-}
-
-/** A change as a small badge: green when it's good news, red when it isn't. */
-function DeltaBadge({ delta, lowerIsBetter }: { delta: Delta; lowerIsBetter?: boolean }) {
-  const good = delta.dir === 0 ? 0 : (delta.dir > 0) !== !!lowerIsBetter ? 1 : -1;
-  const Icon = delta.dir > 0 ? ArrowUp : ArrowDown;
-  return (
-    <span
-      className={cn(
-        "inline-flex h-5 items-center gap-0.5 rounded-[5px] px-1.5 text-[0.71875rem] font-[550] tnum",
-        // The green deepened toward the ink: small text on a tinted, selected tab keeps ≥ 4.5:1 in both themes.
-        good > 0 ? "bg-ok-wash text-[color-mix(in_oklab,var(--ok),var(--ink)_30%)]" : good < 0 ? "bg-danger-wash text-danger" : "bg-paper-sunk text-ink-3",
-      )}
-    >
-      {delta.dir !== 0 && <Icon aria-hidden className="size-3" strokeWidth={2.5} />}
-      {delta.text.replace(/^[+−]/, "")}
-    </span>
   );
 }
 
@@ -478,7 +552,7 @@ function MainChart({
   );
 }
 
-type Tab = { label: string; key: FilterKey; name: string; empty?: string };
+type Tab = { label: string; key: FilterKey; name: string; empty?: ReactNode; note?: ReactNode };
 
 /** A breakdown panel: tabs for its views, the top rows, and "Show all". */
 function Breakdown({
@@ -520,6 +594,7 @@ function Breakdown({
             <ChevronRight aria-hidden className="size-3.5" />
           </button>
         )}
+        {tab.note && rows.length > 0 && <p className={cn("px-2.5 pt-3 pb-1 text-[0.78125rem] text-ink-3", rows.length <= 8 && "mt-auto")}>{tab.note}</p>}
       </div>
     </Panel>
   );

@@ -38,7 +38,8 @@ export async function signIn(page: Page, baseURL: string) {
   const code = await loginCode(page.request, baseURL);
   await page.goto("about:blank");
   await page.goto(`/login#${code}`);
-  await page.waitForURL((u) => u.pathname === "/");
+  // Someone with no passkey yet, in a browser that can make one, is first offered one (/welcome/passkey).
+  await page.waitForURL((u) => u.pathname === "/" || u.pathname === "/welcome/passkey");
 }
 
 /**

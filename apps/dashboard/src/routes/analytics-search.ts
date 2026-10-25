@@ -30,6 +30,10 @@ export type AnalyticsSearch = {
   compare?: "off";
   /** The Web Vital the speed chart shows (LCP by default). */
   vital?: Vital;
+  /** Analytics › Revenue or › Attribution (the overview by default). */
+  tab?: "revenue" | "attribution";
+  /** Revenue's attribution model: "first" touch (last touch by default). */
+  touch?: "first";
 } & Partial<Record<FilterKey, string>>;
 
 const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
@@ -46,6 +50,8 @@ export function analyticsSearch(s: Record<string, unknown>): AnalyticsSearch {
     metric: s.metric === "pageviews" || s.metric === "bounce" || s.metric === "duration" ? s.metric : undefined,
     compare: s.compare === "off" ? "off" : undefined,
     vital: (VITALS as readonly unknown[]).includes(s.vital) && s.vital !== "LCP" ? (s.vital as Vital) : undefined,
+    tab: s.tab === "attribution" || s.tab === "revenue" ? s.tab : undefined,
+    touch: s.touch === "first" ? "first" : undefined,
   };
   for (const f of FILTERS) out[f.key] = str(s[f.key]);
   // What the API would refuse: a device it doesn't know, a country that isn't a code.

@@ -369,6 +369,9 @@ const PAST: Record<string, string> = {
   Limit: "Limited",
   Change: "Changed",
   Declare: "Declared",
+  Turn: "Turned",
+  Keep: "Kept",
+  Stop: "Stopped",
 };
 const ING: Record<string, string> = {
   Add: "Adding",
@@ -383,6 +386,9 @@ const ING: Record<string, string> = {
   Limit: "Limiting",
   Change: "Changing",
   Declare: "Declaring",
+  Turn: "Turning",
+  Keep: "Keeping",
+  Stop: "Stopping",
 };
 const swapVerb = (s: string, map: Record<string, string>) => s.replace(/^(\w+)/, (v) => map[v] ?? v);
 const ing = (s: string) => swapVerb(s, ING);

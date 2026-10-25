@@ -1,4 +1,4 @@
-import { ListFilter, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ListFilter, Search } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { CopyButton } from "@/components/copy";
@@ -58,6 +58,24 @@ export function change(v: number, prev: number, base: number, points?: boolean):
   if (Math.abs(r) < 0.005) return { text: "0%", dir: 0 };
   if (r >= 2) return { text: `${dec(v / prev, 1)}×`, dir: 1 };
   return { text: `${r > 0 ? "+" : MINUS}${pct(Math.abs(r))}`, dir: r > 0 ? 1 : -1 };
+}
+
+/** A change as a small badge: green when it's good news, red when it isn't. */
+export function DeltaBadge({ delta, lowerIsBetter }: { delta: Delta; lowerIsBetter?: boolean }) {
+  const good = delta.dir === 0 ? 0 : (delta.dir > 0) !== !!lowerIsBetter ? 1 : -1;
+  const Icon = delta.dir > 0 ? ArrowUp : ArrowDown;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 items-center gap-0.5 rounded-[5px] px-1.5 text-[0.71875rem] font-[550] tnum",
+        // The green deepened toward the ink: small text on a tinted, selected tab keeps ≥ 4.5:1 in both themes.
+        good > 0 ? "bg-ok-wash text-[color-mix(in_oklab,var(--ok),var(--ink)_30%)]" : good < 0 ? "bg-danger-wash text-danger" : "bg-paper-sunk text-ink-3",
+      )}
+    >
+      {delta.dir !== 0 && <Icon aria-hidden className="size-3" strokeWidth={2.5} />}
+      {delta.text.replace(/^[+−]/, "")}
+    </span>
+  );
 }
 
 /** A bordered panel: a header row (title or tabs, a column name), then the body. */

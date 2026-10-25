@@ -96,19 +96,28 @@ function Sheet({ req }: { req: ConfirmRequest }) {
           <DataWords data={data} loss={main?.loss} />
         ) : lost.length > 0 ? (
           <div className="mt-3 rounded-[10px] bg-danger-wash px-3.5 py-3 text-[0.9375rem] leading-[1.375rem] text-ink">
-            {lost.map((o, i) => (
-              <p key={o.address + i}>
-                {o.loss && !lossEmpty(o.loss) ? (
-                  <>
-                    <b className="font-[550]">{lossParts(o.loss).join(" · ")}</b> will be gone for good.
-                  </>
-                ) : o.loss ? (
-                  "It’s empty, so nothing is lost, but it can’t be undone."
-                ) : (
-                  <>{cap(o.reason) || "This can’t be undone."}</>
-                )}
-              </p>
-            ))}
+            {lost.map((o, i) => {
+              // A setting that deletes what it kept (attribution off, shorter retention): what it does first, then what goes.
+              const said = o.action === "update" && !!o.reason && !!o.loss;
+              return (
+                <div key={o.address + i}>
+                  {said && <p>{cap(o.reason)}</p>}
+                  <p className={cn(said && "mt-1")}>
+                    {o.loss && !lossEmpty(o.loss) ? (
+                      <>
+                        <b className="font-[550]">{lossParts(o.loss).join(" · ")}</b> will be gone for good.
+                      </>
+                    ) : said ? (
+                      "It holds nothing yet, so nothing is lost."
+                    ) : o.loss ? (
+                      "It’s empty, so nothing is lost, but it can’t be undone."
+                    ) : (
+                      <>{cap(o.reason) || "This can’t be undone."}</>
+                    )}
+                  </p>
+                </div>
+              );
+            })}
             <p className="mt-1 text-sm text-ink-2">This can’t be undone.</p>
           </div>
         ) : out.length > 0 ? (
@@ -256,7 +265,7 @@ function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>, edi
   const { kind, name } = splitAddress(op.address);
   const reason = op.reason ? op.reason.charAt(0).toUpperCase() + op.reason.slice(1) + "." : undefined;
   const fields = op.fields ?? [];
-  const staged = edits.find((e) => e.kind === "set" && `${e.path[0] === "apps" ? "app" : e.path[0] === "queues" ? "queue" : e.path[0] === "crons" ? "cron" : e.path[0]}/${e.path[1]}` === op.address);
+  const staged = edits.find((e) => e.kind === "set" && `${e.path[0] === "apps" ? "app" : e.path[0] === "queues" ? "queue" : e.path[0] === "crons" ? "cron" : e.path[0] === "services" ? "service" : e.path[0]}/${e.path[1]}` === op.address);
   const fallback = staged?.kind === "set" ? staged.what : undefined;
 
   if (kind === "app") {
