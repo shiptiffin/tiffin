@@ -46,7 +46,9 @@ func newCLIBox(t *testing.T, label, project string) *cliBox {
 	t.Helper()
 	RequireLima(t)
 	dir := t.TempDir()
-	return newCLIBoxFrom(t, dir, project, buildTiffin(t, dir, "", ""), buildTiffin(t, dir, "linux", "0.0.1-"+label))
+	// Newer than any release: a box with no update window installs the
+	// newest release within the hour, which would restart it mid-test.
+	return newCLIBoxFrom(t, dir, project, buildTiffin(t, dir, "", ""), buildTiffin(t, dir, "linux", "1000.0.0-"+label))
 }
 
 // newCLIBoxFrom is newCLIBox with the given host CLI and box build.
