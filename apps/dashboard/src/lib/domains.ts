@@ -207,3 +207,83 @@ export const HOSTS: Array<{ name: string; how: string }> = [
 export const providerName = (p?: string) => (p === "cloudflare" ? "Cloudflare" : (p ?? "Your DNS provider"));
 
 export const CLOUDFLARE_TOKENS = "https://dash.cloudflare.com/profile/api-tokens";
+
+// ───────────────────────── buying ─────────────────────────
+
+export type Offer = S["DomainsOffer"];
+export type SearchResult = S["DomainsSearchResult"];
+export type Owned = S["DomainsOwned"];
+export type OwnedDomain = S["DomainsOwnedDomain"];
+export type Purchase = S["DomainsPurchase"];
+export type BuyReadiness = S["DomainsBuyReadiness"];
+export type Quote = S["Quote"];
+
+/**
+ * Names like q (Cloudflare Registrar, in the box's Cloudflare account), as soon
+ * as Cloudflare's search answers: the name itself is checked live, the rest
+ * come from Cloudflare's cache until domainCheckQuery confirms them.
+ */
+export const domainSearchQuery = (q: string) =>
+  queryOptions({
+    queryKey: ["domain-search", q],
+    queryFn: ({ signal }) => request<SearchResult>("GET", `/v1/domains/search?q=${enc(q)}&quick=true`, undefined, signal),
+    enabled: q.length > 0,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+/** Live availability and prices for names a quick search showed from cache. */
+export const domainCheckQuery = (names: string[]) =>
+  queryOptions({
+    queryKey: ["domain-check", names],
+    queryFn: ({ signal }) => request<{ offers: Offer[] | null }>("POST", "/v1/domains/check", { domains: names }, signal),
+    enabled: names.length > 0,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+/** Every domain the box can put on projects, with where each is used. */
+export const ownedDomainsQuery = queryOptions({
+  queryKey: ["domains-owned"],
+  queryFn: () => request<Owned>("GET", "/v1/domains/owned"),
+  retry: false,
+  staleTime: 15_000,
+  refetchInterval: (qq) => (qq.state.data?.domains ?? []).some((d) => d.purchase && !["ready", "failed"].includes(d.purchase.state)) ? 4_000 : false,
+});
+
+/** A purchase's progress; polls until it settles. */
+export const purchaseQuery = (domain: string) =>
+  queryOptions({
+    queryKey: ["domain-purchase", domain],
+    queryFn: () => request<Purchase>("GET", `/v1/domains/buy/${enc(domain)}`),
+    retry: false,
+    refetchInterval: (qq) => (["ready", "failed"].includes(qq.state.data?.state ?? "") ? false : qq.state.data?.state === "blocked" || qq.state.data?.state === "action_required" ? 10_000 : 2_000),
+  });
+
+export type BuyBody = { domain: string; years?: number; autoRenew: boolean; price?: string; project?: string; app?: string };
+
+/** Buys a domain at `price`. A 428 (thrown, problem.quote) means the price to confirm differs. */
+export const buyDomain = (body: BuyBody) => request<Purchase>("POST", "/v1/domains/buy", body);
+
+/** The quote in a 428 from buyDomain, if that's what it was. */
+export function quoteOf(e: unknown): Quote | undefined {
+  return e instanceof ApiError && e.status === 428 ? ((e.problem as { quote?: Quote }).quote ?? undefined) : undefined;
+}
+
+/** "$10.44", or "10.44 EUR" when the currency has no symbol here. */
+export function price(amount?: string, currency = "USD"): string {
+  if (!amount) return "";
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return `${amount} ${currency}`;
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
+  } catch {
+    return `${amount} ${currency}`;
+  }
+}
+
+/** "acme" and ".app": a name's label and its ending, for typesetting. */
+export function splitName(d: string): [string, string] {
+  const i = d.indexOf(".");
+  return i < 0 ? [d, ""] : [d.slice(0, i), d.slice(i)];
+}

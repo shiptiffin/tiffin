@@ -159,6 +159,8 @@ Every project on the box gets these parts. There are no extra accounts, keys or 
 | **Analytics** | Cookieless visits, sources and your own events, counted on the box. |
 | **Monitoring** | Metrics, logs, alerts and Sentry-compatible error tracking. |
 | **Backups** | Every 6 hours, with restore drills. Postgres restores to any second of the last 7 days. Off-box copies go to any S3-compatible bucket, encrypted. |
+| **Domains** | Search for a domain and buy it from the dashboard, in your own Cloudflare account at cost; the box sets its DNS and HTTPS. Or bring any domain with two records. |
+| **Search engines** | Apps on your own domain are findable: every deploy tells Bing and the other IndexNow engines what changed, and you see which search and AI bots read which pages. Names on shiptiffin.app are never indexed. |
 | **Protection** | HTTPS for your own domains, rate limits, a bot challenge, CrowdSec, a firewall and an opt-in WAF. |
 
 ## Built for coding agents

@@ -59,6 +59,8 @@ type Module struct {
 	lastScan []want
 	// lastPrimary is the primary redirects the edge was last given.
 	lastPrimary []string
+	// buy reaches the registrar (nil: Cloudflare's API).
+	buy *buyKit
 }
 
 // New returns a module (tests use their own).

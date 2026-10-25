@@ -174,6 +174,9 @@ func TestConfigValidation(t *testing.T) {
 		"wildcard host": func(c *Config) { c.Routes = []Route{{Host: "*.x", Upstream: "h:1"}} },
 		"hostless root": func(c *Config) { c.Routes = []Route{{Upstream: "h:1"}} },
 		"hostless file": func(c *Config) { c.Routes = []Route{{PathPrefix: "/_x", FileRoot: "/srv"}} },
+		"hostless body and upstream": func(c *Config) {
+			c.Routes = []Route{{PathPrefix: "/_x", Body: "x", Upstream: "127.0.0.1:1"}}
+		},
 	} {
 		c := ok
 		mut(&c)
@@ -314,6 +317,8 @@ func TestEdgeEndToEnd(t *testing.T) {
 		{Host: "shop.tiffin.localhost", Upstream: addr(app)},
 		{Host: "shop.example.test", Upstream: addr(app)},
 		{PathPrefix: "/_tiffin/vitals", Upstream: addr(up)},
+		{PathPrefix: "/0123456789abcdef.txt", Body: "0123456789abcdef"},
+		{Host: "shop.example.test", PathPrefix: "/google0123.html", Body: "google-site-verification: google0123.html"},
 	}
 	cfg.AccessLog = filepath.Join(t.TempDir(), "access.log")
 	if err := e.Reload(cfg); err != nil {
@@ -330,6 +335,17 @@ func TestEdgeEndToEnd(t *testing.T) {
 		if body != "hello from platform /_tiffin/vitals" || !strings.HasPrefix(resp.Header.Get("X-Seen-Host"), h) {
 			t.Fatalf("box path on %s: %q host %q", h, body, resp.Header.Get("X-Seen-Host"))
 		}
+		resp, body = get(t, c, "https://"+h+":"+strconv.Itoa(cfg.HTTPSPort)+"/0123456789abcdef.txt")
+		if resp.StatusCode != 200 || body != "0123456789abcdef" || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
+			t.Fatalf("key file on %s: %d %q", h, resp.StatusCode, body)
+		}
+	}
+	resp, body = get(t, c, "https://shop.example.test:"+strconv.Itoa(cfg.HTTPSPort)+"/google0123.html")
+	if body != "google-site-verification: google0123.html" {
+		t.Fatalf("host body route: %d %q", resp.StatusCode, body)
+	}
+	if _, body = get(t, c, "https://shop.example.test:"+strconv.Itoa(cfg.HTTPSPort)+"/x"); body != "hello from shop /x" {
+		t.Fatalf("app beside a body route: %q", body)
 	}
 	if _, body = get(t, c, base+"/y"); body != "hello from platform /y" {
 		t.Fatalf("dashboard after reload: %q", body)
