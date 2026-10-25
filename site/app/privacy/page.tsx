@@ -87,6 +87,16 @@ const sections: Section[] = [
           changes daily and is deleted after 48 hours; the IP address and browser are not stored with the count.
           Browsers that send Global Privacy Control are not counted.
         </p>
+        <p>
+          To see which sites and campaigns bring us customers, we also keep the campaign tags in the link you
+          followed (utm_source, utm_medium, utm_campaign and ref) and a few sign-up steps as events, without your
+          name or email. When you create an account, we save with it where the visit you signed up in came from:
+          the site that sent you, those tags and the first page you saw. When you pay, the payment is linked to
+          your account. We use this only to understand our own marketing, never for ads or to follow you on other
+          sites, and we share it with no one; our legitimate interest in knowing what brings us customers is the
+          legal basis (GDPR Article 6(1)(f)). To object, turn on Global Privacy Control in your browser, or ask us
+          to delete it. It is deleted with your account. None of this uses a cookie.
+        </p>
       </>
     ),
   },
@@ -498,8 +508,8 @@ export default function Privacy() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="8 October 2026"
-      updatedIso="2026-10-08"
+      updated="25 October 2026"
+      updatedIso="2026-10-25"
       intro="What we collect, why, how we handle Google user data, who helps us run the service, and how to have it deleted. In plain words, because you should be able to read it."
       sections={sections}
     />

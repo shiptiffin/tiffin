@@ -39,6 +39,10 @@ export default defineConfig({
   services: {
     auth: { methods: ["magic-link", "google", "github"], organizations: false },
     email: { from: "hello@shiptiffin.com" },
+    // Marketing attribution: campaign tags, each account's source and, with
+    // Stripe connected, each payment's. Only a person turns it on (the owner
+    // token, or the dashboard with a recent sign-in); the privacy page says so.
+    analytics: { attribution: {} },
   },
   // The name the sign-in emails and pages use (else the project name, "website").
   env: { APP_NAME: "ShipTiffin" },
