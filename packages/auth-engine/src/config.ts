@@ -81,6 +81,8 @@ export const projectSchema = z.object({
    */
   emailBlocked: z.boolean().default(false),
   previewHosts: z.array(z.string()).default([]),
+  /** The box's analytics collector: where sign-ups and account deletions are reported. */
+  analytics: z.object({ url: z.string().url(), key: z.string().min(1) }).optional(),
 });
 
 export type ProjectConfig = z.infer<typeof projectSchema>;

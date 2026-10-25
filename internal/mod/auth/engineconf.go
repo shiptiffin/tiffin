@@ -83,7 +83,23 @@ type ProjectConfig struct {
 	// links, codes and resets are refused on every host but PreviewHosts.
 	EmailBlocked bool     `json:"emailBlocked"`
 	PreviewHosts []string `json:"previewHosts"`
+	// Analytics is where the engine reports new and deleted accounts, so a
+	// sign-up joins the visit it happened in (and, with marketing
+	// attribution, the account keeps where that visit came from).
+	Analytics *EngineAnalytics `json:"analytics,omitempty"`
 }
+
+// EngineAnalytics is the analytics collector's sign-up endpoint and the key
+// the engine sends for the project.
+type EngineAnalytics struct {
+	URL string `json:"url"`
+	Key string `json:"key"`
+}
+
+// AnalyticsSink returns the collector's sign-up endpoint and the project's
+// key for the engine (the analytics module sets it); ok is false when
+// analytics isn't running.
+var AnalyticsSink func(ctx context.Context, project string) (url, key string, ok bool)
 
 // EmailBrand is how an app's auth emails look: the project's icon, and the
 // button colour the manifest sets (auth.emailAccent). Without one the engine
@@ -232,6 +248,11 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 		}
 	}
 	c.EmailBrand = emailBrand(ctx, p, project, &a)
+	if AnalyticsSink != nil {
+		if u, k, ok := AnalyticsSink(ctx, project); ok {
+			c.Analytics = &EngineAnalytics{URL: u, Key: k}
+		}
+	}
 	for _, h := range webHosts(p, res) {
 		c.Hosts = append(c.Hosts, h.Host)
 		c.Origins = append(c.Origins, p.URL(h.Host))

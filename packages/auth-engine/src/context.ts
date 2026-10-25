@@ -7,6 +7,8 @@ export type RequestFacts = {
   host?: string;
   /** Set while the request creates an account. */
   newUser?: boolean;
+  /** The account the request made, once it is saved (reported to analytics). */
+  newUserId?: string;
   /** Set when the request authenticates with an API key (x-api-key). */
   apiKey?: { id: string; userId: string; maxRole: string | null };
 };

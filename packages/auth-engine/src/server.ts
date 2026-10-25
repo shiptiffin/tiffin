@@ -2,6 +2,7 @@
 // auth-enabled project here, keeping the Host header. Host picks the project.
 // Apps calling from inside the box can name the host in x-tiffin-host, held to
 // their own project by x-tiffin-auth-host.
+import { reportSignup } from "./analytics";
 import { SCHEMA } from "./auth";
 import { requestFacts, type RequestFacts } from "./context";
 import type { Registry } from "./registry";
@@ -99,6 +100,7 @@ export function publicHandler(reg: Registry) {
     try {
       const forEngine = engineRequest(req, internal, inst.config.primaryUrl);
       const res = await requestFacts.run(facts, () => inst.auth.handler(forEngine));
+      if (facts.newUserId) void reportSignup(inst.config.analytics, req, facts.host!, facts.newUserId);
       // A sign-in coming back through the app's sign-in host goes on to
       // another host of the same app, never anywhere else.
       const loc = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;

@@ -29,6 +29,7 @@ import (
 	"github.com/shiptiffin/tiffin/internal/change"
 	"github.com/shiptiffin/tiffin/internal/edge"
 	"github.com/shiptiffin/tiffin/internal/mod/analytics/enrich"
+	"github.com/shiptiffin/tiffin/internal/mod/auth"
 	"github.com/shiptiffin/tiffin/internal/mod/backup"
 	"github.com/shiptiffin/tiffin/internal/mod/observe"
 	"github.com/shiptiffin/tiffin/internal/mod/observe/edgelog"
@@ -37,8 +38,10 @@ import (
 )
 
 func init() {
-	platform.Register(&Module{})
+	m := &Module{}
+	platform.Register(m)
 	backup.Include("analytics", dataDir)
+	auth.AnalyticsSink = m.authSink
 }
 
 // Module implements the analytics module.

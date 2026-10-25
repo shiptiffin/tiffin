@@ -13,6 +13,7 @@ import { PostgresDialect } from "kysely";
 import pg from "pg";
 import { z } from "zod";
 import { altcha } from "./altcha";
+import { reportDeleted } from "./analytics";
 import { isSocial, SOCIAL, type ProjectConfig } from "./config";
 import { currentFacts } from "./context";
 import { effectiveRole, inviteLinks, type Member } from "./invite-links";
@@ -747,8 +748,14 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
             currentFacts().newUser = true;
           },
           after: async (user) => {
+            currentFacts().newUserId = user.id;
             if (!c.organizations || !holder.adapter) return;
             await personalOrg(await txAdapter(holder.adapter), user.id);
+          },
+        },
+        delete: {
+          after: async (user) => {
+            void reportDeleted(c.analytics, user.id);
           },
         },
       },
