@@ -29,3 +29,21 @@ func TestHostsWithAndWithoutAppsDomain(t *testing.T) {
 		t.Errorf("URL with a port = %s", got)
 	}
 }
+
+func TestHiddenFromSearch(t *testing.T) {
+	for host, want := range map[string]bool{
+		"dibs.shiptiffin.app":       true,
+		"shop.mybox.shiptiffin.app": true,
+		"shiptiffin.app":            true,
+		"shop.203-0-113-7.sslip.io": true,
+		"shop.tiffin.localhost":     true,
+		"shiptiffin.com":            false,
+		"shop.example.com":          false,
+		"notshiptiffin.app":         false,
+		"shop.example.app":          false,
+	} {
+		if got := HiddenFromSearch(host); got != want {
+			t.Errorf("HiddenFromSearch(%q) = %v, want %v", host, got, want)
+		}
+	}
+}

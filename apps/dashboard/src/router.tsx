@@ -67,6 +67,8 @@ const ObservabilityPage = lz<{ project: string; search: ObserveSearch }>(() => i
 const SecretsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "SecretsPage");
 const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "DomainsPage");
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
+const SearchSettingsPage = lz(() => import("@/routes/search-settings"), "SearchSettingsPage");
+const DomainsHomePage = lz<{ q?: string; project?: string }>(() => import("@/routes/domains-home"), "DomainsHomePage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
 const SignInsPage = lz(() => import("@/routes/sign-ins"), "SignInsPage");
@@ -175,6 +177,16 @@ const box = createRoute({
   },
   component: HomePage,
 });
+const domainsHome = createRoute({
+  getParentRoute: () => app,
+  path: "/domains",
+  validateSearch: (s: Record<string, unknown>): { q?: string; project?: string } => ({ ...(str(s.q) ? { q: str(s.q) } : {}), ...(str(s.project) ? { project: str(s.project) } : {}) }),
+  loader: () => void DomainsHomePage.preload(),
+  component: function DomainsHome() {
+    const { q, project } = domainsHome.useSearch();
+    return <DomainsHomePage q={q} project={project} />;
+  },
+});
 const boxUsage = createRoute({ getParentRoute: () => app, path: "/usage", loader: () => void BoxUsagePage.preload(), component: BoxUsagePage });
 const boxRoute = createRoute({ getParentRoute: () => app, path: "/settings/box", loader: () => void BoxPage.preload(), component: BoxPage });
 const activity = createRoute({
@@ -229,8 +241,11 @@ const gitSettings = createRoute({
     return <GitSettingsPage search={gitSettings.useSearch()} />;
   },
 });
-const dnsSettings = createRoute({ getParentRoute: () => app, path: "/settings/dns", loader: () => void DnsSettingsPage.preload(),
+const dnsSettings = createRoute({ getParentRoute: () => app, path: "/settings/dns",
+  validateSearch: (s: Record<string, unknown>): { next?: string } => (str(s.next)?.startsWith("/") ? { next: str(s.next) } : {}), loader: () => void DnsSettingsPage.preload(),
   component: DnsSettingsPage });
+const searchSettings = createRoute({ getParentRoute: () => app, path: "/settings/search", loader: () => void SearchSettingsPage.preload(),
+  component: SearchSettingsPage });
 const kit = createRoute({ getParentRoute: () => app, path: "/_kit", loader: () => void KitPage.preload(),
   component: KitPage });
 
@@ -827,6 +842,7 @@ const tree = root.addChildren([
   gate,
   app.addChildren([
     box,
+    domainsHome,
     boxRoute,
     boxUsage,
     activity,
@@ -834,6 +850,7 @@ const tree = root.addChildren([
     licenses,
     gitSettings,
     dnsSettings,
+    searchSettings,
     newProject,
     kit,
     change,

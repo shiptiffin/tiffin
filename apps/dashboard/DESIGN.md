@@ -27,7 +27,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 
 - **Sidebar** never grows with the number of projects. Top: the project switcher (the current project, or All
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
-  Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
+  Projects, Domains (search and buy a domain, and every domain the box can manage; domains belong to the box, not one project), Usage (the box, divided by project, and its default limit), Activity (every project's changes),
   Health, Backups, API keys, Settings. Settings swaps the sidebar for its own (← Back, then
   Your box: General, Machine, Git, DNS, Shield, People, Server access (the owner's SSH keys); You: Sign-ins, Touch ID / Face ID), so the sidebar
   never goes three levels deep. Inside a project: "← All projects", then only that project's sections:

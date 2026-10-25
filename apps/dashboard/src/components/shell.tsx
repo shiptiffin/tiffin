@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Activity as ActivityIcon, ArchiveRestore, ArrowLeft, ChevronsUpDown, Gauge, HeartPulse, KeyRound, LayoutGrid, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
+import { Activity as ActivityIcon, ArchiveRestore, ArrowLeft, ChevronsUpDown, Gauge, Globe, HeartPulse, KeyRound, LayoutGrid, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mq } from "@/api/modules";
@@ -250,7 +250,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 // ───────────────────────── sidebar ─────────────────────────
 
 // Settings has its own sidebar (Back, then its pages), so the main one never grows a third level.
-const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/server-access", "/settings/sign-ins", "/settings/passkeys", "/protect"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/search", "/settings/people", "/settings/server-access", "/settings/sign-ins", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/requests", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
@@ -304,6 +304,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
           <NavItem to="/settings/box" label="Machine" />
           {onBox && <NavItem to="/settings/git" label="Git" />}
           {onBox && <NavItem to="/settings/dns" label="DNS" />}
+          {onBox && <NavItem to="/settings/search" label="Search engines" />}
           {onBox && <NavItem to="/protect" label="Shield" aside={<AttackBadge />} />}
           <NavItem to="/settings/people" label="People" />
           {onBox && role === "owner" && <NavItem to="/settings/server-access" label="Server access" />}
@@ -314,6 +315,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
       ) : (
         <div className="flex flex-col gap-px pl-1">
           <NavItem to="/" exact label="Projects" lead={<LayoutGrid className={icon} />} />
+          {onBox && <NavItem to="/domains" label="Domains" lead={<Globe className={icon} />} />}
           <NavItem to="/usage" label="Usage" lead={<Gauge className={icon} />} />
           <NavItem to="/ledger" label="Activity" active={under(activityPaths)} lead={<ActivityIcon className={icon} />} />
           <NavItem to="/status" label="Health" active={under(healthPaths)} lead={<HeartPulse className={icon} />} aside={<Trouble />} />

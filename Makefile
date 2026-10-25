@@ -27,7 +27,7 @@ NOTES        ?=
 BASE_URL     ?=
 RELEASE_KEY  ?=
 
-.PHONY: build release release-sign test site-test site-llms lint golden-update e2e ci clean auth-engine dashboard sdk notices
+.PHONY: build release release-sign test site-test site-llms site-check lint golden-update e2e ci clean auth-engine dashboard sdk notices
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
@@ -58,7 +58,7 @@ build: sdk
 # Reproducible builds for every target (trimmed paths, no build ID, the
 # commit's date, the committed SDK build), named as `tiffin up` looks for them:
 # dist/tiffin-<os>-<arch>, with the licence files beside them.
-release:
+release: site-check
 	@rm -rf dist && mkdir -p dist
 	@cp LICENSE NOTICE THIRD_PARTY_NOTICES dist/
 	@set -e; for t in $(RELEASE_TARGETS); do \
@@ -99,6 +99,13 @@ site-test:
 # /docs/*.md) are built from docs/guide: run this after editing a guide.
 site-llms:
 	cd site && bun lib/llms-write.ts
+
+# A release stops when the website's copy of the guide (site-llms) is behind
+# docs/guide: the site deploys from git, so stale docs would stay live.
+site-check:
+	@cd site && bun lib/llms-write.ts >/dev/null
+	@git diff --quiet -- site/public site/lib/docs-dates.json || { \
+		echo "the website's docs are behind docs/guide: commit and push site/ (make site-llms ran just now)" >&2; exit 1; }
 
 lint:
 	@out="$$(gofmt -l $$(git ls-files '*.go' 2>/dev/null; git ls-files --others --exclude-standard '*.go' 2>/dev/null))"; \

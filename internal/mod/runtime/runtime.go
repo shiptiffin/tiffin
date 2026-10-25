@@ -27,7 +27,10 @@ import (
 	"github.com/shiptiffin/tiffin/internal/projicon"
 )
 
-func init() { platform.Register(&Module{}) }
+// std is the registered module (LiveHosts reads its runtime).
+var std = &Module{}
+
+func init() { platform.Register(std) }
 
 // Module implements the runtime module. See internal/platform for the optional interfaces.
 type Module struct {

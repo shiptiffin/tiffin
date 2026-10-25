@@ -209,6 +209,46 @@ index one address. Plain HTTP goes straight to the primary in one hop.
   on `POST /v1/projects/{project}/domains`, and `POST
   /v1/projects/{project}/domains/{domain}/edit` (`primary`, `www`).
 
+## Buying a domain
+
+**Domains** in the sidebar searches for a name and buys it, without leaving the dashboard.
+It's registered with Cloudflare Registrar **in your own Cloudflare account**, at Cloudflare's
+price (no markup), and charged to the card on that account. ShipTiffin never holds or resells
+it: the domain is yours in Cloudflare, whatever happens to the box.
+
+1. Type a word or a name (`acme`, `acme.app`). The name you typed comes first, then other
+   names, each with its first-year price and what it costs every year after.
+2. **Buy** shows the facts once more: first year, renewal, auto-renew (on by default),
+   contact details hidden from WHOIS, and which project it's for. **Buy for $14.20**
+   registers it. In the dashboard that needs a sign-in in the last 10 minutes (Confirm it's you).
+3. The same window follows it: registered, DNS ready, then added to the project with
+   its records set by the box. HTTPS follows by itself.
+
+Without a project, it waits under **Your domains** (the same page, with an empty search),
+which lists every domain the box can manage, where each is used, and when registered ones
+renew. **Use on a project** puts one on a project in a click.
+
+Until the box can buy, **Domains** shows one thing to do instead of the search: **Connect
+Cloudflare** (it opens Settings › DNS and comes back), or, when the connected token lacks the
+permission, what to add to it in Cloudflare and **Check again**.
+
+It needs the Cloudflare token from [Let Tiffin manage DNS](#let-tiffin-manage-dns-optional) with
+two more things: **Account › Registrar Domains › Admin**, and **Zone Resources: All zones**
+(so the box reaches the zone of a domain you just bought). Editing a token in Cloudflare keeps
+its value, so there's nothing to paste again. Once, in Cloudflare's dashboard, the account needs
+a card, a default contact and the registration agreement accepted (Domains › Registrations).
+
+For agents and the CLI, nothing is bought without the price: `domains buy` without `price`, or
+with a price that's no longer right, answers 428 with the quote. Show it to a person, then send
+its `total` back.
+
+```
+tiffin domains search --q acme
+tiffin domains buy --domain acme.app --auto-renew=true --price 14.20
+tiffin domains buy-status acme.app
+tiffin domains owned
+```
+
 ## Let Tiffin manage DNS (optional)
 
 Connect a Cloudflare API token with **Zone · DNS · Edit** on your zones:
@@ -263,6 +303,12 @@ Undo brings the domain back, but not deleted records: add the domain again with
 `--create-records`. In the dashboard, *Remove domain* and *Delete project* list the same
 records before you confirm.
 
+## Getting found
+
+A production app on a domain of your own is findable: the box tells search engines
+about its pages after each deploy and shows which bots came. Names on `shiptiffin.app`,
+`sslip.io` and local names are never indexed. See [Search engines](search.md).
+
 ## Behind the scenes
 
 - The edge (Caddy) gets certificates from Let's Encrypt, with ZeroSSL as a fallback
@@ -293,7 +339,12 @@ records before you confirm.
   records, then switch; the page follows the dashboard to its new address) and *Go
   back to the automatic address*.
 - **Settings › DNS**: connect Cloudflare with a token made from its *Edit zone DNS*
-  template (All zones), see which domains it can manage, or disconnect.
+  template (All zones; add Registrar Domains › Admin to buy domains too), see which domains
+  it can manage, or disconnect.
+
+- **Domains** (the sidebar): search, buy, and every domain the box can manage
+  ([Buying a domain](#buying-a-domain)).
 
 For agents: `GET /v1/domain`, `POST /v1/domain`, `GET /v1/projects/{project}/domains`,
-`POST /v1/projects/{project}/domains`; the same names as MCP tools.
+`POST /v1/projects/{project}/domains`, `GET /v1/domains/search`, `POST /v1/domains/buy`,
+`GET /v1/domains/owned`; the same names as MCP tools.

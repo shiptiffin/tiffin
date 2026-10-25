@@ -123,6 +123,31 @@ func IsLocalDomain(d string) bool {
 	return false
 }
 
+// SharedZones are ShipTiffin's own domains: managed boxes get names under
+// them, and nobody else can set their DNS.
+var SharedZones = []string{"shiptiffin.app"}
+
+// SharedZone returns the shared zone d is in, or "".
+func SharedZone(d string) string {
+	d = strings.ToLower(strings.TrimSuffix(d, "."))
+	for _, z := range SharedZones {
+		if d == z || strings.HasSuffix(d, "."+z) {
+			return z
+		}
+	}
+	return ""
+}
+
+// HiddenFromSearch reports whether host is on a name nobody ranks on: a
+// shared zone (shiptiffin.app), an automatic sslip.io name or a local one.
+// Every app there says noindex, chosen names included; an app gets found on
+// a domain of its own. A shared domain also shares its reputation: one
+// project's spam would weigh on every other.
+func HiddenFromSearch(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	return SharedZone(h) != "" || h == "sslip.io" || strings.HasSuffix(h, ".sslip.io") || IsLocalDomain(h)
+}
+
 // ChooseDomain picks the box's domain: the one set with `tiffin domain
 // set`; else, on a box with a public IPv4 whose service domain is a local
 // one, <ip-with-dashes>.sslip.io (real names with zero setup); else the
@@ -155,6 +180,14 @@ type DNSManager interface {
 	SetRecords(ctx context.Context, recs []dnskit.Record, by string) error
 	// DeleteRecords removes records by name and type.
 	DeleteRecords(ctx context.Context, recs []dnskit.Record, by string) error
+}
+
+// DNSAppender is the part of Platform.DNS (the domains module) that adds a
+// record beside the others at its name, such as a search engine's
+// verification TXT next to SPF. The box does not count such records as its
+// own: removing a domain leaves them, since the proof must stay.
+type DNSAppender interface {
+	AddRecords(ctx context.Context, recs []dnskit.Record, by string) error
 }
 
 // DNSCleaner is the part of Platform.DNS (the domains module) that tidies

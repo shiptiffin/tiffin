@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { boxDomainQuery, projectDomainsQuery, withWww } from "@/lib/domains";
 import { useMe } from "@/lib/me";
+import { hiddenFromSearch } from "@/lib/search";
 import { rememberProject } from "@/lib/recent";
 
 /**
@@ -161,7 +162,10 @@ export function DomainsPage({ project }: { project: string }) {
             <h2 id="free-addresses" className="label">
               Free addresses
             </h2>
-            <span className="text-[0.8125rem] text-ink-3">Included with your box. They work whatever domains you add.</span>
+            <span className="text-[0.8125rem] text-ink-3">
+              Included with your box. They work whatever domains you add
+              {hiddenFromSearch(box.data.appsDomain) ? ", and search engines are asked not to index them: an app gets found on a domain of its own." : "."}
+            </span>
           </div>
           <FreeAddresses project={project} manifest={m.data?.manifest} box={box.data} />
         </section>

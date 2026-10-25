@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Check } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { RecordsTable } from "@/components/dns-records";
 import { kindOf } from "@/components/domains-parts";
@@ -11,7 +12,7 @@ import { Checkbox, Select } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDebounced } from "@/lib/debounced";
-import { addDomain, cleanDomain, looksLikeDomain, planAddDomain, type BoxDomain, type DnsRecord, type Domain } from "@/lib/domains";
+import { addDomain, cleanDomain, looksLikeDomain, ownedDomainsQuery, planAddDomain, type BoxDomain, type DnsRecord, type Domain } from "@/lib/domains";
 import { undoChange } from "@/lib/staged";
 
 type Props = {
@@ -33,8 +34,8 @@ type Props = {
 /**
  * Add a domain in two steps, like the big hosts: the name (with what kind of
  * name it is and what that means for its records), then the exact records
- * to set, watched live until the domain is up. Tiffin doesn't sell domains:
- * this is for one you already own.
+ * to set, watched live until the domain is up. For one you already own;
+ * Domains (the sidebar) buys new ones.
  */
 export function AddDomainDialog(props: Props) {
   const { open, onOpenChange } = props;
@@ -68,6 +69,9 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, onDone }: 
   const boxName = !!box && (domain === box.dashboard || (under && !freeName));
   const shared = !under && (domain === SHARED || domain.endsWith(`.${SHARED}`));
   const ips = box?.publicIps ?? [];
+  // Domains the box can manage that no project uses yet: one click fills the name.
+  const owned = useQuery({ ...ownedDomainsQuery, enabled: !local });
+  const picks = (owned.data?.domains ?? []).filter((o) => o.manageable && !o.box && !o.usedBy?.length && !taken.includes(o.domain)).map((o) => o.domain);
   const problem = raw.trim() === "" ? null : !valid ? "bad" : dup ? "dup" : boxName ? "box" : shared ? "shared" : null;
 
   // What adding it would do, asked of the box without changing anything: the plan, and the exact records to set.
@@ -171,6 +175,16 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, onDone }: 
             aria-describedby="add-domain-note"
             className="ident mt-1.5 text-[0.875rem]"
           />
+          {raw.trim() === "" && picks.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[0.8125rem]">
+              <span className="text-ink-3">Yours:</span>
+              {picks.slice(0, 6).map((d) => (
+                <button key={d} type="button" onClick={() => setRaw(d)} className="ident rounded-[6px] border border-rule-2 bg-paper-raised px-2 py-0.5 text-[0.75rem] text-ink-2 hover:border-rule-3 hover:text-ink">
+                  {d}
+                </button>
+              ))}
+            </div>
+          )}
           <div id="add-domain-note" className="mt-2 text-[0.8125rem] empty:hidden">
             {problem === "bad" ? (
               <span className="text-danger">That doesn’t look like a domain. Use a name like {project}.com or shop.example.com.</span>
@@ -229,7 +243,12 @@ function Flow({ onOpenChange, project, apps, taken, box, list, local, onDone }: 
         {add.isError && <ProblemNote error={add.error} />}
       </DialogBody>
       <DialogFooter>
-        <span className="mr-auto text-[0.8125rem] text-ink-3 max-sm:text-center">Tiffin doesn’t sell domains. Buy one at any registrar first.</span>
+        <span className="mr-auto text-[0.8125rem] text-ink-3 max-sm:text-center">
+          Need one?{" "}
+          <Link to="/domains" search={{ project, q: raw.trim() || undefined }} className="text-ink underline decoration-rule-3 underline-offset-2 hover:decoration-current">
+            Buy a domain
+          </Link>
+        </span>
         <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
           Cancel
         </Button>
