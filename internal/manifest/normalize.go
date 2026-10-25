@@ -53,7 +53,7 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //   - postgres extensions are sorted and de-duplicated
 //   - auth methods default to ["email", "magic-link"], sorted and de-duplicated
 //     (auth organizations default to true when decoded from JSON)
-//   - analytics retentionDays 365
+//   - analytics retentionDays 365; attribution campaigns and signups true, firstVisitCookie off
 //   - email from is left empty: the box resolves "<project>@<box domain>"
 //   - cron path "/cron/<name>"
 //   - queue path "/queues/<name>", ratePeriodSeconds 60 when rateLimit is
@@ -183,8 +183,22 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 		}
 		a.Methods = methods
 	}
-	if a := m.Services.Analytics; a != nil && a.RetentionDays == 0 {
-		a.RetentionDays = DefaultAnalyticsRetentionDays
+	if a := m.Services.Analytics; a != nil {
+		if a.RetentionDays == 0 {
+			a.RetentionDays = DefaultAnalyticsRetentionDays
+		}
+		if at := a.Attribution; at != nil {
+			yes := true
+			if at.Campaigns == nil {
+				at.Campaigns = &yes
+			}
+			if at.Signups == nil {
+				at.Signups = &yes
+			}
+			if at.FirstVisitCookie == "" {
+				at.FirstVisitCookie = FirstVisitOff
+			}
+		}
 	}
 	for name, c := range m.Crons {
 		if c.Path == "" && c.URL == "" {

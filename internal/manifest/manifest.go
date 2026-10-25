@@ -450,7 +450,32 @@ type Email struct {
 type Analytics struct {
 	// RetentionDays is how long raw events are kept, 1-3650. Default 365.
 	RetentionDays int `json:"retentionDays"`
+	// Attribution turns on marketing attribution: campaign tags, the source
+	// of each sign-up and, with Stripe connected, of each payment. Off (nil)
+	// by default. Only a person turns it on: API keys can't, and a dashboard
+	// session needs a recent strong sign-in.
+	Attribution *Attribution `json:"attribution,omitempty"`
 }
+
+// Attribution is marketing attribution's settings. Campaigns and Signups
+// default to true when attribution is listed.
+type Attribution struct {
+	// Campaigns keeps utm_* and ref tags (Basic analytics drops them).
+	Campaigns *bool `json:"campaigns,omitempty"`
+	// Signups saves the source of the visit each new account signed up in.
+	Signups *bool `json:"signups,omitempty"`
+	// FirstVisitCookie remembers a visitor's first visit for 90 days with a
+	// first-party cookie: "off" (the default), "outside-eu" (never set for
+	// visitors in the EU, EEA or UK) or "ask-eu" (there, only after they agree).
+	FirstVisitCookie string `json:"firstVisitCookie,omitempty"`
+}
+
+// First-visit cookie modes.
+const (
+	FirstVisitOff       = "off"
+	FirstVisitOutsideEU = "outside-eu"
+	FirstVisitAskEU     = "ask-eu"
+)
 
 // Cron is one scheduled call into an app, or to an address outside the box.
 // The box sends an HTTP request to the app's Path (or to URL) on every tick.

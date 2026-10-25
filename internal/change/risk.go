@@ -27,6 +27,11 @@ func Classify(op Op) (Tier, string) {
 		if kind == KindStopped {
 			return TierReversible, "stops every app of the project (its data stays); undo starts them again"
 		}
+		if kind == KindService && name == "analytics" {
+			if t, why, ok := attributionReason(nil, op.After); ok {
+				return t, why
+			}
+		}
 		return TierReversible, "new " + kindNoun(kind, name) + "; undo deletes it"
 	case Delete:
 		switch kind {
@@ -79,6 +84,11 @@ func Classify(op Op) (Tier, string) {
 			}
 			if name == "analytics" && shortenedRetention(op.Before, op.After) {
 				return TierIrreversible, "shortens analytics retention and deletes events older than the new limit"
+			}
+			if name == "analytics" {
+				if t, why, ok := attributionReason(op.Before, op.After); ok {
+					return t, why
+				}
 			}
 		case KindProject:
 			a, b := projectSpec(op.Before), projectSpec(op.After)

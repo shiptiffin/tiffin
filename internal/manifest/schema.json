@@ -603,6 +603,26 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 3650
+            },
+            "attribution": {
+              "description": "Marketing attribution: campaign tags, the source of each sign-up and, with Stripe connected, of each payment. Off when left out. Only a person turns it on (API keys can't), and the project's privacy policy must say so: tiffin analytics privacy prints the text.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "campaigns": {
+                  "description": "Keep utm_* and ref tags (Basic analytics drops them). Default true.",
+                  "type": "boolean"
+                },
+                "signups": {
+                  "description": "Save the source of the visit each new account signed up in. Default true.",
+                  "type": "boolean"
+                },
+                "firstVisitCookie": {
+                  "description": "Remember a visitor's first visit for 90 days with a first-party cookie: off (the default), outside-eu (never set for visitors in the EU, EEA or UK) or ask-eu (there, only after they agree).",
+                  "type": "string",
+                  "enum": ["off", "outside-eu", "ask-eu"]
+                }
+              }
             }
           }
         }

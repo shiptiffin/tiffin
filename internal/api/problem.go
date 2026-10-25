@@ -176,13 +176,17 @@ func toProblem(err error) error {
 		out := problem(401, "unauthenticated", err.Error())
 		out.Hint = "send Authorization: Bearer <token> (TIFFIN_TOKEN for the CLI)"
 		return out
-	case errors.Is(err, tokens.ErrReauthPasskey), errors.Is(err, tokens.ErrReauthEmail), errors.Is(err, tokens.ErrReauthSSH):
+	case errors.Is(err, tokens.ErrReauthPasskey), errors.Is(err, tokens.ErrReauthEmail), errors.Is(err, tokens.ErrReauthSSH), errors.Is(err, tokens.ErrReauthAttribution):
 		out := problem(403, "reauth_required", err.Error())
 		out.Hint = "confirm with one of your passkeys (POST /v1/session/confirm), or sign in again with a passkey, Google, GitHub or an emailed link, then repeat the call"
 		return out
 	case errors.Is(err, tokens.ErrReauth):
 		out := problem(403, "reauth_required", err.Error())
 		out.Hint = "confirm with a passkey (POST /v1/session/confirm), or sign in again with a passkey, Google, GitHub or an emailed link, then repeat the call; or make a read-only key that lasts a day"
+		return out
+	case errors.Is(err, tokens.ErrAttributionByKey):
+		out := problem(403, "forbidden", err.Error())
+		out.Hint = "a person turns it on in the dashboard (the project's Analytics page, Attribution), or with the owner token; an API key can still plan it, and turn it off"
 		return out
 	case errors.Is(err, tokens.ErrEmailByKey):
 		out := problem(403, "forbidden", err.Error())

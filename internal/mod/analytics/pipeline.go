@@ -46,8 +46,35 @@ type sessKey struct {
 }
 
 type sess struct {
-	id   int64
-	last time.Time
+	id    int64
+	last  time.Time
+	touch Touch
+}
+
+// visKey is a visitor of a project, on any of its apps.
+type visKey struct {
+	project string
+	visitor int64
+}
+
+// Touch is where a visit came from: its first hit's source, campaign tags
+// and page. Attribution saves it with an account that signs up during the
+// visit.
+type Touch struct {
+	Session     int64     `json:"session,omitempty"`
+	At          time.Time `json:"at"`
+	Source      string    `json:"source"`
+	RefHost     string    `json:"refHost"`
+	UTMSource   string    `json:"utmSource"`
+	UTMMedium   string    `json:"utmMedium"`
+	UTMCampaign string    `json:"utmCampaign"`
+	Landing     string    `json:"landing"`
+	Country     string    `json:"country"`
+}
+
+func touchOf(e *Event) Touch {
+	return Touch{Session: e.Session, At: e.TS, Source: e.RefSource, RefHost: e.RefHost, UTMSource: e.UTMSource,
+		UTMMedium: e.UTMMedium, UTMCampaign: e.UTMCamp, Landing: e.Path, Country: e.Country}
 }
 
 // Stats count what the pipeline did since start.
@@ -86,11 +113,18 @@ type Pipeline struct {
 	// Own reports whether a referrer URL is a page of project: moving
 	// between a project's apps and hosts is not a referral. Optional.
 	Own func(ctx context.Context, project, ref string) bool
+	// Settings returns a project's settings: without attribution, campaign
+	// tags are dropped. Optional (nil keeps them).
+	Settings func(ctx context.Context, project string) Settings
+	// Checkout notes a visitor coming back from a payment provider's
+	// checkout with its session id (attribution only). Optional.
+	Checkout func(project, checkoutID string, touch Touch, at time.Time)
 
 	mu       sync.Mutex
 	buf      []Event
 	bufBytes int
 	sessions map[sessKey]*sess
+	latest   map[visKey]*sess   // each visitor's latest visit on any app of the project
 	dirty    map[[3]string]bool // project, app, day with stored events needing a rollup
 	gone     map[string]bool    // projects whose analytics was deleted: their hits are dropped
 	salts    map[string][]byte  // day -> visitor salt, the last few days
@@ -186,6 +220,15 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		return false, why
 	}
 	page := enrich.ParsePage(h.URL, h.Host)
+	var set Settings
+	if pl.Settings != nil {
+		set = pl.Settings(ctx, h.Project)
+		if !set.Campaigns {
+			page.UTM = map[string]string{} // Basic analytics keeps no campaign tags
+		}
+	} else {
+		set = Settings{Campaigns: true}
+	}
 	if !page.Valid && h.Kind == "pageview" {
 		pl.mu.Lock()
 		pl.stats.Invalid++
@@ -269,17 +312,41 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		if s == nil || h.At.Sub(s.last) > SessionIdle {
 			s = &sess{id: randID()}
 			pl.sessions[k] = s
+			ev.Session = s.id
+			s.touch = touchOf(&ev)
+			if l := pl.latest[visKey{h.Project, vis}]; l != nil && h.At.Sub(l.last) <= SessionIdle {
+				// Moving on to another app of the project: still the same
+				// visit for attribution, which came from where that one did.
+				s.touch = l.touch
+			}
 		}
 		if h.At.After(s.last) {
 			s.last = h.At
 		}
 		ev.Session = s.id
+		if pl.latest == nil {
+			pl.latest = map[visKey]*sess{}
+		}
+		pl.latest[visKey{h.Project, vis}] = s
+	}
+	var back Touch
+	checkout := ""
+	if set.Attribution && pl.Checkout != nil && ev.Kind == "pageview" {
+		if id := page.CheckoutID; id != "" {
+			checkout, back = id, Touch{Session: ev.Session}
+			if s := pl.latest[visKey{h.Project, vis}]; vis != 0 && s != nil {
+				back = s.touch
+			}
+		}
 	}
 	pl.buf = append(pl.buf, ev)
 	pl.bufBytes += ev.size()
 	pl.stats.Accepted++
 	full := len(pl.buf) >= 1000
 	pl.mu.Unlock()
+	if checkout != "" {
+		pl.Checkout(h.Project, checkout, back, h.At)
+	}
 	if pl.RT != nil {
 		pl.RT.Add(ev)
 	}
@@ -379,6 +446,11 @@ func (pl *Pipeline) Forget(project string) {
 			delete(pl.sessions, k)
 		}
 	}
+	for k := range pl.latest {
+		if k.project == project {
+			delete(pl.latest, k)
+		}
+	}
 	pl.mu.Unlock()
 	if pl.RT != nil {
 		pl.RT.Forget(project)
@@ -437,10 +509,23 @@ func (pl *Pipeline) Restore(ctx context.Context) error {
 	if pl.sessions == nil {
 		pl.sessions = map[sessKey]*sess{}
 	}
-	for _, e := range evs {
-		if e.Visitor != 0 && e.Session != 0 {
-			pl.sessions[sessKey{e.Project, e.App, e.Visitor}] = &sess{id: e.Session, last: e.TS}
+	if pl.latest == nil {
+		pl.latest = map[visKey]*sess{}
+	}
+	for _, e := range evs { // oldest first: a visit's first event is its touch
+		if e.Visitor == 0 || e.Session == 0 {
+			continue
 		}
+		k := sessKey{e.Project, e.App, e.Visitor}
+		s := pl.sessions[k]
+		if s == nil || s.id != e.Session {
+			s = &sess{id: e.Session, touch: touchOf(&e)}
+			pl.sessions[k] = s
+		}
+		if e.TS.After(s.last) {
+			s.last = e.TS
+		}
+		pl.latest[visKey{e.Project, e.Visitor}] = s
 	}
 	pl.mu.Unlock()
 	if pl.RT != nil {
@@ -461,6 +546,39 @@ func (pl *Pipeline) Prune() {
 			delete(pl.sessions, k)
 		}
 	}
+	for k, s := range pl.latest {
+		if s.last.Before(cut) {
+			delete(pl.latest, k)
+		}
+	}
+}
+
+// Visit returns the visit going on now for the person behind ip and ua on
+// any app of project, and where it came from. Sign-ups join it this way:
+// the account gets the visit's source.
+func (pl *Pipeline) Visit(ctx context.Context, project, ip, ua string, at time.Time) (Touch, bool) {
+	if at.IsZero() {
+		at = pl.now()
+	}
+	at = at.UTC()
+	vis := pl.visitor(ctx, dayOf(at), project, ip, ua)
+	if vis == 0 {
+		return Touch{}, false
+	}
+	keys := []visKey{{project, vis}}
+	if at.Sub(at.Truncate(24*time.Hour)) < SessionIdle {
+		if b := pl.visitor(ctx, dayOf(at.AddDate(0, 0, -1)), project, ip, ua); b != 0 {
+			keys = append(keys, visKey{project, b})
+		}
+	}
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	for _, k := range keys {
+		if s := pl.latest[k]; s != nil && at.Sub(s.last) <= SessionIdle {
+			return s.touch, true
+		}
+	}
+	return Touch{}, false
 }
 
 // Run flushes every second, rolls up every 10 seconds and prunes sessions.

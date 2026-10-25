@@ -151,6 +151,9 @@ func (p *Principal) Authorizer() change.Authorizer {
 		if err := p.Require(need, plan.Project); err != nil {
 			return err // it says what the key reaches
 		}
+		if what := change.AttributionTurnedOn(plan); what != "" && p.Kind != KindOwner && !p.IsSession() {
+			return AttributionByKey(what)
+		}
 		return nil
 	}
 }

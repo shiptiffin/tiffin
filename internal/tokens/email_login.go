@@ -132,6 +132,22 @@ func checkEmail(email string) error {
 	return nil
 }
 
+// ErrAttributionByKey refuses an API key turning on marketing attribution
+// or its first-visit cookie: they link visits to people and need the
+// project's privacy policy to say so, so a person decides (AttributionByKey
+// says which was asked).
+var ErrAttributionByKey = fmt.Errorf("%w: an API key can't turn on marketing attribution", ErrForbidden)
+
+type attributionByKey string
+
+func (e attributionByKey) Error() string {
+	return "an API key can't turn on " + string(e) + ": it links visits to people and your privacy policy has to say so, so a person turns it on in the dashboard (Analytics › Attribution), or with the owner token"
+}
+func (e attributionByKey) Is(target error) bool { return target == ErrAttributionByKey || target == ErrForbidden }
+
+// AttributionByKey is ErrAttributionByKey naming what was asked.
+func AttributionByKey(what string) error { return attributionByKey(what) }
+
 // ErrEmailByKey refuses an email change from an API key: emailed sign-in
 // links go to the address, so a key that could repoint someone's (the
 // owner's included) could take over their account. People change addresses

@@ -241,6 +241,9 @@ type Page struct {
 	UTM      map[string]string // utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref
 	Valid    bool
 	RawQuery string // kept query: only utm_* and ref
+	// CheckoutID is a Stripe Checkout Session id (cs_...) from a session_id
+	// tag: the page a buyer comes back to. It is never stored with the page.
+	CheckoutID string
 }
 
 // RedactEmails replaces path segments holding an email address (a sign-up
@@ -294,6 +297,10 @@ func ParsePage(rawURL, host string) Page {
 	keep := url.Values{}
 	for k, vs := range u.Query() {
 		lk := strings.ToLower(k)
+		if lk == "session_id" && len(vs) > 0 && (strings.HasPrefix(vs[0], "cs_live_") || strings.HasPrefix(vs[0], "cs_test_")) && len(vs[0]) <= 255 {
+			p.CheckoutID = vs[0]
+			continue
+		}
 		if (strings.HasPrefix(lk, "utm_") || lk == "ref") && len(vs) > 0 {
 			v := vs[0]
 			if len(v) > 200 {
@@ -378,10 +385,44 @@ func Referrer(ref, pageHost string, utm map[string]string) (source, host string)
 	if host != "" && (host == strings.TrimPrefix(pageHost, "www.")) {
 		host = "" // internal navigation
 	}
+	if PaymentHost(host) {
+		host = "" // back from paying: the visit keeps the source that brought it
+	}
 	if source == "" && host != "" {
 		source = sourceName(host)
 	}
 	return source, host
+}
+
+// paymentHosts are checkout and billing pages of payment providers. A
+// visitor coming back from one is finishing a purchase, not arriving from
+// somewhere new.
+var paymentHosts = map[string]bool{
+	"checkout.stripe.com":            true,
+	"billing.stripe.com":             true,
+	"invoice.stripe.com":             true,
+	"pay.stripe.com":                 true,
+	"hooks.stripe.com":               true, // 3-D Secure and bank redirects
+	"link.com":                       true, // Stripe Link
+	"checkout.link.com":              true,
+	"buy.polar.sh":                   true,
+	"polar.sh":                       true,
+	"sandbox.polar.sh":               true,
+	"checkout.paddle.com":            true,
+	"buy.paddle.com":                 true,
+	"sandbox-checkout.paddle.com":    true,
+	"paypal.com":                     true,
+	"sandbox.paypal.com":             true,
+	"checkout.dodopayments.com":      true,
+	"test.checkout.dodopayments.com": true,
+	"pay.gocardless.com":             true,
+}
+
+// PaymentHost reports whether host is a payment provider's checkout or
+// billing page (any *.lemonsqueezy.com store included).
+func PaymentHost(host string) bool {
+	host = strings.TrimPrefix(host, "www.")
+	return paymentHosts[host] || strings.HasSuffix(host, ".lemonsqueezy.com")
 }
 
 func sourceName(host string) string {

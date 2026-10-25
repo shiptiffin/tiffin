@@ -43,15 +43,17 @@ func init() {
 
 // Module implements the analytics module.
 type Module struct {
-	p       *platform.Platform
-	store   Store
-	pipe    *Pipeline
-	rt      *Realtime
-	sites   *edgelog.Sites
-	geo     *enrich.Geo
-	vit     *Vitals
-	started atomic.Bool
-	listErr atomic.Value
+	p        *platform.Platform
+	store    Store
+	pipe     *Pipeline
+	rt       *Realtime
+	sites    *edgelog.Sites
+	geo      *enrich.Geo
+	vit      *Vitals
+	attr     *attrStore
+	settings settingsCache
+	started  atomic.Bool
+	listErr  atomic.Value
 }
 
 func (*Module) Name() string { return "analytics" }
@@ -109,6 +111,11 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 		return err
 	}
 	geo, _ := enrich.OpenGeo(geoPath(root))
+	attr, err := openAttrStore(filepath.Join(root, "analytics", "attribution.db"))
+	if err != nil {
+		return err
+	}
+	m.attr = attr
 	m.setup(p, st, geo)
 	if geo.Loaded() { // "New sign-in" emails name the country a sign-in came from
 		api.SetLocator(func(ip string) string { return enrich.CountryName(geo.Country(ip)) })
@@ -154,7 +161,12 @@ func (m *Module) setup(p *platform.Platform, st Store, geo *enrich.Geo) {
 	m.p, m.store, m.geo = p, st, geo
 	m.rt = &Realtime{}
 	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
-	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt, Own: m.ownPage}
+	if m.attr == nil {
+		m.attr, _ = openAttrStore(":memory:")
+	}
+	m.settings = settingsCache{load: m.loadSettings}
+	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt, Own: m.ownPage,
+		Settings: m.Settings, Checkout: m.noteCheckout}
 	m.vit = &Vitals{Store: st}
 }
 
@@ -172,6 +184,7 @@ func (m *Module) retentionLoop(ctx context.Context) {
 
 func (m *Module) applyRetention(ctx context.Context) {
 	_ = m.store.ForgetSalts(ctx, time.Now().Add(-48*time.Hour))
+	_ = m.attr.purge(ctx, time.Now())
 	projects, err := m.p.DB.ListProjects(ctx)
 	if err != nil {
 		return
@@ -215,7 +228,16 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	}
 	m.sites.Invalidate()
 	if spec == nil {
+		m.settings.forget(project)
 		return m.deleteProject(ctx, project)
+	}
+	set := parseSettings(spec)
+	m.settings.set(project, set)
+	if !set.Attribution {
+		// Off (or turned off): what attribution linked to people goes.
+		if err := m.attr.deleteProject(ctx, project); err != nil {
+			return err
+		}
 	}
 	m.pipe.Revive(project)
 	m.vit.Revive(project)
@@ -240,7 +262,20 @@ func (m *Module) deleteProject(ctx context.Context, project string) error {
 	if m.vit != nil {
 		m.vit.Forget(project)
 	}
+	if m.attr != nil {
+		if err := m.attr.deleteProject(ctx, project); err != nil {
+			return err
+		}
+	}
 	return m.store.DeleteProject(ctx, project)
+}
+
+// noteCheckout keeps a buyer's visit coming back from Stripe Checkout, for
+// the payment to join (attribution only; the pipeline checks).
+func (m *Module) noteCheckout(project, id string, t Touch, at time.Time) {
+	if err := m.attr.putCheckout(context.Background(), project, id, t, at); err != nil && m.p != nil {
+		m.p.Log.Error("analytics checkout return", "project", project, "err", err)
+	}
 }
 
 // Routes publishes the collector (script, beacons) at t.<domain>, and

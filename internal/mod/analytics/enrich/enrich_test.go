@@ -134,6 +134,21 @@ func TestPageAndReferrer(t *testing.T) {
 	}
 }
 
+func TestPaymentHostsAreNotReferrers(t *testing.T) {
+	for _, ref := range []string{"https://checkout.stripe.com/c/pay/cs_test_1", "https://billing.stripe.com/p/session/x",
+		"https://shop.lemonsqueezy.com/checkout/buy/1", "https://buy.polar.sh/polar_cl_1", "https://www.paypal.com/checkoutnow"} {
+		if s, h := Referrer(ref, "shop.example.com", nil); s != "" || h != "" {
+			t.Errorf("Referrer(%q) = %q, %q; want a visit with no source", ref, s, h)
+		}
+	}
+	if s, _ := Referrer("https://checkout.stripe.com/c/pay/x", "shop.example.com", map[string]string{"utm_source": "mail"}); s != "mail" {
+		t.Errorf("a utm_source still names the source, got %q", s)
+	}
+	if s, _ := Referrer("https://stripe.com/blog", "shop.example.com", nil); s != "stripe.com" {
+		t.Errorf("stripe.com itself is a referral, got %q", s)
+	}
+}
+
 func TestGeo(t *testing.T) {
 	path := os.Getenv("TIFFIN_TEST_MMDB")
 	if path == "" {

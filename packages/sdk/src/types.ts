@@ -316,6 +316,27 @@ export interface EmailConfig {
 export interface AnalyticsConfig {
   /** How long raw events are kept, in days, 1-3650. Default 365. */
   retentionDays?: number;
+  /**
+   * Marketing attribution: campaign tags, the source of each sign-up and,
+   * with Stripe connected, of each payment. Off when left out. Only a person
+   * turns it on (API keys can't), and the project's privacy policy must say
+   * so: `tiffin analytics privacy` prints the text.
+   */
+  attribution?: AttributionConfig;
+}
+
+/** Marketing attribution's settings. */
+export interface AttributionConfig {
+  /** Keep utm_* and ref tags (Basic analytics drops them). Default true. */
+  campaigns?: boolean;
+  /** Save the source of the visit each new account signed up in. Default true. */
+  signups?: boolean;
+  /**
+   * Remember a visitor's first visit for 90 days with a first-party cookie:
+   * "off" (the default), "outside-eu" (never set for visitors in the EU, EEA
+   * or UK) or "ask-eu" (there, only after they agree).
+   */
+  firstVisitCookie?: "off" | "outside-eu" | "ask-eu";
 }
 
 /**

@@ -440,6 +440,11 @@ var ErrReauthSSH error = reauthError("confirm it's you first: changing SSH keys 
 // must not be able to spend money.
 var ErrReauthBuy error = reauthError("confirm it's you first: buying a domain needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
 
+// ErrReauthAttribution asks the person to confirm it's them before turning
+// on marketing attribution or its first-visit cookie: it links visits to
+// people, so a stolen session must not switch it on quietly.
+var ErrReauthAttribution error = reauthError("confirm it's you first: turning on marketing attribution needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
+
 // RequireSudo returns refusal (an ErrReauth) when p is a dashboard session
 // that hasn't proved who is behind it within SudoWindow. API keys and the
 // owner token are never asked.

@@ -387,6 +387,19 @@ func servicesNode(s Services) *node {
 		if a.RetentionDays != DefaultAnalyticsRetentionDays {
 			p.set("retentionDays", num(a.RetentionDays))
 		}
+		if at := a.Attribution; at != nil {
+			q := obj()
+			if at.Campaigns != nil && !*at.Campaigns {
+				q.set("campaigns", boolean(false))
+			}
+			if at.Signups != nil && !*at.Signups {
+				q.set("signups", boolean(false))
+			}
+			if at.FirstVisitCookie != "" && at.FirstVisitCookie != FirstVisitOff {
+				q.set("firstVisitCookie", str(at.FirstVisitCookie))
+			}
+			p.set("attribution", q)
+		}
 		setUnlessEmpty(n, "analytics", p)
 	}
 	return n

@@ -90,7 +90,7 @@ func TestFixtureTrafficExactCounts(t *testing.T) {
 	owner, _, _ := tm.Bootstrap(ctx)
 	p := &platform.Platform{DB: db, Tokens: tm, Engine: change.NewEngine(db), Home: root, DataRoot: root, Domain: "box.test",
 		PublicURL: "https://dashboard.box.test:8443", Log: slog.Default()}
-	applyManifest(t, db, `{"project":"shop","apps":{"web":{"routes":["shop"]}},"services":{"analytics":{"retentionDays":30}}}`)
+	applyManifest(t, db, `{"project":"shop","apps":{"web":{"routes":["shop"]}},"services":{"analytics":{"retentionDays":30,"attribution":{}}}}`)
 	applyManifest(t, db, `{"project":"plain","apps":{"site":{}}}`)
 
 	var m *Module
