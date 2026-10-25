@@ -303,6 +303,12 @@ Undo brings the domain back, but not deleted records: add the domain again with
 `--create-records`. In the dashboard, *Remove domain* and *Delete project* list the same
 records before you confirm.
 
+## Getting found
+
+A production app on a domain of your own is findable: the box tells search engines
+about its pages after each deploy and shows which bots came. Names on `shiptiffin.app`,
+`sslip.io` and local names are never indexed. See [Search engines](https://shiptiffin.com/docs/search.md).
+
 ## Behind the scenes
 
 - The edge (Caddy) gets certificates from Let's Encrypt, with ZeroSSL as a fallback

@@ -664,6 +664,26 @@ automatic events from sign-ups and deploys.
 - A page the browser prerendered and the visitor then opened is not counted at the
   edge: the box only sees the prerender, which is not a page view.
 
+## Search engines
+
+Not yet: connecting Google Search Console or Bing Webmaster Tools to read searches,
+clicks and index status into the box (add the domain in Search Console yourself; the
+box notices the verification record), and a per-page "indexed" answer.
+
+- Only addresses on a domain of your own are findable. Every name on `shiptiffin.app`
+  (chosen names too), `sslip.io` and local names says noindex, with no way to turn it off.
+- Google takes no IndexNow pings; it finds changes through your sitemap on its own
+  schedule.
+- Changes are found through the sitemap: a page missing from it is never sent, and
+  when every page has the same `lastmod` only new and removed pages are sent.
+- At most 50,000 pages and 50 sitemap files are read per address.
+- A check that runs while the app is down or the sitemap fails keeps the last good
+  list and tries again at the next one.
+- The crawler log counts bots from their companies' published address lists. Bots
+  without one (Meta, ByteDance, Common Crawl, Mistral) are not shown, and Anthropic's
+  one list covers its three bots, told apart by user agent. 30 days are kept.
+- `tiffin protect under-attack` challenges search bots too while it is on.
+
 ## Managed boxes (ShipTiffin)
 
 See [managed boxes](managed.md). What is not done yet, or done the simple way:

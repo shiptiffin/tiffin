@@ -19,6 +19,7 @@ import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
 import { DeployAddresses } from "@/components/deploy-addresses";
 import { KeepVersions } from "@/components/keep-versions";
+import { IndexNowSetting } from "@/components/domains-search";
 import { SettingsNav, useSettingsSection, type SettingsSection } from "@/components/settings-nav";
 
 /**
@@ -33,6 +34,7 @@ export function ProjectSettingsPage({ project }: { project: string }) {
   const p = useQuery(q.project(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000, refetchInterval: 10_000 });
   const pending = usePending(project);
+  const { can } = useMe();
   const man = m.data?.manifest;
   const apps = Object.entries(man?.apps ?? {});
   const svc = (man?.services ?? {}) as Record<string, unknown>;
@@ -75,6 +77,15 @@ export function ProjectSettingsPage({ project }: { project: string }) {
               {apps.length > 0 && (
                 <Section title="Version addresses" note="Every version you deploy keeps its own address while the box keeps it, so you can open it next to the live one. Who can open them:">
                   <DeployAddresses project={project} live={man?.deployAddresses} staged={pendingSet(["deployAddresses"])} />
+                </Section>
+              )}
+
+              {apps.length > 0 && (
+                <Section
+                  title="Search engines"
+                  note="Apps on a domain of your own are findable: the box tells Bing, Yandex and other IndexNow engines about their pages, and Google reads their sitemaps. Addresses on shiptiffin.app are never indexed."
+                >
+                  <IndexNowSetting project={project} writer={can("apply:reversible")} />
                 </Section>
               )}
 

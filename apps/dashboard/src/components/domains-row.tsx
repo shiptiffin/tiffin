@@ -7,6 +7,7 @@ import { Breaker } from "@/components/breaker";
 import { Confirm } from "@/components/confirm";
 import { DnsCleanupNote, dnsCleanupWords } from "@/components/dns-cleanup";
 import { DomainDns } from "@/components/domains-dns";
+import { DomainSearch } from "@/components/domains-search";
 import { AddPath, ChangeAppDialog, dropPath } from "@/components/domains-edit";
 import { agoWords, kindOf, routesOf, shortDate, untilWords, useNow } from "@/components/domains-parts";
 import { canBePrimary, domainOptionEdit, PrimaryFact, setPrimary } from "@/components/domains-primary";
@@ -150,6 +151,7 @@ export function DomainRow({ project, d, www, writer, local, open, onToggle, apps
               )
             }
           />
+          {!local && d.state === "live" && !d.redirectTo && !d.redirecting && <DomainSearch project={project} host={d.domain} writer={writer} />}
           {!local && <DomainDns d={d} admin={admin} />}
           {writer && (
             <div className="mt-4 flex justify-end">

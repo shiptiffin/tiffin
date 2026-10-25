@@ -372,6 +372,8 @@ type Platform struct {
 	// routesMu makes gathering routes and loading them one step: two
 	// refreshes in a row load the newer routes last.
 	routesMu sync.Mutex
+	// loaded are the routes the edge serves (LoadedRoutes).
+	loaded atomic.Pointer[[]edge.Route]
 }
 
 // Started reports whether Start finished: every module started. Health
@@ -406,6 +408,15 @@ func (p *Platform) RefreshRoutes(ctx context.Context) error {
 	return err
 }
 
+// LoadedRoutes are the routes the edge serves, as the last RefreshRoutes
+// loaded them (nil before the first). Callers must not change them.
+func (p *Platform) LoadedRoutes() []edge.Route {
+	if rs := p.loaded.Load(); rs != nil {
+		return *rs
+	}
+	return nil
+}
+
 // RoutesStale reports that the last RefreshRoutes failed: the edge still
 // serves the routes before it, and the runtime's housekeeping retries.
 func (p *Platform) RoutesStale() bool { return p.routesStale.Load() }
@@ -423,10 +434,16 @@ func (p *Platform) refreshRoutes(ctx context.Context) error {
 			all = append(all, rs...)
 		}
 	}
+	for i := range all {
+		if all[i].Host != "" && HiddenFromSearch(all[i].Host) {
+			all[i].NoIndex = true
+		}
+	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Host < all[j].Host })
 	if err := p.Edge.SetRoutes(all); err != nil {
 		return err
 	}
+	p.loaded.Store(&all)
 	for _, m := range Modules() {
 		if rl, ok := m.(RoutesLoader); ok {
 			rl.RoutesLoaded()

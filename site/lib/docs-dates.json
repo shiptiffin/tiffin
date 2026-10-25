@@ -20,8 +20,8 @@
     "updated": "2026-10-13"
   },
   "limits": {
-    "sha": "113fec3e4066573b",
-    "updated": "2026-10-24"
+    "sha": "65044ac0b5ae10b8",
+    "updated": "2026-10-25"
   },
   "security": {
     "sha": "75de3467f40791c8",
@@ -52,7 +52,11 @@
     "updated": "2026-10-08"
   },
   "domains": {
-    "sha": "5c2895e28652e044",
+    "sha": "c8057e795ec68c69",
+    "updated": "2026-10-25"
+  },
+  "search": {
+    "sha": "279f3c9d6dcb009f",
     "updated": "2026-10-25"
   },
   "observe": {

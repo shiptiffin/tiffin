@@ -113,6 +113,10 @@ type Route struct {
 	Gate bool `json:",omitempty"`
 	// NoIndex asks search engines not to index the host (X-Robots-Tag).
 	NoIndex bool `json:",omitempty"`
+	// Body answers every request with this text (200, text/plain) instead
+	// of serving: a file that proves to a search engine the host is the
+	// box's, such as the IndexNow key at /<key>.txt.
+	Body string `json:",omitempty"`
 }
 
 func (r Route) upstreams() []string {
@@ -379,8 +383,8 @@ func (c Config) normalized() (Config, error) {
 		}
 		if r.Host == "" {
 			// A box path: the same path on every app host, ahead of the app.
-			if !strings.HasPrefix(r.PathPrefix, "/") || strings.HasSuffix(r.PathPrefix, "/") || len(r.upstreams()) == 0 || r.FileRoot != "" || r.RedirectTo != "" {
-				return c, fmt.Errorf("edge: a route without a host needs a path prefix and an upstream (got %q)", r.PathPrefix)
+			if !strings.HasPrefix(r.PathPrefix, "/") || strings.HasSuffix(r.PathPrefix, "/") || (len(r.upstreams()) == 0) == (r.Body == "") || r.FileRoot != "" || r.RedirectTo != "" {
+				return c, fmt.Errorf("edge: a route without a host needs a path prefix and an upstream or a body (got %q)", r.PathPrefix)
 			}
 			if seen[r.PathPrefix] {
 				return c, fmt.Errorf("edge: duplicate route %q", r.PathPrefix)
@@ -606,6 +610,13 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 		handle = append(handle, obj{"handler": "tiffin_gate", "secret": hex.EncodeToString(c.Gate.Secret), "sign_in": c.dashboardURL(portSuffix) + "/gate"})
 	}
 	switch {
+	case r.Body != "":
+		handle = append(handle, obj{
+			"handler":     "static_response",
+			"status_code": 200,
+			"headers":     obj{"Content-Type": []string{"text/plain; charset=utf-8"}, "Cache-Control": []string{"no-cache"}},
+			"body":        r.Body,
+		})
 	case r.RedirectTo != "":
 		handle = []obj{{
 			"handler":     "static_response",

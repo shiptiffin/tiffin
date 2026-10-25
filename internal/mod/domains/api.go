@@ -424,19 +424,8 @@ func onlyManagedMissing(c *DomainCheck) bool {
 }
 
 // validDomain cleans and checks a domain name typed by someone.
-// sharedZones are ShipTiffin's own domains: managed boxes get names under
-// them, and nobody else can set their DNS.
-var sharedZones = []string{"shiptiffin.app"}
-
-// sharedZone returns the shared zone d is in, or "".
-func sharedZone(d string) string {
-	for _, z := range sharedZones {
-		if d == z || strings.HasSuffix(d, "."+z) {
-			return z
-		}
-	}
-	return ""
-}
+// sharedZone returns the shared zone d is in, or "" (platform.SharedZones).
+func sharedZone(d string) string { return platform.SharedZone(d) }
 
 func validDomain(d string) (string, error) {
 	d = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")

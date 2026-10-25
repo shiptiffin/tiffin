@@ -4392,6 +4392,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show how a project's apps stand with search engines
+         * @description Every production address of the project's apps: whether search engines may find it (why not, and the fix: addresses on shiptiffin.app, sslip.io and local names are always hidden; an app is found on a domain of its own), what the box saw on its last look (robots.txt, the home page, the sitemap and its page count, the IndexNow key file), and when it last told search engines about new, changed or removed pages (IndexNow: Bing, Yandex, Seznam, Naver, Yep and others; Google reads the sitemap itself). The box checks each findable address when it goes live, a couple of minutes after each deploy and every 6 hours.
+         */
+        get: operations["search-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/search/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check now and tell search engines what changed
+         * @description Reads the sitemap of the project's findable addresses now and sends IndexNow the new, changed and removed pages, as the box does after a deploy. With urls, sends exactly those (for pages the sitemap does not date, such as ones a database changes); with all, every page again. Rarely needed: the box does this on its own. Returns the status with the new ping.
+         */
+        post: operations["search-ping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/search/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn IndexNow pings on or off for a project
+         * @description indexNow: false stops the box from telling search engines about the project's pages (the checks go on). On by default. It does not hide the apps: search engines still find them through links and sitemaps.
+         */
+        put: operations["search-set"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/secrets": {
         parameters: {
             query?: never;
@@ -12421,6 +12481,147 @@ export interface components {
             wake?: components["schemas"]["RuntimeWake"];
             /** @description It was asleep and started now */
             woke: boolean;
+        };
+        SearchCheck: {
+            detail: string;
+            ok: boolean;
+        };
+        SearchChecks: {
+            /** @description A google-site-verification TXT record is on the domain (or a parent): it is verified in Google Search Console */
+            google: components["schemas"]["SearchCheck"];
+            /** @description The home page answers and does not say noindex */
+            home: components["schemas"]["SearchCheck"];
+            /** @description The IndexNow key file answers on the host */
+            key: components["schemas"]["SearchCheck"];
+            /** @description robots.txt lets search engines in */
+            robots: components["schemas"]["SearchCheck"];
+            sitemap: components["schemas"]["SearchSitemapCheck"];
+        };
+        SearchCrawler: {
+            /** @description Googlebot, Bingbot, OAI-SearchBot, ChatGPT-User, GPTBot, Claude-SearchBot, Claude-User, ClaudeBot, PerplexityBot, Perplexity-User, Applebot, DuckDuckBot */
+            bot: string;
+            /**
+             * Format: int64
+             * @description Requests in the last 7 days that answered 4xx or 5xx
+             */
+            errors7d: number;
+            /**
+             * Format: int64
+             * @description Requests in the last 7 days
+             */
+            hits7d: number;
+            /** Format: date-time */
+            lastAt: string;
+            lastPath: string;
+            /** Format: int64 */
+            lastStatus: number;
+            operator: string;
+            /**
+             * Format: int64
+             * @description Different pages fetched in the last 7 days
+             */
+            pages7d: number;
+            /**
+             * @description search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models
+             * @enum {string}
+             */
+            purpose: "search" | "user" | "training";
+        };
+        SearchHostStatus: {
+            /** @description The app at the address's home page */
+            app?: string;
+            /**
+             * Format: date-time
+             * @description When the box last read its robots.txt, home page and sitemap
+             */
+            checked?: string;
+            checks?: components["schemas"]["SearchChecks"];
+            /** @description Search and AI bots that fetched its pages (last 30 days), most recent first. A bot counts only from the addresses its operator publishes. */
+            crawled?: components["schemas"]["SearchCrawler"][] | null;
+            /**
+             * Format: int64
+             * @description Requests in the last 7 days whose user agent claimed a known bot from an address outside its operator's list
+             */
+            fakes7d?: number;
+            /** @description Search engines may index it, and the box tells them about its pages */
+            findable: boolean;
+            fix?: string;
+            /** @description Earlier pings, newest first */
+            history?: components["schemas"]["SearchPing"][] | null;
+            host: string;
+            /** @description The last time the box told search engines about its pages */
+            last?: components["schemas"]["SearchPing"];
+            /**
+             * Format: date-time
+             * @description The next regular check
+             */
+            next?: string;
+            /** @description A check that waits (after a deploy the box waits a couple of minutes, so a burst of deploys makes one ping) */
+            pending?: components["schemas"]["SearchPending"];
+            /** Format: date-time */
+            since?: string;
+            /** @description Why it is not findable */
+            why?: string;
+        };
+        SearchPending: {
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            reason: "live" | "deploy" | "check" | "manual";
+        };
+        SearchPing: {
+            /** Format: date-time */
+            at: string;
+            detail?: string;
+            ok: boolean;
+            /**
+             * Format: int64
+             * @description URLs sent
+             */
+            pages: number;
+            /**
+             * @description live: the host became findable (every page); deploy: after a deploy; check: the regular check; manual: someone asked
+             * @enum {string}
+             */
+            reason: "live" | "deploy" | "check" | "manual";
+            /** @description Some of the URLs sent */
+            sample?: string[] | null;
+            /**
+             * Format: int64
+             * @description What the engine answered (200 or 202 is fine)
+             */
+            status?: number;
+        };
+        SearchPingBody: {
+            /** @description Send every page of the sitemap again, not just what changed (at most once an hour per address) */
+            all?: boolean;
+            /** @description Only this address (default: every findable address of the project) */
+            host?: string;
+            /** @description Send exactly these URLs (on host) instead of what changed in the sitemap */
+            urls?: string[] | null;
+        };
+        SearchSettings: {
+            /** @description Tell search engines about new and changed pages (IndexNow). On by default. */
+            indexNow: boolean;
+        };
+        SearchSitemapCheck: {
+            detail: string;
+            ok: boolean;
+            /**
+             * Format: int64
+             * @description Pages it lists on this host
+             */
+            pages: number;
+            /** @description Every page has the same lastmod (usually the build time), so changed pages can't be told apart; only new and removed pages are sent */
+            sameDates?: boolean;
+            /** @description Where the sitemap is (from robots.txt, else /sitemap.xml) */
+            url?: string;
+        };
+        SearchStatus: {
+            /** @description Every production address of the project's apps */
+            hosts: components["schemas"]["SearchHostStatus"][] | null;
+            project: string;
+            settings: components["schemas"]["SearchSettings"];
         };
         "Secret-setRequest": {
             /** @description Why you are setting it, in one sentence. Shown in History. */
@@ -33614,6 +33815,257 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchPingBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchSettings"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
