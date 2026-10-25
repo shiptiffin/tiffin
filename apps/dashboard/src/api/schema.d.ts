@@ -4412,6 +4412,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/search/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Google whether a page is indexed
+         * @description Google's URL Inspection for one page of a findable address: indexed or not and why ("Crawled - currently not indexed", "Discovered - currently not indexed", blocked by robots.txt, noindex, a different canonical), when Google last crawled it, and the canonical it chose. Needs the Google connection and a verified property. Google allows 2,000 a day per property.
+         */
+        post: operations["search-inspect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/search/ping": {
         parameters: {
             query?: never;
@@ -5439,6 +5459,34 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/search/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the Google Search Console connection
+         * @description Whether the box has a Google service account, which, and the Search Console properties it looks after with their state. Box admins only.
+         */
+        get: operations["search-google"];
+        /**
+         * Connect Google Search Console with a service account key
+         * @description Stores a Google service account's JSON key, encrypted with the box's key, after signing in with it. Make it once: in a Google Cloud project turn on the Google Search Console API and the Site Verification API, create a service account (no roles), and add a JSON key (IAM › Service accounts › Keys). The box then verifies every findable address on its own: a TXT record on the domain when its zone is on a connected DNS provider, else Google's verification file on the host. It adds owner as an owner too, submits sitemaps and reads searches and index status twice a day. Box admins only.
+         */
+        put: operations["search-google-connect"];
+        post?: never;
+        /**
+         * Disconnect Google Search Console
+         * @description Deletes the service account key and what the box read from Google. The properties stay in Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.
+         */
+        delete: operations["search-google-disconnect"];
         options?: never;
         head?: never;
         patch?: never;
@@ -12482,6 +12530,10 @@ export interface components {
             /** @description It was asleep and started now */
             woke: boolean;
         };
+        "Search-inspectRequest": {
+            /** @description The page's full https URL */
+            page: string;
+        };
         SearchCheck: {
             detail: string;
             ok: boolean;
@@ -12527,6 +12579,111 @@ export interface components {
              */
             purpose: "search" | "user" | "training";
         };
+        SearchGDay: {
+            /** Format: int64 */
+            clicks: number;
+            date: string;
+            /** Format: int64 */
+            impressions: number;
+        };
+        SearchGIndexCount: {
+            /** Format: int64 */
+            checked: number;
+            /** Format: int64 */
+            indexed: number;
+            /** @description Pages Google has not indexed, with its reason */
+            notIndexed?: components["schemas"]["SearchGNotYet"][] | null;
+        };
+        SearchGInspection: {
+            /** @description Google's words: "Submitted and indexed", "Crawled - currently not indexed", "Discovered - currently not indexed"... */
+            coverage: string;
+            googleCanonical?: string;
+            indexing?: string;
+            lastCrawl?: string;
+            pageFetch?: string;
+            robotsTxt?: string;
+            userCanonical?: string;
+            /** @description PASS (indexed), NEUTRAL (not indexed, no problem) or FAIL */
+            verdict: string;
+        };
+        SearchGNotYet: {
+            at: string;
+            coverage: string;
+            url: string;
+        };
+        SearchGTop: {
+            /** Format: int64 */
+            clicks: number;
+            /** Format: int64 */
+            impressions: number;
+            key: string;
+            /** Format: double */
+            position: number;
+        };
+        SearchGoogleBody: {
+            /** @description The service account's JSON key file, as text. Leave it out to change only owner on a connected box. */
+            key?: string;
+            /** @description Your Google account's email: the box adds it as an owner of each property, so it shows in your Search Console */
+            owner?: string;
+        };
+        SearchGoogleConnection: {
+            by?: string;
+            /** @description The service account the box signs in as */
+            clientEmail?: string;
+            connected: boolean;
+            /** Format: date-time */
+            connectedAt?: string;
+            /** @description The Google account added as an owner of each property, so they show in that account's Search Console */
+            owner?: string;
+            /** @description Its Google Cloud project */
+            projectId?: string;
+            properties: components["schemas"]["SearchGoogleProperty"][] | null;
+        };
+        SearchGoogleHost: {
+            /** Format: int64 */
+            clicks: number;
+            /** Format: double */
+            ctr: number;
+            daily?: components["schemas"]["SearchGDay"][] | null;
+            detail?: string;
+            /** Format: int64 */
+            impressions: number;
+            /** @description What URL Inspection said about the pages checked so far (about 20 a day) */
+            index?: components["schemas"]["SearchGIndexCount"];
+            pages?: components["schemas"]["SearchGTop"][] | null;
+            /**
+             * Format: double
+             * @description Average position (1 is the top)
+             */
+            position: number;
+            /** @description The Search Console property: sc-domain:example.com covers every name under it */
+            property?: string;
+            /**
+             * Format: date-time
+             * @description When the search data below was read
+             */
+            pulledAt?: string;
+            /** @description Searches it showed up for, most clicks first */
+            queries?: components["schemas"]["SearchGTop"][] | null;
+            /**
+             * @description not_connected: no Google service account on the box (Settings › Search engines)
+             * @enum {string}
+             */
+            state: "not_connected" | "verifying" | "verified" | "failed";
+        };
+        SearchGoogleProperty: {
+            detail?: string;
+            /**
+             * @description DNS_TXT: a TXT record on the domain (its zone is on a connected DNS provider; the property covers every name under it). FILE: Google's verification file, served by the box on the host.
+             * @enum {string}
+             */
+            method: "DNS_TXT" | "FILE";
+            property: string;
+            /** @enum {string} */
+            state: "verifying" | "verified" | "failed";
+            /** Format: date-time */
+            verifiedAt?: string;
+        };
         SearchHostStatus: {
             /** @description The app at the address's home page */
             app?: string;
@@ -12546,6 +12703,8 @@ export interface components {
             /** @description Search engines may index it, and the box tells them about its pages */
             findable: boolean;
             fix?: string;
+            /** @description Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with a Google service account connected) */
+            google?: components["schemas"]["SearchGoogleHost"];
             /** @description Earlier pings, newest first */
             history?: components["schemas"]["SearchPing"][] | null;
             host: string;
@@ -33901,11 +34060,104 @@ export interface operations {
             };
         };
     };
+    "search-inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Search-inspectRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchGInspection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "search-ping": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -34001,7 +34253,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
             cookie?: never;
         };
         requestBody: {
@@ -38730,6 +38985,232 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchGoogleConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-google-connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchGoogleBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchGoogleConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-google-disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchGoogleConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -78,19 +78,48 @@ it. For that, use Google Search Console.
 
 ## Google Search Console
 
-Google reads your sitemap without being told. To see the searches people find you with
-and which pages Google indexed, add the domain to
-[Search Console](https://search.google.com/search-console) once: choose **Domain**,
-enter `example.com`, and add the TXT record it shows (with Cloudflare connected, add
-it in **Domains › example.com › DNS records**). It covers every name under the
-domain. The box notices the record and shows the domain as verified.
+Google reads your sitemap without being told. To see what people search for and which
+pages Google indexed, connect Google once per box, in **Settings › Search engines**. It
+takes about 5 minutes in your own Google Cloud account, nothing is billed, and the box
+does the rest for every domain, now and later.
+
+1. At [console.cloud.google.com](https://console.cloud.google.com/projectcreate),
+   create a project (`tiffin`, say).
+2. In it, turn on the **Google Search Console API** and the **Site Verification API**.
+3. Under **IAM › Service accounts**, create a service account named `tiffin` with no
+   roles. Open it, then **Keys › Add key › Create new key › JSON**: a file downloads.
+4. In Settings › Search engines, choose that file, and enter the Google account you use
+   for Search Console.
+
+The service account is a robot Google account in your project; the box signs in as it
+with the key (kept encrypted, never shown again). For each findable address it:
+
+- **verifies the domain**: with Cloudflare connected, it adds Google's TXT record
+  beside the domain's other records (SPF and the rest stay as they are), and the
+  Domain property `sc-domain:example.com` covers every name under it. A domain whose
+  DNS is elsewhere is verified with Google's verification file, which the box serves
+  on the host; that property covers the one host. The record must stay: Google checks
+  it again from time to time.
+- **adds your Google account as an owner**, so the domain shows in your own Search
+  Console, and submits the sitemap.
+- **reads the last 28 days** of web search every 12 hours: clicks, impressions,
+  average position, the top searches and pages, and asks URL Inspection about about 20
+  pages a day, so "Google has indexed 118 of 124 pages" fills in over a week.
+
+Without the connection, add the domain in Search Console yourself (**Domain**, then the
+TXT record it shows); the box notices the record and shows the domain as verified.
+
+An agent can connect it too: put the key file's text in a request body (never in chat
+or the repo) and run `tiffin search google connect --body-file body.json`, where
+`body.json` is `{"key": "<the file's contents>", "owner": "you@gmail.com"}`. To change only
+the owner later, leave the key out: `tiffin search google connect --owner you@gmail.com`.
 
 ## In the dashboard and for agents
 
 **Domains**: each live domain of your own has a **Search engines** section: findable or
 not (and why), when the box last told search engines and about which pages, which bots
-came, what it found in `robots.txt`, the home page and the sitemap, and whether Search
-Console is verified. **Check now** reads the sitemap at once. **Settings › General ›
+came, what it found in `robots.txt`, the home page and the sitemap, and, with Google
+connected, its searches and index status. **Check now** reads the sitemap at once. **Settings › General ›
 Search engines** turns the IndexNow messages off for a project (the checks go on).
 
 ```bash
@@ -99,8 +128,11 @@ tiffin search ping shop                        # check now; send what changed
 tiffin search ping shop --host example.com --urls https://example.com/pricing
 tiffin search ping shop --all                  # every page again (at most once an hour)
 tiffin search set shop --index-now=false       # stop the pings for this project
+tiffin search inspect shop --page https://example.com/pricing   # Google: indexed or not, and why
+tiffin search google                           # the Google connection and its properties
 ```
 
 An agent asked "why isn't my site on Google?" starts with `tiffin search status`:
 a hidden address, a `Disallow: /` in robots.txt, a noindex home page or a missing
-sitemap shows there in words.
+sitemap shows there in words. With Google connected it also shows the searches, the
+pages Google has not indexed and why, and `search inspect` asks about any one page.

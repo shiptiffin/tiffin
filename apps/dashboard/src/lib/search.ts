@@ -44,3 +44,24 @@ export const purposeWords: Record<string, string> = {
   user: "fetched for a chat",
   training: "AI training",
 };
+
+export type GoogleConnection = S["SearchGoogleConnection"];
+export type GoogleHost = S["SearchGoogleHost"];
+
+/** The box's Google service account (box admins; a 403 means "not yours"). */
+export const googleQuery = queryOptions({
+  queryKey: ["search-google"],
+  queryFn: () => request<GoogleConnection>("GET", "/v1/search/google"),
+  retry: false,
+  refetchInterval: (qq) => ((qq.state.data?.properties ?? []).some((p) => p.state === "verifying") ? 5_000 : false),
+});
+
+export const connectGoogle = (key: string, owner: string) => request<GoogleConnection>("PUT", "/v1/search/google", { key, owner: owner || undefined });
+export const disconnectGoogle = () => request<GoogleConnection>("DELETE", "/v1/search/google");
+
+export const GOOGLE_CONSOLE = {
+  project: "https://console.cloud.google.com/projectcreate",
+  searchApi: "https://console.cloud.google.com/apis/library/searchconsole.googleapis.com",
+  verifyApi: "https://console.cloud.google.com/apis/library/siteverification.googleapis.com",
+  accounts: "https://console.cloud.google.com/iam-admin/serviceaccounts/create",
+};

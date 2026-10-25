@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,15 +29,16 @@ type HostStatus struct {
 	Why      string `json:"why,omitempty" doc:"Why it is not findable"`
 	Fix      string `json:"fix,omitempty"`
 	// Since the address became findable.
-	Since   *time.Time `json:"since,omitempty"`
-	Checked *time.Time `json:"checked,omitempty" doc:"When the box last read its robots.txt, home page and sitemap"`
-	Checks  *Checks    `json:"checks,omitempty"`
-	Last    *Ping      `json:"last,omitempty" doc:"The last time the box told search engines about its pages"`
-	History []Ping     `json:"history,omitempty" doc:"Earlier pings, newest first"`
-	Pending *Pending   `json:"pending,omitempty" doc:"A check that waits (after a deploy the box waits a couple of minutes, so a burst of deploys makes one ping)"`
-	Next    *time.Time `json:"next,omitempty" doc:"The next regular check"`
-	Crawled []Crawler  `json:"crawled,omitempty" doc:"Search and AI bots that fetched its pages (last 30 days), most recent first. A bot counts only from the addresses its operator publishes."`
-	Fakes7d int        `json:"fakes7d,omitempty" doc:"Requests in the last 7 days whose user agent claimed a known bot from an address outside its operator's list"`
+	Since   *time.Time  `json:"since,omitempty"`
+	Checked *time.Time  `json:"checked,omitempty" doc:"When the box last read its robots.txt, home page and sitemap"`
+	Checks  *Checks     `json:"checks,omitempty"`
+	Last    *Ping       `json:"last,omitempty" doc:"The last time the box told search engines about its pages"`
+	History []Ping      `json:"history,omitempty" doc:"Earlier pings, newest first"`
+	Pending *Pending    `json:"pending,omitempty" doc:"A check that waits (after a deploy the box waits a couple of minutes, so a burst of deploys makes one ping)"`
+	Next    *time.Time  `json:"next,omitempty" doc:"The next regular check"`
+	Crawled []Crawler   `json:"crawled,omitempty" doc:"Search and AI bots that fetched its pages (last 30 days), most recent first. A bot counts only from the addresses its operator publishes."`
+	Google  *GoogleHost `json:"google,omitempty" doc:"Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with a Google service account connected)"`
+	Fakes7d int         `json:"fakes7d,omitempty" doc:"Requests in the last 7 days whose user agent claimed a known bot from an address outside its operator's list"`
 }
 
 // Pending is a check that waits.
@@ -93,8 +95,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			"Rarely needed: the box does this on its own. Returns the status with the new ping.", tag))
 	pg.Errors = append(pg.Errors, 404, 409, 422, 429)
 	huma.Register(a, pg, api.Wrap(func(ctx context.Context, in *struct {
-		projectPath
-		Body pingBody
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Body    pingBody
 	}) (*struct{ Body Status }, error) {
 		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyOutbound, in.Project); err != nil {
 			return nil, err
@@ -157,14 +159,16 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body Status }{s}, err
 	}))
 
+	m.registerGoogle(a, p, ready)
+
 	set := api.Op("search-set", http.MethodPut, "/v1/projects/{project}/search/settings", "search set", api.RiskWrite,
 		"Turn IndexNow pings on or off for a project",
 		"indexNow: false stops the box from telling search engines about the project's pages (the checks go on). On by default. "+
 			"It does not hide the apps: search engines still find them through links and sitemaps.", tag)
 	set.Errors = append(set.Errors, 409)
 	huma.Register(a, set, api.Wrap(func(ctx context.Context, in *struct {
-		projectPath
-		Body Settings
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Body    Settings
 	}) (*struct{ Body Status }, error) {
 		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
@@ -237,8 +241,195 @@ func (m *Module) status(ctx context.Context, project string) (Status, error) {
 				}
 			}
 			h.Crawled, h.Fakes7d = m.crawled(ctx, v.Host, m.now())
+			m.mu.Unlock()
+			h.Google = m.googleHost(ctx, v.Host)
+			m.mu.Lock()
 		}
 		s.Hosts = append(s.Hosts, h)
 	}
 	return s, nil
+}
+
+// GoogleConnection is the box's Google service account, as the API shows it.
+type GoogleConnection struct {
+	Connected   bool             `json:"connected"`
+	ClientEmail string           `json:"clientEmail,omitempty" doc:"The service account the box signs in as"`
+	ProjectID   string           `json:"projectId,omitempty" doc:"Its Google Cloud project"`
+	Owner       string           `json:"owner,omitempty" doc:"The Google account added as an owner of each property, so they show in that account's Search Console"`
+	ConnectedAt *time.Time       `json:"connectedAt,omitempty"`
+	By          string           `json:"by,omitempty"`
+	Properties  []GoogleProperty `json:"properties"`
+}
+
+// GoogleProperty is one Search Console property the box looks after.
+type GoogleProperty struct {
+	Property   string     `json:"property"`
+	Method     string     `json:"method" enum:"DNS_TXT,FILE" doc:"DNS_TXT: a TXT record on the domain (its zone is on a connected DNS provider; the property covers every name under it). FILE: Google's verification file, served by the box on the host."`
+	State      string     `json:"state" enum:"verifying,verified,failed"`
+	Detail     string     `json:"detail,omitempty"`
+	VerifiedAt *time.Time `json:"verifiedAt,omitempty"`
+}
+
+type googleBody struct {
+	Key   string `json:"key,omitempty" maxLength:"20000" doc:"The service account's JSON key file, as text. Leave it out to change only owner on a connected box."`
+	Owner string `json:"owner,omitempty" maxLength:"320" doc:"Your Google account's email: the box adds it as an owner of each property, so it shows in your Search Console"`
+}
+
+func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() error) {
+	const tag = "search"
+	admin := func(ctx context.Context) error {
+		if !api.PrincipalFrom(ctx).BoxAdmin() {
+			return api.NewProblem(403, "forbidden", "the Google connection is the box owner's; it needs a key with full access to all projects")
+		}
+		return ready()
+	}
+
+	sh := api.Op("search-google", http.MethodGet, "/v1/search/google", "search google", api.RiskRead,
+		"Show the Google Search Console connection",
+		"Whether the box has a Google service account, which, and the Search Console properties it looks after with their state. Box admins only.", tag)
+	sh.Errors = append(sh.Errors, 409)
+	huma.Register(a, sh, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body GoogleConnection }, error) {
+		if err := admin(ctx); err != nil {
+			return nil, err
+		}
+		v, err := m.googleView(ctx)
+		return &struct{ Body GoogleConnection }{v}, err
+	}))
+
+	cn := api.Outbound(api.Op("search-google-connect", http.MethodPut, "/v1/search/google", "search google connect", api.RiskWrite,
+		"Connect Google Search Console with a service account key",
+		"Stores a Google service account's JSON key, encrypted with the box's key, after signing in with it. "+
+			"Make it once: in a Google Cloud project turn on the Google Search Console API and the Site Verification API, create a service account (no roles), "+
+			"and add a JSON key (IAM › Service accounts › Keys). The box then verifies every findable address on its own: a TXT record on the domain when its zone is on a connected DNS provider, "+
+			"else Google's verification file on the host. It adds owner as an owner too, submits sitemaps and reads searches and index status twice a day. Box admins only.", tag))
+	cn.Errors = append(cn.Errors, 409, 422)
+	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct{ Body googleBody }) (*struct{ Body GoogleConnection }, error) {
+		if err := admin(ctx); err != nil {
+			return nil, err
+		}
+		owner := strings.TrimSpace(in.Body.Owner)
+		if owner != "" && (!strings.Contains(owner, "@") || strings.ContainsAny(owner, " ,;")) {
+			return nil, api.NewProblem(422, "validation", "owner must be one email address (your Google account)")
+		}
+		pr := api.PrincipalFrom(ctx)
+		if strings.TrimSpace(in.Body.Key) == "" {
+			c, err := m.setGoogleOwner(ctx, owner)
+			if err != nil {
+				return nil, err
+			}
+			_ = p.DB.Audit(ctx, pr.TokenID, "search.google.owner", c.ClientEmail, map[string]any{"session": pr.Session, "owner": c.Owner})
+			v, err := m.googleView(ctx)
+			return &struct{ Body GoogleConnection }{v}, err
+		}
+		c, err := m.connectGoogle(ctx, []byte(in.Body.Key), owner, pr.Name)
+		if err != nil {
+			pb := api.NewProblem(422, "validation", err.Error())
+			pb.Hint = "make a JSON key at console.cloud.google.com › IAM › Service accounts › Keys › Add key, with the Search Console and Site Verification APIs turned on"
+			return nil, pb
+		}
+		_ = p.DB.Audit(ctx, pr.TokenID, "search.google.connect", c.ClientEmail, map[string]any{"session": pr.Session, "project": c.ProjectID, "owner": c.Owner})
+		v, err := m.googleView(ctx)
+		return &struct{ Body GoogleConnection }{v}, err
+	}))
+
+	dc := api.Op("search-google-disconnect", http.MethodDelete, "/v1/search/google", "search google disconnect", api.RiskWrite,
+		"Disconnect Google Search Console",
+		"Deletes the service account key and what the box read from Google. The properties stay in Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.", tag)
+	dc.Errors = append(dc.Errors, 409)
+	huma.Register(a, dc, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body GoogleConnection }, error) {
+		if err := admin(ctx); err != nil {
+			return nil, err
+		}
+		if err := m.disconnectGoogle(ctx); err != nil {
+			return nil, err
+		}
+		_ = p.RefreshRoutes(ctx)
+		pr := api.PrincipalFrom(ctx)
+		_ = p.DB.Audit(ctx, pr.TokenID, "search.google.disconnect", "google", map[string]any{"session": pr.Session})
+		v, err := m.googleView(ctx)
+		return &struct{ Body GoogleConnection }{v}, err
+	}))
+
+	ins := api.Outbound(api.Op("search-inspect", http.MethodPost, "/v1/projects/{project}/search/inspect", "search inspect", api.RiskRead,
+		"Ask Google whether a page is indexed",
+		"Google's URL Inspection for one page of a findable address: indexed or not and why (\"Crawled - currently not indexed\", \"Discovered - currently not indexed\", "+
+			"blocked by robots.txt, noindex, a different canonical), when Google last crawled it, and the canonical it chose. Needs the Google connection and a verified property. "+
+			"Google allows 2,000 a day per property.", tag))
+	ins.Errors = append(ins.Errors, 404, 409, 422)
+	huma.Register(a, ins, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Body    struct {
+			Page string `json:"page" doc:"The page's full https URL"`
+		}
+	}) (*struct{ Body GInspection }, error) {
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		if err := ready(); err != nil {
+			return nil, err
+		}
+		pu, err := url.Parse(in.Body.Page)
+		if err != nil || pu.Scheme != "https" || pu.Host == "" {
+			return nil, api.NewProblem(422, "validation", "page must be a full https URL")
+		}
+		host := strings.ToLower(pu.Host)
+		views, err := m.hosts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		found := false
+		for _, v := range views {
+			if v.Host == host && v.Project == in.Project && v.Findable {
+				found = true
+			}
+		}
+		if !found {
+			return nil, api.NewProblem(404, "not_found", host+" is not a findable address of project "+in.Project)
+		}
+		g, _, err := m.gclientFor(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if g == nil {
+			pb := api.NewProblem(409, "precondition", "Google Search Console is not connected on this box")
+			pb.Hint = "the box owner connects it in Settings › Search engines (tiffin search google connect)"
+			return nil, pb
+		}
+		gh := m.googleHost(ctx, host)
+		if gh.State != GVerified {
+			pb := api.NewProblem(409, "precondition", host+" is not verified in Search Console yet: "+gh.Detail)
+			return nil, pb
+		}
+		r, err := g.inspect(ctx, gh.Property, in.Body.Page)
+		if err != nil {
+			return nil, api.NewProblem(502, "upstream", err.Error())
+		}
+		return &struct{ Body GInspection }{*r}, nil
+	}))
+}
+
+func (m *Module) googleView(ctx context.Context) (GoogleConnection, error) {
+	v := GoogleConnection{Properties: []GoogleProperty{}}
+	c, err := m.googleConn(ctx)
+	if err != nil || c == nil {
+		return v, err
+	}
+	at := c.At
+	v.Connected, v.ClientEmail, v.ProjectID, v.Owner, v.ConnectedAt, v.By = true, c.ClientEmail, c.ProjectID, c.Owner, &at, c.By
+	m.mu.Lock()
+	props, err := m.gprops(ctx)
+	m.mu.Unlock()
+	if err != nil {
+		return v, err
+	}
+	for _, gp := range props {
+		x := GoogleProperty{Property: gp.Prop, Method: gp.Method, State: gp.State, Detail: gp.Detail}
+		if !gp.VerifiedAt.IsZero() {
+			t := gp.VerifiedAt
+			x.VerifiedAt = &t
+		}
+		v.Properties = append(v.Properties, x)
+	}
+	sort.Slice(v.Properties, func(i, j int) bool { return v.Properties[i].Property < v.Properties[j].Property })
+	return v, nil
 }

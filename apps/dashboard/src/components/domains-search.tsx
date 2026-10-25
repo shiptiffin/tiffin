@@ -10,6 +10,7 @@ import { StatusDot } from "@/components/project-domains";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { useMe } from "@/lib/me";
 import { pingSearch, purposeWords, reasonWords, searchQuery, setIndexNow, type Crawler, type SearchHost } from "@/lib/search";
 import { full } from "@/lib/time";
 
@@ -81,25 +82,7 @@ export function DomainSearch({ project, host, writer }: { project: string; host:
               <Checks h={h} />
             </Row>
             <Row label="Google">
-              {h.checks?.google.ok ? (
-                <p className="text-ink">
-                  Verified in Search Console
-                  <span className="text-ink-3"> · Google reads your sitemap itself; Search Console shows the searches people find you with and which pages are indexed.</span>
-                </p>
-              ) : (
-                <p className="text-ink-2">
-                  Google reads your sitemap itself. To see the searches people find you with and which pages are indexed, add {host} to Search Console: it takes two minutes.
-                </p>
-              )}
-              <a
-                href={h.checks?.google.ok ? "https://search.google.com/search-console" : "https://search.google.com/search-console/welcome"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1 text-[0.8125rem] text-ink underline decoration-rule-3 underline-offset-4 hover:text-brass-ink"
-              >
-                {h.checks?.google.ok ? "Open Search Console" : "Add it in Google Search Console"}
-                <ArrowUpRight className="size-3.5" />
-              </a>
+              <GoogleRow h={h} now={now} />
             </Row>
           </dl>
         </div>
@@ -246,6 +229,94 @@ export function IndexNowSetting({ project, writer }: { project: string; writer: 
         </span>
       </label>
       {flip.isError && <ProblemNote className="mt-2" error={flip.error} />}
+    </div>
+  );
+}
+
+function GoogleRow({ h, now }: { h: SearchHost; now: number }) {
+  const g = h.google;
+  const { admin } = useMe();
+  const verifiedByTxt = !!h.checks?.google.ok;
+  if (!g || g.state === "not_connected")
+    return (
+      <div className="space-y-1">
+        <p className={verifiedByTxt ? "text-ink" : "text-ink-2"}>
+          {verifiedByTxt ? "Verified in Search Console. " : "Google reads your sitemap itself. "}
+          <span className="text-ink-3">
+            {admin ? "Connect Google once and the box shows what people search for and which pages are indexed, right here, for every domain." : "To see searches and indexing here, the box’s owner connects Google in Settings › Search engines."}
+          </span>
+        </p>
+        <div className="flex flex-wrap gap-x-4">
+          {admin && (
+            <Link to="/settings/search" className="text-[0.8125rem] text-ink underline decoration-rule-3 underline-offset-4 hover:text-brass-ink">
+              Connect Google
+            </Link>
+          )}
+          <a href="https://search.google.com/search-console" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[0.8125rem] text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-brass-ink">
+            Open Search Console
+            <ArrowUpRight className="size-3.5" />
+          </a>
+        </div>
+      </div>
+    );
+  if (g.state !== "verified")
+    return (
+      <p className="flex items-start gap-2 text-ink-2">
+        <StatusDot tone={g.state === "failed" ? "bad" : "busy"} className="mt-1.5" />
+        <span>
+          {g.state === "failed" ? "Not verified. " : "Verifying in Search Console. "}
+          <span className="text-ink-3">{g.detail}</span>
+        </span>
+      </p>
+    );
+  const scUrl = `https://search.google.com/search-console?resource_id=${encodeURIComponent(g.property ?? "")}`;
+  const ix = g.index;
+  return (
+    <div className="space-y-2">
+      {g.pulledAt ? (
+        <p className="text-ink">
+          {g.clicks.toLocaleString()} {g.clicks === 1 ? "click" : "clicks"}
+          <span className="text-ink-2">
+            {" "}
+            · {g.impressions.toLocaleString()} {g.impressions === 1 ? "impression" : "impressions"}
+            {g.impressions > 0 ? ` · average position ${g.position}` : ""}
+          </span>
+          <span className="text-ink-3"> · last 28 days</span>
+        </p>
+      ) : (
+        <p className="text-ink-2">Verified. Reading the search data now.</p>
+      )}
+      {(g.queries ?? []).length > 0 && (
+        <ul className="space-y-0.5">
+          {(g.queries ?? []).slice(0, 5).map((q) => (
+            <li key={q.key} className="flex items-baseline gap-2 text-[0.8125rem]">
+              <span className="min-w-0 truncate text-ink">“{q.key}”</span>
+              <span className="shrink-0 text-ink-3">
+                {q.clicks} · {q.impressions} shown · #{q.position}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {ix && (
+        <div className="text-[0.8125rem]">
+          <p className="text-ink-2">
+            Google has indexed {ix.indexed} of the {ix.checked} {ix.checked === 1 ? "page" : "pages"} checked so far.
+          </p>
+          {(ix.notIndexed ?? []).slice(0, 3).map((n) => (
+            <p key={n.url} className="truncate text-ink-3" title={n.url}>
+              <span className="ident text-ink-2">{n.url.replace(/^https:\/\/[^/]+/, "") || "/"}</span> · {n.coverage}
+            </p>
+          ))}
+        </div>
+      )}
+      <p className="text-[0.8125rem] text-ink-3">
+        {g.pulledAt ? `Read ${agoWords(g.pulledAt, now)}; again every 12 hours. ` : ""}
+        <a href={scUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-brass-ink">
+          Open in Search Console
+          <ArrowUpRight className="size-3.5" />
+        </a>
+      </p>
     </div>
   );
 }

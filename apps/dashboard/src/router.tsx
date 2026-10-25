@@ -67,6 +67,7 @@ const ObservabilityPage = lz<{ project: string; search: ObserveSearch }>(() => i
 const SecretsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "SecretsPage");
 const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "DomainsPage");
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
+const SearchSettingsPage = lz(() => import("@/routes/search-settings"), "SearchSettingsPage");
 const DomainsHomePage = lz<{ q?: string; project?: string }>(() => import("@/routes/domains-home"), "DomainsHomePage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
@@ -243,6 +244,8 @@ const gitSettings = createRoute({
 const dnsSettings = createRoute({ getParentRoute: () => app, path: "/settings/dns",
   validateSearch: (s: Record<string, unknown>): { next?: string } => (str(s.next)?.startsWith("/") ? { next: str(s.next) } : {}), loader: () => void DnsSettingsPage.preload(),
   component: DnsSettingsPage });
+const searchSettings = createRoute({ getParentRoute: () => app, path: "/settings/search", loader: () => void SearchSettingsPage.preload(),
+  component: SearchSettingsPage });
 const kit = createRoute({ getParentRoute: () => app, path: "/_kit", loader: () => void KitPage.preload(),
   component: KitPage });
 
@@ -847,6 +850,7 @@ const tree = root.addChildren([
     licenses,
     gitSettings,
     dnsSettings,
+    searchSettings,
     newProject,
     kit,
     change,

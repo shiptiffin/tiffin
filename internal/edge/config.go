@@ -408,6 +408,8 @@ func (c Config) normalized() (Config, error) {
 			if err := validHost(r.RedirectTo); err != nil || strings.Contains(r.RedirectTo, "*") || r.RedirectTo == r.Host {
 				return c, fmt.Errorf("edge: route %q: invalid redirect target %q", r.Host, r.RedirectTo)
 			}
+		case r.Body != "":
+			// Answers by itself.
 		case r.FileRoot == "":
 			ups := r.upstreams()
 			if len(ups) == 0 {

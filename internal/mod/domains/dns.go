@@ -155,6 +155,15 @@ func (m *Module) wildcardLocked() *edge.DNSChallenge {
 
 // setRecords writes records through whichever provider holds each zone.
 func (m *Module) setRecords(ctx context.Context, recs []dnskit.Record, del bool) error {
+	return m.writeRecords(ctx, recs, func(ctx context.Context, p dnskit.Provider, zone string, recs []dnskit.Record) error {
+		if del {
+			return dnskit.DeleteRecords(ctx, p, zone, recs)
+		}
+		return dnskit.SetRecords(ctx, p, zone, recs)
+	})
+}
+
+func (m *Module) writeRecords(ctx context.Context, recs []dnskit.Record, write func(context.Context, dnskit.Provider, string, []dnskit.Record) error) error {
 	byZone := map[string][]dnskit.Record{}
 	provs := map[string]*providerState{}
 	for _, r := range recs {
@@ -171,13 +180,7 @@ func (m *Module) setRecords(ctx context.Context, recs []dnskit.Record, del bool)
 	}
 	sort.Strings(zones)
 	for _, z := range zones {
-		var err error
-		if del {
-			err = dnskit.DeleteRecords(ctx, provs[z].prov, z, byZone[z])
-		} else {
-			err = dnskit.SetRecords(ctx, provs[z].prov, z, byZone[z])
-		}
-		if err != nil {
+		if err := write(ctx, provs[z].prov, z, byZone[z]); err != nil {
 			return fmt.Errorf("%s (zone %s): %w", provs[z].rec.Name, z, err)
 		}
 	}
@@ -199,6 +202,16 @@ func (d *dnsManager) SetRecords(ctx context.Context, recs []dnskit.Record, by st
 	}
 	d.m.noteCreated(ctx, recs, by)
 	_ = d.m.p.DB.Audit(ctx, by, "dns.records.set", "box", recs)
+	return nil
+}
+
+// AddRecords adds records beside the others at their name (see
+// platform.DNSAppender); they are not remembered as the box's own.
+func (d *dnsManager) AddRecords(ctx context.Context, recs []dnskit.Record, by string) error {
+	if err := d.m.writeRecords(ctx, recs, dnskit.AddRecords); err != nil {
+		return err
+	}
+	_ = d.m.p.DB.Audit(ctx, by, "dns.records.add", "box", recs)
 	return nil
 }
 

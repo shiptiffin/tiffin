@@ -24,10 +24,11 @@ import (
 
 // site is a fake box edge: each host's files, and IndexNow at /indexnow.
 type site struct {
-	mu    sync.Mutex
-	files map[string]string // host+path → body
-	pings []map[string]any
-	code  int // IndexNow's answer
+	mu     sync.Mutex
+	files  map[string]string // host+path → body
+	pings  []map[string]any
+	code   int          // IndexNow's answer
+	google http.Handler // google.test, when set
 }
 
 func (s *site) set(host, path, body string) {
@@ -41,6 +42,10 @@ func (s *site) set(host, path, body string) {
 }
 
 func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.Host, "google.test") && s.google != nil {
+		s.google.ServeHTTP(w, r)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	host, _, _ := strings.Cut(r.Host, ":")

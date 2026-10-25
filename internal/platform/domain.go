@@ -182,6 +182,14 @@ type DNSManager interface {
 	DeleteRecords(ctx context.Context, recs []dnskit.Record, by string) error
 }
 
+// DNSAppender is the part of Platform.DNS (the domains module) that adds a
+// record beside the others at its name, such as a search engine's
+// verification TXT next to SPF. The box does not count such records as its
+// own: removing a domain leaves them, since the proof must stay.
+type DNSAppender interface {
+	AddRecords(ctx context.Context, recs []dnskit.Record, by string) error
+}
+
 // DNSCleaner is the part of Platform.DNS (the domains module) that tidies
 // DNS when names stop being served (domains remove, projects destroy), so
 // no record keeps pointing at this box's address after it is gone.

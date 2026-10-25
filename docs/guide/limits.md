@@ -666,9 +666,19 @@ automatic events from sign-ups and deploys.
 
 ## Search engines
 
-Not yet: connecting Google Search Console or Bing Webmaster Tools to read searches,
-clicks and index status into the box (add the domain in Search Console yourself; the
-box notices the verification record), and a per-page "indexed" answer.
+Not yet: Bing Webmaster Tools data (IndexNow covers Bing's indexing), Google's AI
+Overviews and AI Mode report (it has no API), and search data older than 28 days.
+
+- Google Search Console needs a service account key made in your own Google Cloud
+  project (Settings › Search engines). Organisations whose Google Workspace policy blocks
+  service account keys can't use it.
+- With Google connected, search data is read every 12 hours and covers the last 28
+  days; URL Inspection checks about 20 pages per domain a day, so a large site takes a
+  while to fill in.
+- A domain whose DNS is not on a connected provider is verified per host with Google's
+  verification file, not as a whole Domain property.
+- Disconnecting leaves the verification records in DNS and the properties in Search
+  Console.
 
 - Only addresses on a domain of your own are findable. Every name on `shiptiffin.app`
   (chosen names too), `sslip.io` and local names says noindex, with no way to turn it off.

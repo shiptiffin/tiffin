@@ -250,7 +250,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 // ───────────────────────── sidebar ─────────────────────────
 
 // Settings has its own sidebar (Back, then its pages), so the main one never grows a third level.
-const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/server-access", "/settings/sign-ins", "/settings/passkeys", "/protect"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/search", "/settings/people", "/settings/server-access", "/settings/sign-ins", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/requests", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
@@ -304,6 +304,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
           <NavItem to="/settings/box" label="Machine" />
           {onBox && <NavItem to="/settings/git" label="Git" />}
           {onBox && <NavItem to="/settings/dns" label="DNS" />}
+          {onBox && <NavItem to="/settings/search" label="Search engines" />}
           {onBox && <NavItem to="/protect" label="Shield" aside={<AttackBadge />} />}
           <NavItem to="/settings/people" label="People" />
           {onBox && role === "owner" && <NavItem to="/settings/server-access" label="Server access" />}

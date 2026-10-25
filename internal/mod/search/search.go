@@ -79,6 +79,10 @@ type Module struct {
 	domainLive func(host string) bool
 	acme       func() bool
 	lookupTXT  func(context.Context, string) ([]string, error)
+	googleBase string // Google's API hosts, overridden in tests
+
+	gc   *gclient // the Google client for the stored key
+	gcAt time.Time
 }
 
 // New returns the module wired to the box.
@@ -168,7 +172,7 @@ func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route
 	if key == "" {
 		return nil, nil
 	}
-	return []edge.Route{{PathPrefix: "/" + key + ".txt", Body: key}}, nil
+	return append([]edge.Route{{PathPrefix: "/" + key + ".txt", Body: key}}, m.googleRoutes(ctx)...), nil
 }
 
 // RoutesLoaded wakes the loop: routes change when a domain goes live or an
@@ -271,6 +275,7 @@ func (m *Module) saveRecord(ctx context.Context, r *hostRecord) error {
 func (m *Module) forget(ctx context.Context, host string) {
 	_ = m.p.DB.KVDelete(ctx, kvNS, "host/"+host)
 	_ = m.p.DB.KVDelete(ctx, kvNS, "urls/"+host)
+	_ = m.p.DB.KVDelete(ctx, kvNS, "gdata/"+host)
 }
 
 // pass finds new findable hosts and deploys, then checks the hosts due.
@@ -357,6 +362,12 @@ func (m *Module) pass(ctx context.Context) {
 		}
 		m.check(ctx, host, pingOpts{})
 	}
+	hosts := make([]string, 0, len(findable))
+	for h := range findable {
+		hosts = append(hosts, h)
+	}
+	sort.Strings(hosts)
+	m.googlePass(ctx, hosts)
 }
 
 func minTime(a, b time.Time) time.Time {
