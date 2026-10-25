@@ -16,7 +16,7 @@ package runtime
 const (
 	NerdctlVersion  = "2.4.1"
 	RailpackVersion = "0.40.1"
-	BunVersion      = "1.4.2"
+	BunVersion      = "1.4.4"
 	NodeVersion     = "24.22.1"
 )
 
