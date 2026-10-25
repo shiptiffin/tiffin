@@ -54,7 +54,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.3.0",
     "@types/smtp-server": "^3.5.13",
-    "next": "16.3.8",
+    "next": "16.4.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "smtp-server": "^3.19.16"
@@ -62,7 +62,7 @@
   "peerDependencies": {
     "@react-email/render": ">=1",
     "better-auth": ">=1.7",
-    "next": ">=15",
+    "next": ">=16.4.1",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
