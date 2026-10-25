@@ -228,6 +228,10 @@ Without a project, it waits under **Your domains** (the same page, with an empty
 which lists every domain the box can manage, where each is used, and when registered ones
 renew. **Use on a project** puts one on a project in a click.
 
+Until the box can buy, **Domains** shows one thing to do instead of the search: **Connect
+Cloudflare** (it opens Settings › DNS and comes back), or, when the connected token lacks the
+permission, what to add to it in Cloudflare and **Check again**.
+
 It needs the Cloudflare token from [Let Tiffin manage DNS](#let-tiffin-manage-dns-optional) with
 two more things: **Account › Registrar Domains › Admin**, and **Zone Resources: All zones**
 (so the box reaches the zone of a domain you just bought). Editing a token in Cloudflare keeps
@@ -329,7 +333,8 @@ records before you confirm.
   records, then switch; the page follows the dashboard to its new address) and *Go
   back to the automatic address*.
 - **Settings › DNS**: connect Cloudflare with a token made from its *Edit zone DNS*
-  template (All zones), see which domains it can manage, or disconnect.
+  template (All zones; add Registrar Domains › Admin to buy domains too), see which domains
+  it can manage, or disconnect.
 
 - **Domains** (the sidebar): search, buy, and every domain the box can manage
   ([Buying a domain](#buying-a-domain)).

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowUpRight, Check, Cloud, TriangleAlert } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "@/api/client";
@@ -33,7 +34,7 @@ export function DnsSettingsPage() {
       <PageHeader
         eyebrow={accessCrumbs}
         title="Connect DNS"
-        lede="Optional. Without it you copy two records by hand when you add a domain; with it, the box does that for you."
+        lede="Optional. With it the box sets your domains’ DNS records for you, and you can buy domains in Domains. Without it you copy two records by hand."
       />
       {forbidden ? (
         <p className="mt-8 max-w-[40rem] border-y border-rule py-4 text-[0.875rem] text-ink-2">Only the box’s owner or an admin can connect DNS. Ask them to open Settings › DNS.</p>
@@ -50,6 +51,9 @@ export function DnsSettingsPage() {
 
 function CloudflareCard({ connected }: { connected?: ConnectedProvider }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  // Sent here from another page (Domains): go back there once connected.
+  const { next } = useSearch({ strict: false }) as { next?: string };
   const who = useWho();
   const [replacing, setReplacing] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -64,6 +68,7 @@ function CloudflareCard({ connected }: { connected?: ConnectedProvider }) {
       setReplacing(false);
       const zones = r.connected?.find((c) => c.name === "cloudflare")?.zones ?? [];
       toast({ title: "Cloudflare is connected.", detail: zones.length ? `The box can manage ${listWords(zones)}.` : "Its token can’t reach any domains yet." });
+      if (next?.startsWith("/")) void navigate({ to: next as "/domains" });
     },
   });
   const zones = connected?.zones ?? [];
@@ -95,16 +100,17 @@ function CloudflareCard({ connected }: { connected?: ConnectedProvider }) {
                 : zones.length
                   ? `It can manage ${countWords(zones.length, "domain", "domains", true).toLowerCase()} for your box.`
                   : "Its token can’t reach any domains. Make a new one for All zones."
-              : "If your domains’ DNS is at Cloudflare, connect it and two things get easier:"}
+              : "If your domains’ DNS is at Cloudflare, or you’d like to buy domains here, connect it:"}
           </p>
         </div>
       </div>
 
       {!connected && (
-        <ul className="mt-4 grid gap-2 px-5 text-[0.875rem] text-ink sm:grid-cols-2 sm:px-6">
+        <ul className="mt-4 grid gap-2 px-5 text-[0.875rem] text-ink sm:grid-cols-3 sm:px-6">
           {[
             ["One-click domains", "Add a domain and the box adds its records."],
             ["Instant HTTPS for new apps", "One certificate covers every app and preview, so each is secure the moment it exists."],
+            ["Buy domains here", "Search for a name and buy it in your Cloudflare account, at cost."],
           ].map(([t, d]) => (
             <li key={t} className="rounded-[10px] bg-paper-sunk px-3.5 py-3">
               <p className="font-[550]">{t}</p>
@@ -139,8 +145,8 @@ function CloudflareCard({ connected }: { connected?: ConnectedProvider }) {
             </Step>
             <Step n={2}>
               <span>
-                Choose <b className="font-[550]">Create Token</b> → <b className="font-[550]">Edit zone DNS</b> template → under Zone Resources, <b className="font-[550]">All zones</b>. Then Continue
-                and Create Token.
+                Choose <b className="font-[550]">Create Token</b> → <b className="font-[550]">Edit zone DNS</b> template → under Zone Resources, <b className="font-[550]">All zones</b>. To buy
+                domains here too, add the permission <b className="font-[550]">Account › Registrar Domains › Admin</b>. Then Continue and Create Token.
               </span>
             </Step>
             <Step n={3}>

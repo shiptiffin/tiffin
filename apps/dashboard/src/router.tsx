@@ -240,7 +240,8 @@ const gitSettings = createRoute({
     return <GitSettingsPage search={gitSettings.useSearch()} />;
   },
 });
-const dnsSettings = createRoute({ getParentRoute: () => app, path: "/settings/dns", loader: () => void DnsSettingsPage.preload(),
+const dnsSettings = createRoute({ getParentRoute: () => app, path: "/settings/dns",
+  validateSearch: (s: Record<string, unknown>): { next?: string } => (str(s.next)?.startsWith("/") ? { next: str(s.next) } : {}), loader: () => void DnsSettingsPage.preload(),
   component: DnsSettingsPage });
 const kit = createRoute({ getParentRoute: () => app, path: "/_kit", loader: () => void KitPage.preload(),
   component: KitPage });

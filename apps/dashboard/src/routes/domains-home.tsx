@@ -58,36 +58,43 @@ export function DomainsHomePage({ q: initial = "", project }: { q?: string; proj
     <Page>
       <PageHeader title="Domains" lede="Find a name and buy it, or put one you already own on a project. The box sets up DNS and HTTPS." />
 
-      <div className="relative mt-7">
-        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-ink-3" />
-        <input
-          ref={input}
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && raw && (e.preventDefault(), setRaw(""))}
-          placeholder="Search for a domain, like acme.app"
-          aria-label="Search for a domain"
-          autoFocus
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          className="h-12 w-full rounded-[10px] border border-rule-2 bg-paper-raised pr-12 pl-11 text-[1rem] text-ink shadow-[var(--top-light)] transition-[border-color,box-shadow] outline-hidden placeholder:text-ink-4 hover:border-rule-3 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
-        />
-        {raw && (
-          <button
-            type="button"
-            onClick={() => (setRaw(""), input.current?.focus())}
-            className="absolute top-1/2 right-3 grid size-7 -translate-y-1/2 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink"
-            aria-label="Clear the search"
-          >
-            <X className="size-4" />
-          </button>
-        )}
-      </div>
+      {!ready && owned.isPending ? (
+        <Skeleton className="mt-7 h-12 rounded-[10px]" />
+      ) : ready && !ready.canBuy ? (
+        <Setup r={ready} checking={owned.isFetching} onCheck={() => void owned.refetch()} />
+      ) : (
+        <div className="relative mt-7">
+          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-ink-3" />
+          <input
+            ref={input}
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && raw && (e.preventDefault(), setRaw(""))}
+            placeholder="Search for a domain, like acme.app"
+            aria-label="Search for a domain"
+            autoFocus
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="h-12 w-full rounded-[10px] border border-rule-2 bg-paper-raised pr-12 pl-11 text-[1rem] text-ink shadow-[var(--top-light)] transition-[border-color,box-shadow] outline-hidden placeholder:text-ink-4 hover:border-rule-3 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
+          />
+          {raw && (
+            <button
+              type="button"
+              onClick={() => (setRaw(""), input.current?.focus())}
+              className="absolute top-1/2 right-3 grid size-7 -translate-y-1/2 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink"
+              aria-label="Clear the search"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
 
-      {ready && !ready.canBuy && <NotReady r={ready} />}
+      )}
 
-      {query && search.data && !search.data.buy.canBuy && !search.data.offers?.length ? null : query ? (
+      {ready && !ready.canBuy ? (
+        (owned.data?.domains?.length ?? 0) > 0 && <Mine owned={owned.data?.domains ?? undefined} loading={false} error={null} onUse={setUsing} onSearch={() => input.current?.focus()} />
+      ) : query ? (
         <Results query={query} loading={typing || search.isFetching} offers={offers} error={search.isError ? search.error : null} canBuy={!!ready?.canBuy} onBuy={setBuying} />
       ) : (
         <Mine owned={owned.data?.domains ?? undefined} loading={owned.isPending} error={owned.isError ? owned.error : null} onUse={setUsing} onSearch={() => input.current?.focus()} />
@@ -99,28 +106,45 @@ export function DomainsHomePage({ q: initial = "", project }: { q?: string; proj
   );
 }
 
-/** Why this box can't buy yet, and the one thing to do. */
-function NotReady({ r }: { r: BuyReadiness }) {
-  const inside = r.fixUrl?.startsWith("/");
+/**
+ * Before the box can buy: connect Cloudflare (Settings › DNS, then back here),
+ * or give the connected token the Registrar permission (in Cloudflare; its
+ * value stays, so Check again is all that's left).
+ */
+function Setup({ r, checking, onCheck }: { r: BuyReadiness; checking: boolean; onCheck: () => void }) {
+  const connect = r.fixUrl === "/settings/dns";
   return (
-    <div className="mt-4 flex flex-col gap-3 rounded-[10px] bg-paper-sunk px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0 text-[0.875rem] leading-5">
-        <p className="text-ink">{r.why}</p>
-        {r.fix && <p className="mt-0.5 text-ink-2">{r.fix}</p>}
-      </div>
-      {r.fixUrl &&
-        (inside ? (
-          <Button asChild size="md" className="shrink-0">
-            <Link to={r.fixUrl as "/settings/dns"}>Connect Cloudflare</Link>
+    <section className="mt-7 rounded-[14px] border border-rule-2 bg-paper-raised px-5 py-6 shadow-[var(--top-light)] sm:px-7 sm:py-7" aria-label="Set up buying domains">
+      <span className="grid size-10 place-items-center rounded-[10px] bg-paper-sunk text-ink">
+        <Globe className="size-5" />
+      </span>
+      <h2 className="mt-4 text-[1.0625rem] font-[600] text-ink">{connect ? "Connect Cloudflare to search and buy domains" : "One more permission to buy domains"}</h2>
+      <p className="mt-1.5 max-w-[34rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
+        {connect
+          ? "Domains are bought in your own Cloudflare account, at cost, and the box sets up their DNS and HTTPS. Connect it once in Settings › DNS; it takes a minute, and you come straight back here."
+          : `${r.why} ${r.fix}`}
+      </p>
+      <div className="mt-5 flex flex-wrap gap-2">
+        {connect ? (
+          <Button asChild variant="primary" size="lg">
+            <Link to="/settings/dns" search={{ next: "/domains" }}>
+              Connect Cloudflare
+            </Link>
           </Button>
         ) : (
-          <Button asChild size="md" className="shrink-0">
-            <a href={r.fixUrl} target="_blank" rel="noopener noreferrer">
-              Open Cloudflare tokens
-            </a>
-          </Button>
-        ))}
-    </div>
+          <>
+            <Button asChild variant="primary" size="lg">
+              <a href={r.fixUrl} target="_blank" rel="noopener noreferrer">
+                Open Cloudflare tokens
+              </a>
+            </Button>
+            <Button size="lg" onClick={onCheck} disabled={checking}>
+              {checking ? "Checking…" : "Check again"}
+            </Button>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
