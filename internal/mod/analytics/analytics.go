@@ -281,7 +281,11 @@ func (m *Module) noteCheckout(project, id string, t Touch, at time.Time) {
 // Routes publishes the collector (script, beacons) at t.<domain>, and
 // VitalsPath on every app host.
 func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, error) {
-	return []edge.Route{{Host: p.Host("t"), Upstream: CollectorAddr}, {PathPrefix: VitalsPath, Upstream: CollectorAddr}}, nil
+	routes := []edge.Route{{Host: p.Host("t"), Upstream: CollectorAddr}, {PathPrefix: VitalsPath, Upstream: CollectorAddr}}
+	for _, pre := range appPaths {
+		routes = append(routes, edge.Route{PathPrefix: pre, Upstream: CollectorAddr})
+	}
+	return routes, nil
 }
 
 // ScriptURL is the public URL of the tracker.

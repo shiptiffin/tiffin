@@ -88,6 +88,14 @@ func (m *Module) ownPage(ctx context.Context, project, ref string) bool {
 	return ok && site.Project == project
 }
 
+// collectorRoutes add handlers to the collector; appPaths are path
+// prefixes the edge sends to the collector on every app host (like
+// VitalsPath). Other files of the module add theirs from init.
+var (
+	collectorRoutes []func(m *Module, mux *http.ServeMux)
+	appPaths        []string
+)
+
 func (m *Module) collectorHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/script.js", func(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +107,9 @@ func (m *Module) collectorHandler() http.Handler {
 	mux.HandleFunc("/e", m.beacon)
 	mux.HandleFunc("/track", m.serverTrack)
 	mux.HandleFunc(VitalsPath, m.vitalsBeacon)
+	for _, add := range collectorRoutes {
+		add(m, mux)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
