@@ -25,6 +25,7 @@ Every box serves an MCP server at `https://dashboard.<box domain>/mcp` (an API k
 - [Sign-in](https://shiptiffin.com/docs/auth.md): Better Auth on the box: passwords, magic links, passkeys, OAuth
 - [Jobs](https://shiptiffin.com/docs/queues.md): queues, crons and durable workflows
 - [Domains](https://shiptiffin.com/docs/domains.md): the box's domain and each project's own domains
+- [Search engines](https://shiptiffin.com/docs/search.md): IndexNow, sitemap checks and the crawler log
 - [Monitoring](https://shiptiffin.com/docs/observe.md): metrics, logs, alerts and error tracking
 - [Analytics](https://shiptiffin.com/docs/analytics.md): cookieless visits and events
 - [Protection](https://shiptiffin.com/docs/protection.md): rate limits, bot challenge, firewall

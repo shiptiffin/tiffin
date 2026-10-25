@@ -19,6 +19,7 @@ import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
 import { DeployAddresses } from "@/components/deploy-addresses";
 import { KeepVersions } from "@/components/keep-versions";
+import { SearchVisibility } from "@/components/domains-search";
 import { SettingsNav, useSettingsSection, type SettingsSection } from "@/components/settings-nav";
 
 /**
@@ -33,6 +34,7 @@ export function ProjectSettingsPage({ project }: { project: string }) {
   const p = useQuery(q.project(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000, refetchInterval: 10_000 });
   const pending = usePending(project);
+  const { can } = useMe();
   const man = m.data?.manifest;
   const apps = Object.entries(man?.apps ?? {});
   const svc = (man?.services ?? {}) as Record<string, unknown>;
@@ -75,6 +77,15 @@ export function ProjectSettingsPage({ project }: { project: string }) {
               {apps.length > 0 && (
                 <Section title="Version addresses" note="Every version you deploy keeps its own address while the box keeps it, so you can open it next to the live one. Who can open them:">
                   <DeployAddresses project={project} live={man?.deployAddresses} staged={pendingSet(["deployAddresses"])} />
+                </Section>
+              )}
+
+              {apps.length > 0 && (
+                <Section
+                  title="Search engines"
+                  note="Apps on a domain of their own show up in Google and Bing: the box tells search engines about their pages. Keep a staging site, an internal tool or a site before launch out of search results; it still opens for anyone with the link. Addresses on shiptiffin.app are always kept out. For one domain only, use its ⋯ menu in Domains."
+                >
+                  <SearchVisibility project={project} writer={can("apply:reversible")} />
                 </Section>
               )}
 

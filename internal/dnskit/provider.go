@@ -139,6 +139,41 @@ func SetRecords(ctx context.Context, p Provider, zone string, recs []Record) err
 	return err
 }
 
+// AddRecords adds records beside the others at the same name and type (a
+// verification TXT next to SPF), leaving alone a value already there.
+func AddRecords(ctx context.Context, p Provider, zone string, recs []Record) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	have, err := p.GetRecords(ctx, zone+".")
+	if err != nil {
+		return err
+	}
+	var lib []libdns.Record
+	for _, r := range recs {
+		dup := false
+		for _, h := range have {
+			rr := h.RR()
+			if strings.EqualFold(rr.Type, r.Type) && strings.EqualFold(libdns.AbsoluteName(rr.Name, zone+"."), strings.TrimSuffix(r.Name, ".")+".") &&
+				strings.Trim(rr.Data, `"`) == r.Value {
+				dup = true
+			}
+		}
+		if dup {
+			continue
+		}
+		rr, err := toLibdns(r, zone)
+		if err != nil {
+			return err
+		}
+		lib = append(lib, rr)
+	}
+	if len(lib) == 0 {
+		return nil
+	}
+	_, err = p.AppendRecords(ctx, zone+".", lib)
+	return err
+}
+
 // DeleteRecords removes records by name and type (any value) from zone.
 func DeleteRecords(ctx context.Context, p Provider, zone string, recs []Record) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -189,7 +224,8 @@ func init() {
 		Label: "Cloudflare",
 		Help: "Create an API token at dash.cloudflare.com → My Profile (or Manage Account) → API Tokens → Create Token, " +
 			"with the permission Zone · DNS · Edit on the zones you want the box to manage (adding Zone · Zone · Read helps it list them). " +
-			"Account-owned and user tokens both work. The token is stored encrypted on the box and never shown again.",
+			"Account-owned and user tokens both work. To buy domains from the dashboard too, add Account · Registrar Domains · Admin and set Zone Resources to all zones. " +
+			"The token is stored encrypted on the box and never shown again.",
 		Fields: []Field{{Name: "token", Label: "API token", Help: "Zone · DNS · Edit", Secret: true}},
 		New: func(c map[string]string) (Provider, error) {
 			return &cloudflare.Provider{APIToken: strings.TrimSpace(c["token"])}, nil

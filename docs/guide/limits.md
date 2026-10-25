@@ -386,6 +386,15 @@ The box adds nothing for LLMs:
   local box custom domains never go live. An app's `TIFFIN_URL` (and its sign-in
   address) stays its first route, usually its name on the box, whose links then take one
   redirect; put the primary domain first in `routes` to make it the app's URL.
+- **Buying domains goes through Cloudflare only, and its Registrar API is a beta.** No premium
+  names, and some endings are sold only in Cloudflare's dashboard (search links there).
+  Renewal happens by auto-renew or in Cloudflare's dashboard; contacts, WHOIS privacy and
+  transfers out are changed there too. The account needs a card, a default contact and the
+  registration agreement accepted in Cloudflare's dashboard first; the box can't set those.
+  Registrations can't be refunded.
+- **A bought domain is only added to a project when its zone is reachable.** The Cloudflare
+  token needs Zone Resources: All zones; with a token limited to some zones, the purchase
+  stops at "setting up DNS" and says to widen the token.
 - **Registrar parking is recognised for five registrars.** Namecheap, GoDaddy, Porkbun,
   Squarespace and Gandi's known parking and forwarding records are named, with what to
   delete; Cloudflare, Hostinger, IONOS, Dynadot and Name.com are recognised by their
@@ -654,6 +663,40 @@ automatic events from sign-ups and deploys.
   are not counted at the edge.
 - A page the browser prerendered and the visitor then opened is not counted at the
   edge: the box only sees the prerender, which is not a page view.
+
+## Search engines
+
+Not yet: Bing Webmaster Tools data (IndexNow covers Bing's indexing), Google's AI
+Overviews and AI Mode report (it has no API), and search data older than 28 days.
+
+- Google Search Console needs a service account key made in your own Google Cloud
+  project (Settings › Search engines). Organisations whose Google Workspace policy blocks
+  service account keys can't use it.
+- With Google connected, search data is read every 12 hours and covers the last 28
+  days; URL Inspection checks about 20 pages per domain a day, so a large site takes a
+  while to fill in.
+- A domain whose DNS is not on a connected provider is verified per host with Google's
+  verification file, not as a whole Domain property.
+- Disconnecting leaves the verification records in DNS and the properties in Search
+  Console.
+
+- Only addresses on a domain of your own are findable. Every name on `shiptiffin.app`
+  (chosen names too), `sslip.io` and local names says noindex, with no way to turn it off.
+- Keeping an address out of search results is a noindex, not a lock: anyone with the
+  link still opens it, and pages search engines already have take a few weeks to drop.
+- The sitemap goes to Google once; changes to it reach Google when Google reads it
+  again, or when you press Tell search engines.
+- Google takes no IndexNow pings; it finds changes through your sitemap on its own
+  schedule.
+- Changes are found through the sitemap: a page missing from it is never sent, and
+  when every page has the same `lastmod` only new and removed pages are sent.
+- At most 50,000 pages and 50 sitemap files are read per address.
+- A check that runs while the app is down or the sitemap fails keeps the last good
+  list and tries again at the next one.
+- The crawler log counts bots from their companies' published address lists. Bots
+  without one (Meta, ByteDance, Common Crawl, Mistral) are not shown, and Anthropic's
+  one list covers its three bots, told apart by user agent. 30 days are kept.
+- `tiffin protect under-attack` challenges search bots too while it is on.
 
 ## Managed boxes (ShipTiffin)
 

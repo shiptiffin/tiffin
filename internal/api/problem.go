@@ -32,6 +32,8 @@ type Problem struct {
 	// DNS: what the planned change does to DNS records (domains remove,
 	// projects destroy).
 	DNS *platform.DNSCleanup `json:"dns,omitempty" doc:"What happens to the DNS records of the names the change stops serving (domains remove, projects destroy): records the box created that will be deleted, and ones to delete at your DNS host"`
+	// Quote: what buying a domain costs now (domains buy without a matching price).
+	Quote *dnskit.Quote `json:"quote,omitempty" doc:"The live price to confirm (domains buy, confirm_required): send its total back as price to buy"`
 }
 
 // FieldError points at one bad input field.
