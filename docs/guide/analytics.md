@@ -9,6 +9,10 @@ and no cookie banner is needed for it: there are no cookies.
 services: { analytics: { retentionDays: 365 } },  // how long visits are kept (default 365)
 ```
 
+That is **Basic** analytics, on for every project. **Marketing attribution**, off until a
+person turns it on, adds campaign tags, the source of each sign-up and, with Stripe
+connected, of each payment: see [Marketing attribution](#marketing-attribution).
+
 ## How it counts
 
 - **Page views come from the box's edge.** Every request to an app passes the
@@ -37,12 +41,15 @@ services: { analytics: { retentionDays: 365 } },  // how long visits are kept (d
   with one page view; visit duration is the time from a session's first to its
   last page view.
 - **Sources**: a visit from another of the project's own apps or hosts is not a
-  referral. Google and Yandex mean their search pages; `mail.google.com` or
-  `docs.google.com` show as themselves.
+  referral, and neither is coming back from a payment provider's checkout or billing
+  page (Stripe, Lemon Squeezy, Polar, Paddle, PayPal, Dodo, GoCardless): the visit keeps
+  the source that brought it. Google and Yandex mean their search pages;
+  `mail.google.com` or `docs.google.com` show as themselves.
 - Browsers that send [Global Privacy Control](https://globalprivacycontrol.org)
   are not counted at all (page views, script events and `track()` with a
   request). Do Not Track is not read: browsers have dropped it.
-- Query strings are dropped, except `utm_*` and `ref`. Countries come from
+- Query strings are dropped. With marketing attribution, `utm_*` and `ref` tags are kept
+  (Basic analytics keeps no campaign tags). Countries come from
   [DB-IP Lite](https://db-ip.com) (IP Geolocation by DB-IP, CC BY 4.0); browsers,
   systems and devices from [uap-core](https://github.com/ua-parser/uap-core).
 - Days are UTC.
@@ -83,6 +90,147 @@ await track("Invoice paid", { amount: 49 });        // an event without a visito
 `track()` never throws and does nothing when analytics is off, so the same code
 runs in development. An event sent without a request (no IP address or user
 agent) counts as a visitor and a visit of its own.
+
+## Sign-ups
+
+Projects with sign-in (`services.auth`) count a `Signup` event for every new account,
+with no code: the box's sign-in engine reports it, and it joins the visit it happened
+in, so the events view and every filter (source, page, country) show where sign-ups
+come from. In Basic analytics it is only an event, linked to no account.
+
+## Marketing attribution
+
+```ts
+services: { analytics: { attribution: {} } },  // campaigns and signups on, no cookie
+services: { analytics: { attribution: { signups: false, firstVisitCookie: "outside-eu" } } },
+```
+
+Attribution answers "which sources and campaigns bring us customers". With it on:
+
+- **Campaigns** (`campaigns`, default on): `utm_source`, `utm_medium`, `utm_campaign`
+  (and `utm_term`, `utm_content`) and `ref` tags are kept, and filter everything like any
+  other dimension.
+- **Sign-ups** (`signups`, default on): each new account keeps where the visit it signed
+  up in came from: the source, the referrer site, the campaign tags, the first page and
+  the country. A visit is found when the sign-up comes from the same browser and network
+  within 30 minutes of its last page; moving between the project's apps is one visit. An
+  account made with a sign-in link opened elsewhere (another device) has no visit. Your
+  server code reads it with the app's analytics key:
+
+  ```ts
+  import { attribution } from "@shiptiffin/sdk/analytics";
+  const a = await attribution(user.id); // { visit: { source, utmCampaign, landing, ... }, first?, matched } or null
+  ```
+
+  Deleting an account deletes its attribution.
+- **Payments**: connect Stripe and every payment is linked to the account (or the visit)
+  that paid: see [Revenue](#revenue).
+- **First-visit cookie** (`firstVisitCookie`, default `"off"`): see
+  [The first-visit cookie](#the-first-visit-cookie).
+
+**Only a person turns it on.** It links visits to people, so API keys can plan the
+change but not apply it (`403`, "an API key can't turn on marketing attribution"); in the
+dashboard it needs a sign-in with a passkey, Google, GitHub or an emailed link in the last
+10 minutes (`reauth_required`); the owner token may. The plan step says it is turning
+attribution on and names the privacy text's version, so History records what the person
+was shown. Turning it off is irreversible: it deletes the sign-up sources, checkout
+returns, first visits and payments it collected. Anyone whose browser sends Global
+Privacy Control is left out of all of it.
+
+**Your privacy policy has to say so.** Attribution is marketing measurement, which the
+cookie-free exemption for audience measurement doesn't cover (CNIL, 2025). The box writes
+the text for your settings:
+
+```bash
+tiffin analytics privacy --project shop   # Markdown, its version and a hash that changes with the text
+```
+
+The dashboard shows it when you turn attribution on, and again whenever a setting changes it.
+
+### Revenue
+
+Connect Stripe and every payment is linked to the account, or the visit, that paid, so
+revenue, new customers, conversion rate and revenue per visitor break down by source,
+campaign, first page and country. It needs attribution on.
+
+1. In Stripe, create a **restricted key** (Developers › API keys) with: Charges, Refunds,
+   Balance transactions, Customers, Invoices, Subscriptions and Checkout Sessions **Read**,
+   and Webhook Endpoints **Write**.
+2. Paste it:
+
+   ```bash
+   tiffin analytics stripe connect --project shop --key rk_live_...
+   ```
+
+That's all. The box keeps the key sealed, creates its own webhook in your Stripe account
+at `https://<the project's address>/_tiffin/stripe` (beside any webhook your app has;
+the edge answers that path before your app and checks Stripe's signature), and imports
+the last 12 months of payments, refunds and subscriptions. When the project's address
+changes, the webhook follows it (`tiffin analytics stripe repair` does it by hand);
+`tiffin analytics stripe status` shows the connection, the import and any warning.
+`tiffin analytics stripe disconnect` deletes the webhook, the key and the payments.
+
+**How a payment finds its customer**, in order (each payment records which one worked):
+
+1. `client_reference_id` (or `metadata.tiffin_user`) on the Checkout Session or
+   subscription: the account id. Set it and matching is exact:
+
+   ```ts
+   await stripe.checkout.sessions.create({ ..., client_reference_id: session.user.id });
+   ```
+
+2. The Stripe customer's email, matched to an account of the project's sign-in.
+3. The visit the buyer came back to from Checkout (a page with `?session_id=cs_...`, as
+   Stripe's success URL sends): credited to that visit, with no account.
+4. An earlier payment by the same Stripe customer: a renewal, credited like the first.
+
+The rest show as unmatched, with the reason; `tiffin analytics revenue match` tries again
+(after you add `client_reference_id`, say).
+
+```bash
+tiffin analytics revenue --project shop --period 30d                # last touch: the visit that paid
+tiffin analytics revenue --project shop --period 30d --touch first  # first touch: where each customer first came from
+```
+
+Amounts are in the Stripe account's currency: a payment in another currency counts as
+what Stripe settled it for (its balance transaction), so totals never mix currencies.
+Refunds count against the payment they refund. MRR is the active subscriptions'
+prices, per month. Agents get `analytics_revenue` and the `analytics_stripe_*` tools.
+
+**Other payment providers**: send each payment from your server instead. It is ignored
+while Stripe is connected, so nothing counts twice:
+
+```ts
+import { revenue } from "@shiptiffin/sdk/analytics";
+await revenue({ id: order.id, amount: 1999, currency: "eur", user: user.id }, { request });
+```
+
+`amount` is in the currency's smallest unit; `refund: "<id of the payment>"` records a
+refund, `renewal: true` a renewal. Without `user`, the request's visit gets the credit.
+
+### The first-visit cookie
+
+Without a cookie, a visitor who came from Hacker News on Monday and signs up on Thursday
+is credited to Thursday's visit (often "direct" or Google). `firstVisitCookie` remembers
+the first visit for 90 days:
+
+- The box's edge sets one first-party cookie, `tiffin_first_visit` (a random code;
+  `HttpOnly`, `Secure`, `SameSite=Lax`, 90 days), on page loads. Your app's code doesn't
+  change. The account then keeps both: where its first visit came from (`first`) and where
+  its sign-up visit came from (`visit`).
+- **`"outside-eu"`**: never set for visitors in the EU, EEA or UK (or anywhere the country
+  database doesn't know). No banner is needed.
+- **`"ask-eu"`**: visitors there get it only once they agree. Add the prompt to your pages;
+  it shows only to visitors who need asking and haven't answered, and
+  `tiffinConsent.open()` shows it again for a "Change my choice" link:
+
+  ```html
+  <script defer src="/_tiffin/consent.js"></script>
+  ```
+
+- Never with Global Privacy Control. `/_tiffin/opt-out` on every host of the app stops it
+  and deletes what it remembered; the privacy text links it.
+- Turning it on needs a person, like attribution itself.
 
 ## Web Vitals
 
@@ -149,15 +297,18 @@ tiffin analytics events --project shop --period 30d    # custom events and their
 ```
 
 Agents get the same as MCP tools (`analytics_overview`, `analytics_realtime`,
-`analytics_events`, `analytics_vitals`, `analytics_setup`). Paths, referrers and event names come from
+`analytics_events`, `analytics_vitals`, `analytics_setup`, `analytics_privacy`). Paths, referrers and event names come from
 visitors, so tools mark their output as untrusted data.
 
 ## Privacy
 
 You can link this section from your privacy policy, or copy it.
 
+This section covers Basic analytics. With marketing attribution on, use the text
+`tiffin analytics privacy` prints instead: it adds what attribution keeps.
+
 **What is collected.** For each page view: the page's address without its query
-string (except `utm_*` and `ref` tags), the site that sent the visitor (its name
+string, the site that sent the visitor (its name
 only, such as "news.ycombinator.com", never the full address), the country, the
 kind of browser, operating system and device, and the time. Custom events add
 their name and the properties the site's own code sends. Visitors are told apart
@@ -192,11 +343,18 @@ legitimate interest (Article 6(1)(f)); what is stored is statistics about
 visits, not about people. Page views counted at the edge read only what every
 browser sends with every request. The optional script sends events from the
 browser, which the ePrivacy rules (Article 5(3), as the EDPB reads it in its
-Guidelines 2/2023) may treat as reaching into the device; it is built to meet
-the conditions the French CNIL set for audience measurement without consent:
-for the site's own statistics only, anonymous figures, no cross-site tracking,
-no sharing, country-level location, kept well under 25 months, and an easy way
-to object (Global Privacy Control). Say in your privacy policy that you
+Guidelines 2/2023) may treat as reaching into the device. Basic analytics is
+built to meet the conditions the French CNIL set for audience measurement
+without consent (its 2025 self-assessment): for the site's own statistics only,
+no campaign tags or customer IDs collected, referrers as a site name only,
+anonymous figures, no cross-site tracking, no sharing, no third-party tools,
+country-level location, kept well under 25 months, and an easy way to object
+(Global Privacy Control). The CNIL asks for figures rounded to the nearest ten
+or an analysis showing they are anonymous; the box shows exact counts, because
+what it stores can't single anyone out: one-way daily visitor codes, no IP
+addresses, no per-visitor views, no account links. Marketing attribution is
+outside that exemption by design (it measures acquisition and links sign-ups
+to accounts): turn it on only with the privacy text it comes with. Say in your privacy policy that you
 measure visits this way. This is how the design maps to the rules, not legal
 advice; your own circumstances may differ.
 

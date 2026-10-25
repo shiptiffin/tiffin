@@ -643,7 +643,26 @@ Router, TanStack Start) cover the files the build wrote, as they are:
 ## Analytics
 
 Not yet: funnels and retention, goals, share links, excluding your own visits, and
-automatic events from sign-ups and deploys.
+automatic events from deploys.
+
+- **Sign-ups join a visit by browser and network.** The sign-in engine reports the
+  request that made the account; it joins the visit going on from the same IP address and
+  user agent within 30 minutes. An account made with a sign-in link opened on another
+  device, or by your server calling the sign-in API itself (so the request comes from
+  your app, not the visitor), has no visit (`matched: "none"`).
+- **The first-visit cookie is per host.** `shop.com` and `app.shop.com` each set their
+  own, so a first visit on one isn't seen by a sign-up on the other.
+- **Country decides the cookie.** It comes from the IP address: someone in the EU on a
+  VPN that exits elsewhere can get it without being asked, and someone outside on an EU
+  exit is asked. An address the database doesn't know counts as the EU.
+- **Revenue is Stripe's, imported 12 months back.** Refunds of older payments are
+  skipped. Disputes aren't counted. MRR uses list prices: discounts, trials, tiered and
+  metered prices aren't reflected. Other providers (Lemon Squeezy, Polar, Paddle) go
+  through `revenue()` from your code; there is no direct connection for them yet.
+- **Stripe must reach the box.** A box without a public address (a local VM) can connect,
+  but webhooks never arrive; the status says so. Payments still import at connect.
+- **The consent prompt is plain.** One wording, the box's own styling; build your own and
+  call `tiffinConsent.choose("yes" | "no")` for anything else.
 
 - A `from`..`to` range covers at most 3,653 days (ten years, the longest retention);
   hourly points go up to 92 days.

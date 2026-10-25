@@ -20,7 +20,7 @@
     "updated": "2026-10-13"
   },
   "limits": {
-    "sha": "2484ae57ee96348b",
+    "sha": "192dc1bc49abe5eb",
     "updated": "2026-10-25"
   },
   "security": {
@@ -64,8 +64,8 @@
     "updated": "2026-10-07"
   },
   "analytics": {
-    "sha": "41dfa24e8767c67a",
-    "updated": "2026-10-09"
+    "sha": "8c3a3c2bc0187998",
+    "updated": "2026-10-25"
   },
   "protection": {
     "sha": "64d967620d7d1667",
