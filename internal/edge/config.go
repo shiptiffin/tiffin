@@ -60,6 +60,9 @@ type Config struct {
 	// Gate signs the deploy-address gate's links and cookies (Route.Gate).
 	// Nil: the one registered with SetGateSource, if any.
 	Gate *Gate
+	// FirstVisit is which hosts set the first-visit cookie. Nil: the one
+	// registered with SetFirstVisitSource, if any.
+	FirstVisit *FirstVisit
 
 	paths []Route // routes without a host (see Route.Host), split out by normalized
 }
@@ -598,6 +601,9 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 	var handle []obj
 	if r.NoIndex {
 		handle = append(handle, obj{"handler": "headers", "response": obj{"set": obj{"X-Robots-Tag": []string{"noindex"}}}})
+	}
+	if mode := c.FirstVisit.mode(c.hostsFor(r.Host)); r.Host != "" && mode != "" && r.RedirectTo == "" && r.Body == "" {
+		handle = append(handle, obj{"handler": "tiffin_first_visit", "mode": mode, "geo": c.FirstVisit.GeoPath})
 	}
 	if r.Gate && r.RedirectTo == "" {
 		if c.Gate == nil {

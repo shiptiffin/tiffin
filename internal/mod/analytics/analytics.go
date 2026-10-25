@@ -138,6 +138,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 		go func() { _ = srv.Serve(ln) }()
 		go func() { <-ctx.Done(); _ = srv.Close() }()
 	}
+	edge.SetFirstVisitSource(m.firstVisitHosts)
 	go m.pipe.Run(ctx)
 	go m.vit.Run(ctx)
 	tl := &logtail.Tailer{Path: filepath.Join(root, "logs", "access.log"), FromStart: true,
@@ -169,7 +170,7 @@ func (m *Module) setup(p *platform.Platform, st Store, geo *enrich.Geo) {
 	}
 	m.settings = settingsCache{load: m.loadSettings}
 	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt, Own: m.ownPage,
-		Settings: m.Settings, Checkout: m.noteCheckout}
+		Settings: m.Settings, Checkout: m.noteCheckout, FirstVisit: m.noteFirstVisit}
 	m.vit = &Vitals{Store: st}
 }
 

@@ -75,7 +75,7 @@ func (m *Module) handleEdge(ctx context.Context, line []byte) {
 	}
 	m.pipe.Add(ctx, Hit{At: e.Time, Project: site.Project, App: site.App, Kind: "pageview", URL: e.URI, Host: e.Host,
 		Referrer: e.Header("Referer"), IP: e.ClientIP, UA: e.Header("User-Agent"), Src: "edge", GPC: e.Header("Sec-GPC") == "1",
-		Lang: e.Header("Accept-Language") != ""})
+		Lang: e.Header("Accept-Language") != "", FirstVisit: e.FirstVisit})
 }
 
 // ownPage reports whether ref is a page served by one of project's apps.

@@ -208,6 +208,9 @@ func render(cfg Config) (*rendered, error) {
 	if cfg.Gate == nil {
 		cfg.Gate = currentGate()
 	}
+	if cfg.FirstVisit == nil {
+		cfg.FirstVisit = currentFirstVisit()
+	}
 	c, err := withCertSource(cfg).normalized()
 	if err != nil {
 		return nil, err

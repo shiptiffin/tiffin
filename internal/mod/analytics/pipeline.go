@@ -35,6 +35,8 @@ type Hit struct {
 	// Lang is whether the request carried Accept-Language, as every
 	// browser's requests do. Edge and script hits without it are bots.
 	Lang bool
+	// FirstVisit is the first-visit cookie's id the edge named, if any.
+	FirstVisit string
 }
 
 // SessionIdle ends a session after this much inactivity.
@@ -119,6 +121,9 @@ type Pipeline struct {
 	// Checkout notes a visitor coming back from a payment provider's
 	// checkout with its session id (attribution only). Optional.
 	Checkout func(project, checkoutID string, touch Touch, at time.Time)
+	// FirstVisit keeps where a visit came from under the first-visit
+	// cookie's id; the first one kept wins. Optional.
+	FirstVisit func(project, id string, touch Touch)
 
 	mu       sync.Mutex
 	buf      []Event
@@ -329,7 +334,14 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		}
 		pl.latest[visKey{h.Project, vis}] = s
 	}
-	var back Touch
+	var back, first Touch
+	firstID := ""
+	if h.FirstVisit != "" && set.FirstVisitCookie != "" && set.FirstVisitCookie != "off" && pl.FirstVisit != nil && ev.Kind == "pageview" && vis != 0 {
+		if s := pl.latest[visKey{h.Project, vis}]; s != nil {
+			firstID, first = h.FirstVisit, s.touch
+			first.Session = 0
+		}
+	}
 	checkout := ""
 	if set.Attribution && pl.Checkout != nil && ev.Kind == "pageview" {
 		if id := page.CheckoutID; id != "" {
@@ -346,6 +358,9 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 	pl.mu.Unlock()
 	if checkout != "" {
 		pl.Checkout(h.Project, checkout, back, h.At)
+	}
+	if firstID != "" {
+		pl.FirstVisit(h.Project, firstID, first)
 	}
 	if pl.RT != nil {
 		pl.RT.Add(ev)
