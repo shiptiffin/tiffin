@@ -10,6 +10,6 @@
   "dependencies": {
     "lighthouse": "13.5.0",
     "playwright": "1.63.0",
-    "undici": "8.11.2"
+    "undici": "8.12.2"
   }
 }
