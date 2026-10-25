@@ -130,7 +130,7 @@ func (g *gclient) accessToken(ctx context.Context) (string, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := g.http.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Google sign-in: %w", err)
+		return "", fmt.Errorf("google sign-in: %w", err)
 	}
 	defer resp.Body.Close()
 	var out struct {
@@ -185,7 +185,7 @@ func (g *gclient) call(ctx context.Context, method, u string, body, out any) err
 	}
 	resp, err := g.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("Google could not be reached: %w", err)
+		return fmt.Errorf("google could not be reached: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
