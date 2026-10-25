@@ -179,3 +179,63 @@ export async function revenue(payment: Revenue, opts: Omit<TrackOptions, "url"> 
     return { ok: false, error: `the box could not be reached: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
+
+/** Where a visit came from (marketing attribution). */
+export interface Touch {
+  at: string;
+  /** The source: a utm_source or ref tag, else the referrer's name ("Google", "news.ycombinator.com"); "" for direct. */
+  source: string;
+  refHost: string;
+  utmSource: string;
+  utmMedium: string;
+  utmCampaign: string;
+  /** The visit's first page. */
+  landing: string;
+  /** ISO country code. */
+  country: string;
+}
+
+/** Where an account came from. */
+export interface Attribution {
+  userId: string;
+  at: string;
+  /** visit: the sign-up joined a visit going on, whose source `visit` is; none: no visit was found. */
+  matched: "visit" | "none";
+  /** The visit the account signed up in. */
+  visit: Touch;
+  /** The person's first visit, remembered by the first-visit cookie (when the project sets it). */
+  first?: Touch;
+}
+
+/**
+ * Where an account came from: the source, campaign tags and first page of the
+ * visit it signed up in (and of its first visit, with the first-visit
+ * cookie). Needs marketing attribution with signups on; null when it is off,
+ * the account has none, or the box can't be reached. Never throws.
+ *
+ * ```ts
+ * const a = await attribution(session.user.id);
+ * if (a?.visit.utmCampaign === "launch") ...
+ * ```
+ */
+export async function attribution(
+  userId: string,
+  opts: Pick<TrackOptions, "endpoint" | "key" | "fetch" | "timeoutMs"> = {},
+): Promise<Attribution | null> {
+  const env = typeof process !== "undefined" ? process.env : {};
+  const endpoint = opts.endpoint ?? env.TIFFIN_ANALYTICS_URL;
+  const key = opts.key ?? env.TIFFIN_ANALYTICS_KEY;
+  if (!endpoint || !key || !userId) return null;
+  const f = opts.fetch ?? fetch;
+  try {
+    const res = await f(`${endpoint.replace(/\/+$/, "")}/attribution?user=${encodeURIComponent(userId)}`, {
+      headers: { authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 2000),
+    });
+    if (!res.ok) return null;
+    const out = (await res.json()) as { attribution?: Attribution | null };
+    return out.attribution ?? null;
+  } catch {
+    return null;
+  }
+}

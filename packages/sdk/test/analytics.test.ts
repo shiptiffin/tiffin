@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clientIP, revenue, track } from "../src/analytics";
+import { attribution, clientIP, revenue, track } from "../src/analytics";
 
 describe("track", () => {
   test("does nothing without configuration", async () => {
@@ -104,5 +104,31 @@ describe("revenue", () => {
     const down = await revenue({ id: "o1", amount: 100, currency: "usd" }, { endpoint: "http://h", key: "k", fetch: fail });
     expect(down.ok).toBe(false);
     expect(down.error).toContain("ECONNREFUSED");
+  });
+});
+
+describe("attribution", () => {
+  test("asks the collector with the app's key and returns the account's source", async () => {
+    let url = "";
+    let auth = "";
+    const fetch = (async (u: string, init: RequestInit) => {
+      url = u;
+      auth = new Headers(init.headers).get("authorization") ?? "";
+      return Response.json({ attribution: { userId: "u 1", at: "2026-10-25T12:00:00Z", matched: "visit", visit: { source: "Hacker News", utmCampaign: "launch" } } });
+    }) as unknown as typeof globalThis.fetch;
+    const a = await attribution("u 1", { endpoint: "http://10.0.0.1:7091/", key: "k", fetch });
+    expect(url).toBe("http://10.0.0.1:7091/attribution?user=u%201");
+    expect(auth).toBe("Bearer k");
+    expect(a?.visit.source).toBe("Hacker News");
+  });
+
+  test("null when off, unconfigured or unreachable", async () => {
+    const off = (async () => Response.json({ attribution: null, off: true })) as unknown as typeof globalThis.fetch;
+    expect(await attribution("u", { endpoint: "http://x", key: "k", fetch: off })).toBeNull();
+    expect(await attribution("u", { endpoint: "", key: "" })).toBeNull();
+    const down = (async () => {
+      throw new Error("refused");
+    }) as unknown as typeof globalThis.fetch;
+    expect(await attribution("u", { endpoint: "http://x", key: "k", fetch: down })).toBeNull();
   });
 });

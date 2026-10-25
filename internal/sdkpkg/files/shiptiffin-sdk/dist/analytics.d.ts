@@ -90,3 +90,40 @@ export interface RevenueResult {
  * Never throws: resolves to `{ ok: false, error }` when it could not be recorded.
  */
 export declare function revenue(payment: Revenue, opts?: Omit<TrackOptions, "url">): Promise<RevenueResult>;
+/** Where a visit came from (marketing attribution). */
+export interface Touch {
+    at: string;
+    /** The source: a utm_source or ref tag, else the referrer's name ("Google", "news.ycombinator.com"); "" for direct. */
+    source: string;
+    refHost: string;
+    utmSource: string;
+    utmMedium: string;
+    utmCampaign: string;
+    /** The visit's first page. */
+    landing: string;
+    /** ISO country code. */
+    country: string;
+}
+/** Where an account came from. */
+export interface Attribution {
+    userId: string;
+    at: string;
+    /** visit: the sign-up joined a visit going on, whose source `visit` is; none: no visit was found. */
+    matched: "visit" | "none";
+    /** The visit the account signed up in. */
+    visit: Touch;
+    /** The person's first visit, remembered by the first-visit cookie (when the project sets it). */
+    first?: Touch;
+}
+/**
+ * Where an account came from: the source, campaign tags and first page of the
+ * visit it signed up in (and of its first visit, with the first-visit
+ * cookie). Needs marketing attribution with signups on; null when it is off,
+ * the account has none, or the box can't be reached. Never throws.
+ *
+ * ```ts
+ * const a = await attribution(session.user.id);
+ * if (a?.visit.utmCampaign === "launch") ...
+ * ```
+ */
+export declare function attribution(userId: string, opts?: Pick<TrackOptions, "endpoint" | "key" | "fetch" | "timeoutMs">): Promise<Attribution | null>;

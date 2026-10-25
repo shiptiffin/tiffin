@@ -147,3 +147,35 @@ export async function revenue(payment, opts = {}) {
         return { ok: false, error: `the box could not be reached: ${err instanceof Error ? err.message : String(err)}` };
     }
 }
+/**
+ * Where an account came from: the source, campaign tags and first page of the
+ * visit it signed up in (and of its first visit, with the first-visit
+ * cookie). Needs marketing attribution with signups on; null when it is off,
+ * the account has none, or the box can't be reached. Never throws.
+ *
+ * ```ts
+ * const a = await attribution(session.user.id);
+ * if (a?.visit.utmCampaign === "launch") ...
+ * ```
+ */
+export async function attribution(userId, opts = {}) {
+    const env = typeof process !== "undefined" ? process.env : {};
+    const endpoint = opts.endpoint ?? env.TIFFIN_ANALYTICS_URL;
+    const key = opts.key ?? env.TIFFIN_ANALYTICS_KEY;
+    if (!endpoint || !key || !userId)
+        return null;
+    const f = opts.fetch ?? fetch;
+    try {
+        const res = await f(`${endpoint.replace(/\/+$/, "")}/attribution?user=${encodeURIComponent(userId)}`, {
+            headers: { authorization: `Bearer ${key}` },
+            signal: AbortSignal.timeout(opts.timeoutMs ?? 2000),
+        });
+        if (!res.ok)
+            return null;
+        const out = (await res.json());
+        return out.attribution ?? null;
+    }
+    catch {
+        return null;
+    }
+}
