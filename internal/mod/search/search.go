@@ -228,8 +228,6 @@ type Settings struct {
 	HiddenHosts []string `json:"hiddenHosts,omitempty" doc:"Addresses kept out one by one, such as staging.example.com in an otherwise public project"`
 }
 
-func (s Settings) hides(host string) bool { return s.Hidden || slices.Contains(s.HiddenHosts, host) }
-
 func (m *Module) settings(ctx context.Context, project string) Settings {
 	var s Settings
 	if raw, ok, err := m.p.DB.KVGet(ctx, kvNS, "settings/"+project); err == nil && ok {
