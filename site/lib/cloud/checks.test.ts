@@ -121,14 +121,18 @@ describe("checkToken", () => {
     const r = await checkToken(token, () => {}, "https://api.example/v1");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toContain("Read & Write");
+    if (!r.ok) expect(r.reason).toBe("read_only");
   });
 
   test("a wrong key, and something that isn't a key", async () => {
     fake({ "GET /server_types?per_page=50": [401, { error: { code: "unauthorized" } }] });
     const r = await checkToken(token, () => {}, "https://api.example/v1");
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("rejected");
     const seen = fake({});
-    expect((await checkToken("not a token!", () => {})).ok).toBe(false);
+    const bad = await checkToken("not a token!", () => {});
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.reason).toBe("format");
     expect(seen).toHaveLength(0); // never sent anywhere
   });
 });

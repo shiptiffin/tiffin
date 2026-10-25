@@ -5,12 +5,16 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { pageMeta } from "@/lib/meta";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { after } from "next/server";
+import { track } from "@shiptiffin/sdk/analytics";
 import { confirmCheckout, drainOutbox } from "@/lib/cloud/actions";
 import { foundingCoupon, signupOpen } from "@/lib/cloud/config";
 import { boxesFor, foundingCount, latestJob, type BoxRow } from "@/lib/cloud/db";
+import { SITE } from "@/lib/cloud/emails";
 import { FOUNDING_LIMIT } from "@/lib/cloud/stripe";
 import { currentAccount } from "@/lib/cloud/session";
+import { requestFrom } from "@/lib/cloud/track";
 import { MESSAGES, type ErrorCode } from "@/lib/form";
 import { SignInForm } from "../sign-in/sign-in-form";
 import { PayButton, StartFlow, Steps, WaitForPayment } from "./start-flow";
@@ -47,7 +51,8 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
     );
   }
   if (sp.box && sp.session_id) {
-    await confirmCheckout(acct, sp.box, sp.session_id);
+    // Paid: counted once per Checkout session, in the visitor's session (the page has headers, not the request).
+    if (await confirmCheckout(acct, sp.box, sp.session_id)) void track("checkout_completed", undefined, { request: requestFrom(await headers(), `${SITE}/start`) });
     after(() => drainOutbox().catch((e) => console.error("outbox", e instanceof Error ? e.message : e)));
   }
   const boxes = await boxesFor(acct.id);

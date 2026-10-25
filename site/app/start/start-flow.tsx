@@ -170,7 +170,8 @@ export function StartFlow({ box: initialBox, job: initialJob }: { box: Box; job:
     let t: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/cloud/boxes/${box.id}`, { cache: "no-store" });
+        // watch=1: this is the setup screen watching (the route counts how setup ended).
+        const res = await fetch(`/api/cloud/boxes/${box.id}?watch=1`, { cache: "no-store" });
         const j = (await res.json()) as { box?: { status: string; name: string | null }; job?: Job };
         if (!stop && j.box) {
           setStatus(j.box.status);

@@ -1,8 +1,10 @@
 // POST /api/cloud/boxes/:id/action: the account page's buttons (sign-in
 // link, resize, cancel, release, delete the server).
+import { track } from "@shiptiffin/sdk/analytics";
 import { ActionError, boxAction, type BoxAction } from "@/lib/cloud/actions";
 import { actionLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";
+import { cancelHow } from "@/lib/cloud/track";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = await readJson<BoxAction>(request);
   if (!body?.action) return problem(400, "Bad request.");
   try {
-    return json({ ok: true, message: await boxAction(acct, (await params).id, body) });
+    const message = await boxAction(acct, (await params).id, body);
+    const how = cancelHow(body.action);
+    if (how) void track("subscription_cancelled", { how }, { request });
+    return json({ ok: true, message });
   } catch (e) {
     if (e instanceof ActionError) return problem(e.status, e.message);
     console.error("box action", body.action, e instanceof Error ? e.message : e);

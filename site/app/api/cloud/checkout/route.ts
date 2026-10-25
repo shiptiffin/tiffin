@@ -1,6 +1,7 @@
 // POST /api/cloud/checkout {renew?: box id}: a Stripe Checkout page for a new
 // box, or to renew one whose subscription ended. One session per box,
 // reused until it expires.
+import { track } from "@shiptiffin/sdk/analytics";
 import { baseUrl } from "@/lib/early-access-box";
 import { ActionError, startCheckout } from "@/lib/cloud/actions";
 import { signupOpen } from "@/lib/cloud/config";
@@ -15,8 +16,11 @@ export async function POST(request: Request) {
   const acct = await currentAccount({ fresh: true });
   if (!acct) return problem(401, "Sign in first.");
   const body = (await readJson<{ renew?: string }>(request)) ?? {};
+  const renew = typeof body.renew === "string" ? body.renew : undefined;
   try {
-    return json({ ok: true, url: await startCheckout(acct, baseUrl(request), typeof body.renew === "string" ? body.renew : undefined) });
+    const url = await startCheckout(acct, baseUrl(request), renew);
+    void track("checkout_started", { renew: Boolean(renew) }, { request });
+    return json({ ok: true, url });
   } catch (e) {
     if (e instanceof ActionError) return problem(e.status, e.message);
     console.error("checkout", e instanceof Error ? e.message : e);

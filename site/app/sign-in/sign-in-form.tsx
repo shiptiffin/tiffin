@@ -4,6 +4,7 @@
 // site; the bot check comes from the SDK.
 import { useEffect, useRef, useState } from "react";
 import { authConfig, prepareCaptcha } from "@shiptiffin/sdk/client";
+import { signInCallbacks } from "@/lib/cloud/track";
 
 type Social = { id: "google" | "github"; name: string };
 
@@ -41,7 +42,8 @@ export function SignInForm({ next }: { next: string }) {
     setError("");
     setState("sending");
     try {
-      await post("/api/auth/sign-in/magic-link", { email: email.trim(), callbackURL: next });
+      // A link that failed (expired, used) still lands on `next` with ?error=, as before.
+      await post("/api/auth/sign-in/magic-link", { email: email.trim(), ...signInCallbacks(next), errorCallbackURL: next });
       setState("sent");
     } catch (err) {
       setError(err instanceof Error ? err.message : "That didn't work.");
@@ -52,7 +54,7 @@ export function SignInForm({ next }: { next: string }) {
   async function withProvider(p: Social["id"]) {
     setError("");
     try {
-      const r = await post("/api/auth/sign-in/social", { provider: p, callbackURL: next });
+      const r = await post("/api/auth/sign-in/social", { provider: p, ...signInCallbacks(next) });
       if (r.url) window.location.href = r.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "That didn't work.");

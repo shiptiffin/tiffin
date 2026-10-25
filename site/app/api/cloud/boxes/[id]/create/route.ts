@@ -1,6 +1,7 @@
 // POST /api/cloud/boxes/:id/create {token, name, serverType, location, sshKeys}:
 // queues the setup. The key travels sealed with the job and is forgotten
 // when it ends; the owner's SSH public keys (up to 10) travel as they are.
+import { track } from "@shiptiffin/sdk/analytics";
 import { ActionError, createBox, type CreateInput } from "@/lib/cloud/actions";
 import { actionLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";
@@ -15,7 +16,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = await readJson<CreateInput>(request, 40_000);
   if (!body) return problem(400, "Bad request.");
   try {
-    await createBox(acct, (await params).id, body);
+    const { retry } = await createBox(acct, (await params).id, body);
+    void track("box_setup_started", { retry }, { request });
     return json({ ok: true });
   } catch (e) {
     if (e instanceof ActionError) return problem(e.status, e.message);

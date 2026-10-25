@@ -2,8 +2,10 @@
 // its owner signed in, the one-time sign-in link the box made (it works
 // once; the box refuses it after 24 hours), or, when that expired, a request
 // to the box for a new one; after that, the box's own sign-in.
+import { track } from "@shiptiffin/sdk/analytics";
 import { ActionError, openDashboard } from "@/lib/cloud/actions";
 import { currentAccount } from "@/lib/cloud/session";
+import { openedVia } from "@/lib/cloud/track";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!acct) return Response.redirect(new URL(`/sign-in?next=${encodeURIComponent(next)}`, request.url), 303);
   try {
     const url = await openDashboard(acct, id);
+    void track("dashboard_opened", { via: openedVia(url) }, { request });
     return new Response(null, { status: 303, headers: { Location: url, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   } catch (e) {
     const msg = e instanceof ActionError ? e.message : "Couldn't open the dashboard.";

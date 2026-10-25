@@ -52,7 +52,10 @@ export type CheckResult =
       suggested: Option | null;
       sshKeys: HetznerKey[];
     }
-  | { ok: false; message: string };
+  | { ok: false; message: string; reason: CheckFailure };
+
+/** Why a key check failed, in a word (for analytics: the message is for people). */
+export type CheckFailure = "format" | "unreachable" | "rejected" | "hetzner_error" | "read_only" | "no_prices";
 
 type Price = { net: string; gross: string };
 type ServerTypeJSON = {
@@ -150,17 +153,17 @@ export function hetznerClient(token: string, record: (c: Call) => Promise<void> 
 export async function checkToken(token: string, record: (c: Call) => Promise<void> | void, base?: string): Promise<CheckResult> {
   token = token.trim();
   if (!/^[A-Za-z0-9]{20,128}$/.test(token)) {
-    return { ok: false, message: "That doesn't look like a Hetzner API token. Copy the whole token Hetzner showed you (letters and digits only)." };
+    return { ok: false, reason: "format", message: "That doesn't look like a Hetzner API token. Copy the whole token Hetzner showed you (letters and digits only)." };
   }
   const call = hetznerClient(token, record, base);
   let st;
   try {
     st = await call("GET", "/server_types?per_page=50");
   } catch {
-    return { ok: false, message: "We couldn't reach Hetzner just now. Try again in a minute." };
+    return { ok: false, reason: "unreachable", message: "We couldn't reach Hetzner just now. Try again in a minute." };
   }
-  if (st.status === 401) return { ok: false, message: "Hetzner didn't accept this token. Check you copied all of it, and that it hasn't been deleted." };
-  if (st.status !== 200) return { ok: false, message: `Hetzner answered ${st.status}. Try again in a minute.` };
+  if (st.status === 401) return { ok: false, reason: "rejected", message: "Hetzner didn't accept this token. Check you copied all of it, and that it hasn't been deleted." };
+  if (st.status !== 200) return { ok: false, reason: "hetzner_error", message: `Hetzner answered ${st.status}. Try again in a minute.` };
   const [locs, pricing, servers, probe] = await Promise.all([
     call("GET", "/locations"),
     call("GET", "/pricing"),
@@ -169,9 +172,9 @@ export async function checkToken(token: string, record: (c: Call) => Promise<voi
     call("POST", "/ssh_keys", {}),
   ]);
   if (probe.status === 403) {
-    return { ok: false, message: "This token is read-only. Make a new one with Read & Write permission (Security → API tokens → Generate API token)." };
+    return { ok: false, reason: "read_only", message: "This token is read-only. Make a new one with Read & Write permission (Security → API tokens → Generate API token)." };
   }
-  if (locs.status !== 200 || pricing.status !== 200) return { ok: false, message: "Hetzner didn't send prices just now. Try again in a minute." };
+  if (locs.status !== 200 || pricing.status !== 200) return { ok: false, reason: "no_prices", message: "Hetzner didn't send prices just now. Try again in a minute." };
   const options = buildOptions(st.json?.server_types ?? [], locs.json?.locations ?? [], pricing.json?.pricing ?? {});
   const currency: string = pricing.json?.pricing?.currency ?? "EUR";
   const [rate, sshKeys] = await Promise.all([usdRate(currency), projectKeys(call)]);

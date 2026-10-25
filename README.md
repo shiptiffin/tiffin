@@ -24,7 +24,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#honest-limits">Limits</a> ·
   <a href="#docs">Docs</a> ·
-  <a href="https://shiptiffin.com">shiptiffin.com</a>
+  <a href="https://shiptiffin.com/?utm_source=github&amp;utm_medium=readme">shiptiffin.com</a>
 </p>
 
 <p align="center">
@@ -52,7 +52,7 @@ Three ways to run it. Pick one.
 
 ### 1. Managed: ready in about 5 minutes
 
-Go to **[shiptiffin.com/start](https://shiptiffin.com/start)**, sign in, pay, and paste a
+Go to **[shiptiffin.com/start](https://shiptiffin.com/start?utm_source=github&utm_medium=readme)**, sign in, pay, and paste a
 Hetzner Cloud API key. ShipTiffin builds the box in **your own** Hetzner account; the page
 shows each step live. The key is used for that job and then forgotten, and every call made
 with it is listed in your account. When it's ready, **Open your dashboard** signs you in.

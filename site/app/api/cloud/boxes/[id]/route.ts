@@ -1,5 +1,7 @@
 // GET /api/cloud/boxes/:id: the box and its latest job, for the progress
-// screens (setup on /start; deleting on /account, with ?job=delete_server).
+// screens (setup on /start, with ?watch=1; deleting on /account, with
+// ?job=delete_server).
+import { track } from "@shiptiffin/sdk/analytics";
 import { boxFor, latestJob } from "@/lib/cloud/db";
 import { json, problem } from "@/lib/cloud/http";
 import { dashboardUrl } from "@/lib/cloud/names";
@@ -14,8 +16,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!acct) return problem(401, "Sign in first.");
   const box = await boxFor((await params).id, acct.id);
   if (!box) return problem(404, "No such box.");
-  const kind = new URL(req.url).searchParams.get("job");
+  const sp = new URL(req.url).searchParams;
+  const kind = sp.get("job");
   const job = await latestJob(box.id, kind && KINDS.has(kind) ? [kind] : undefined);
+  // /start's setup screen polls this until the box is ready or setup stopped, then stops:
+  // so a poll that sees either is the one moment a watching browser learns how setup ended.
+  if (sp.get("watch") === "1" && (box.status === "active" || box.status === "failed")) void track(box.status === "active" ? "box_live" : "box_setup_failed", undefined, { request: req });
   return json({
     ok: true,
     box: {

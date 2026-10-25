@@ -115,18 +115,22 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
 /**
  * Back from Checkout: confirm with Stripe at once rather than wait for the
  * webhook. What it queued (the "paid" email) is the caller's to send, with
- * drainOutbox, after the page is answered.
+ * drainOutbox, after the page is answered. True only the first time a
+ * completed session is confirmed this way (the page reloads while Stripe
+ * confirms, and may be reloaded later), so the caller can count it once.
  */
-export async function confirmCheckout(acct: Account, boxId: string, sessionId: string): Promise<void> {
+export async function confirmCheckout(acct: Account, boxId: string, sessionId: string): Promise<boolean> {
   const box = await q.boxFor(boxId, acct.id);
-  if (!box || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return;
+  if (!box || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return false;
   try {
     const s = stripe();
     const cs = await s.getCheckout(sessionId);
-    if ((cs.metadata?.box_id ?? cs.client_reference_id) !== box.id || cs.status !== "complete") return;
-    await handleEvent(q.pgBilling(), s, { id: `return:${cs.id}`, type: "checkout.session.completed", created: cs.created ?? Math.floor(Date.now() / 1000), data: { object: cs } });
+    if ((cs.metadata?.box_id ?? cs.client_reference_id) !== box.id || cs.status !== "complete") return false;
+    const r = await handleEvent(q.pgBilling(), s, { id: `return:${cs.id}`, type: "checkout.session.completed", created: cs.created ?? Math.floor(Date.now() / 1000), data: { object: cs } });
+    return r.handled;
   } catch (e) {
     console.error("confirm checkout", e instanceof Error ? e.message : e);
+    return false;
   }
 }
 
@@ -161,7 +165,8 @@ export type CreateInput = { token: string; name: string; serverType: string; loc
 /** A key the parser refused, as one sentence for the page. */
 const keyProblem = (e: KeyError) => `That SSH key won't work: ${e.message}.`;
 
-export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<void> {
+/** retry: setup failed before and starts again. */
+export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<{ retry: boolean }> {
   const box = await ownBox(acct, boxId);
   if (box.status !== "paid" && box.status !== "failed") throw new ActionError(box.status === "awaiting_payment" ? "Pay for the box first." : "This box is already set up.");
   if (box.first_paid_at && ENDED.has(box.plan_status)) throw new ActionError("This box's subscription has ended: renew it in your account first (same box, same name).");
@@ -204,6 +209,7 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
     if (e?.code === "23505") throw new ActionError(`${boxDomain(name)} is taken. Try another name.`, 409);
     throw e;
   }
+  return { retry: box.status === "failed" };
 }
 
 /** A request for a new sign-in link that the box hasn't answered within this is given up on (the box's own sign-in page instead). */

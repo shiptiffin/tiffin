@@ -1,5 +1,6 @@
 // POST /api/cloud/boxes/:id/check {token}: checks a Hetzner key and lists
 // what it can order, at the customer's prices. The key is not stored.
+import { track } from "@shiptiffin/sdk/analytics";
 import { ActionError, checkKey } from "@/lib/cloud/actions";
 import { checkLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";
@@ -15,6 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!body?.token) return problem(400, "Paste your Hetzner token.");
   try {
     const r = await checkKey(acct, (await params).id, body.token);
+    void track("hetzner_key_checked", r.ok ? { ok: true } : { ok: false, reason: r.reason }, { request });
     return json(r, r.ok ? 200 : 400);
   } catch (e) {
     if (e instanceof ActionError) return problem(e.status, e.message);
