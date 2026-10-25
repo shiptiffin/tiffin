@@ -93,6 +93,12 @@ type RouteProvider interface {
 	Routes(ctx context.Context, p *Platform) ([]edge.Route, error)
 }
 
+// SearchHider names hosts their owners hid from search engines (the search
+// module): their routes say noindex, like names on shared domains.
+type SearchHider interface {
+	HiddenHosts(ctx context.Context) map[string]bool
+}
+
 // RoutesLoader is a RouteProvider told when the routes it last gave are
 // what the edge serves.
 type RoutesLoader interface {
@@ -434,8 +440,16 @@ func (p *Platform) refreshRoutes(ctx context.Context) error {
 			all = append(all, rs...)
 		}
 	}
+	hidden := map[string]bool{}
+	for _, m := range Modules() {
+		if sh, ok := m.(SearchHider); ok {
+			for h := range sh.HiddenHosts(ctx) {
+				hidden[h] = true
+			}
+		}
+	}
 	for i := range all {
-		if all[i].Host != "" && HiddenFromSearch(all[i].Host) {
+		if all[i].Host != "" && (HiddenFromSearch(all[i].Host) || hidden[all[i].Host]) {
 			all[i].NoIndex = true
 		}
 	}

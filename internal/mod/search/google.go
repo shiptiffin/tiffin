@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -223,13 +224,31 @@ func (g *gclient) verificationToken(ctx context.Context, site gsite, method stri
 }
 
 // verify asks Google to check the token now; the service account becomes
-// an owner, and owners (the person's Google account) are added with it.
-func (g *gclient) verify(ctx context.Context, site gsite, method string, owners []string) error {
-	body := map[string]any{"site": site}
-	if len(owners) > 0 {
-		body["owners"] = append([]string{g.key.ClientEmail}, owners...)
+// an owner. (Owners sent along make Google answer 503: see addOwner.)
+func (g *gclient) verify(ctx context.Context, site gsite, method string) error {
+	return g.call(ctx, http.MethodPost, verifyAPI+"/webResource?verificationMethod="+method, map[string]any{"site": site}, nil)
+}
+
+// addOwner adds a person's Google account to a verified property's owners,
+// so it shows in their Search Console.
+func (g *gclient) addOwner(ctx context.Context, site gsite, owner string) error {
+	id := site.Identifier
+	if site.Type == "INET_DOMAIN" {
+		id = "dns://" + site.Identifier
 	}
-	return g.call(ctx, http.MethodPost, verifyAPI+"/webResource?verificationMethod="+method, body, nil)
+	u := verifyAPI + "/webResource/" + url.PathEscape(id)
+	var res struct {
+		Owners []string `json:"owners"`
+	}
+	if err := g.call(ctx, http.MethodGet, u, nil, &res); err != nil {
+		return err
+	}
+	for _, o := range res.Owners {
+		if strings.EqualFold(o, owner) {
+			return nil
+		}
+	}
+	return g.call(ctx, http.MethodPut, u, map[string]any{"site": site, "owners": append(res.Owners, owner)}, nil)
 }
 
 // addSite adds a property to the service account's Search Console.
@@ -313,4 +332,43 @@ func (g *gclient) inspect(ctx context.Context, siteURL, page string) (*GInspecti
 	r := out.InspectionResult.IndexStatusResult
 	return &GInspection{Verdict: r.Verdict, Coverage: r.CoverageState, LastCrawl: r.LastCrawlTime, RobotsTxt: r.RobotsTxtState,
 		Indexing: r.IndexingState, PageFetch: r.PageFetchState, GoogleCanon: r.GoogleCanonical, UserCanonical: r.UserCanonical}, nil
+}
+
+// GSitemap is what Google says about a submitted sitemap.
+type GSitemap struct {
+	URL       string `json:"url"`
+	Submitted string `json:"submitted,omitempty" doc:"When it was last submitted"`
+	LastRead  string `json:"lastRead,omitempty" doc:"When Google last downloaded it"`
+	Pending   bool   `json:"pending,omitempty" doc:"Google has not processed it yet"`
+	Pages     int    `json:"pages" doc:"Web pages Google found in it"`
+	Errors    int    `json:"errors"`
+	Warnings  int    `json:"warnings"`
+}
+
+// sitemapStatus reads a submitted sitemap's status.
+func (g *gclient) sitemapStatus(ctx context.Context, siteURL, feed string) (*GSitemap, error) {
+	var out struct {
+		LastSubmitted  string `json:"lastSubmitted"`
+		LastDownloaded string `json:"lastDownloaded"`
+		IsPending      bool   `json:"isPending"`
+		Errors         string `json:"errors"`
+		Warnings       string `json:"warnings"`
+		Contents       []struct {
+			Type      string `json:"type"`
+			Submitted string `json:"submitted"`
+		} `json:"contents"`
+	}
+	if err := g.call(ctx, http.MethodGet, webmastersAPI+"/sites/"+url.PathEscape(siteURL)+"/sitemaps/"+url.PathEscape(feed), nil, &out); err != nil {
+		return nil, err
+	}
+	sm := &GSitemap{URL: feed, Submitted: out.LastSubmitted, LastRead: out.LastDownloaded, Pending: out.IsPending}
+	sm.Errors, _ = strconv.Atoi(out.Errors)
+	sm.Warnings, _ = strconv.Atoi(out.Warnings)
+	for _, c := range out.Contents {
+		if c.Type == "web" {
+			n, _ := strconv.Atoi(c.Submitted)
+			sm.Pages += n
+		}
+	}
+	return sm, nil
 }

@@ -52,7 +52,7 @@ func TestGoogleLive(t *testing.T) {
 	}
 	var verr error
 	for i := 0; i < 12; i++ {
-		if verr = g.verify(ctx, site, "DNS_TXT", nil); verr == nil {
+		if verr = g.verify(ctx, site, "DNS_TXT"); verr == nil {
 			break
 		}
 		t.Logf("verify try %d: %v", i+1, verr)

@@ -148,7 +148,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 9. Search engines. An app is found only on a domain of its own: names on shiptiffin.app are
    never indexed. On a live domain the box tells search engines about new and changed pages
    by itself (IndexNow, after deploys and every 6 hours), so give the app a sitemap with each
-   page's real lastmod and a robots.txt that names it. "Why isn't my site on Google?" starts
+   page's real lastmod and a robots.txt that names it. A staging, admin or pre-launch app on its
+   own domain: `tiffin search set <project> --hidden` (or `--hidden-hosts <domain>`) keeps it out
+   of search results while it stays open to anyone with the link. "Why isn't my site on Google?" starts
    with `tiffin search status <project>`: it says why an address isn't findable, what
    robots.txt, the home page and the sitemap show, which bots came and, with Google connected,
    the searches and pages Google hasn't indexed; `tiffin search inspect <project> --page <url>`

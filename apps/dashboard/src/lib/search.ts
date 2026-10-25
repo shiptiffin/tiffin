@@ -23,7 +23,8 @@ export const searchQuery = (project: string) =>
 /** Checks a host now and tells search engines what changed (all: every page again). */
 export const pingSearch = (project: string, host: string, all = false) => request<SearchStatus>("POST", `${path(project)}/ping`, { host, all: all || undefined });
 
-export const setIndexNow = (project: string, indexNow: boolean) => request<SearchStatus>("PUT", `${path(project)}/settings`, { indexNow });
+export type SearchSettings = S["SearchSettings"];
+export const setSearchSettings = (project: string, settings: SearchSettings) => request<SearchStatus>("PUT", `${path(project)}/settings`, settings);
 
 /** The names nobody ranks on, as the box decides (platform.HiddenFromSearch). */
 export function hiddenFromSearch(host: string): boolean {

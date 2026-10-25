@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, ChevronDown, Copy, CornerDownRight, MoreHorizontal, Pencil, RefreshCw, Star, Trash2, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Copy, CornerDownRight, Eye, EyeOff, MoreHorizontal, Pencil, RefreshCw, Star, Trash2, X } from "lucide-react";
 import { Accordion as A } from "radix-ui";
 import { useRef, useState, type ReactNode } from "react";
 import type { Manifest } from "@/api/client";
@@ -7,7 +7,7 @@ import { Breaker } from "@/components/breaker";
 import { Confirm } from "@/components/confirm";
 import { DnsCleanupNote, dnsCleanupWords } from "@/components/dns-cleanup";
 import { DomainDns } from "@/components/domains-dns";
-import { DomainSearch } from "@/components/domains-search";
+import { DomainSearch, useHideHost } from "@/components/domains-search";
 import { AddPath, ChangeAppDialog, dropPath } from "@/components/domains-edit";
 import { agoWords, kindOf, routesOf, shortDate, untilWords, useNow } from "@/components/domains-parts";
 import { canBePrimary, domainOptionEdit, PrimaryFact, setPrimary } from "@/components/domains-primary";
@@ -51,6 +51,7 @@ export function DomainRow({ project, d, www, writer, local, open, onToggle, apps
   const removed = useRef<DnsCleanup | undefined>(undefined);
   const [changing, setChanging] = useState(false);
   const pending = usePending(project);
+  const hide = useHideHost(project);
   const staged = pendingFor(pending, `set:domains/${d.domain}`);
   const wwwOn = !!www || d.wwwRedirect;
   const apex = kindOf(d.domain) === "apex" && !d.redirectTo;
@@ -85,6 +86,13 @@ export function DomainRow({ project, d, www, writer, local, open, onToggle, apps
         writer && apps.length > 1 && { icon: <Pencil />, label: "Change app…", run: () => setChanging(true) },
         writer && canBePrimary(manifest, d) && { icon: <Star />, label: d.primary ? "Stop being primary" : "Make primary", run: () => setPrimary(project, manifest, d, !d.primary) },
         writer && apex && { icon: <CornerDownRight />, label: wwwOn ? `Stop redirecting www` : `Redirect www here`, run: () => flipWww(wwwOn ? "off" : "on") },
+        writer &&
+          !d.redirectTo &&
+          !hide.projectHidden && {
+            icon: hide.hidden(d.domain) ? <Eye /> : <EyeOff />,
+            label: hide.hidden(d.domain) ? "Let search engines list it" : "Keep out of search results",
+            run: () => hide.set(d.domain, !hide.hidden(d.domain)),
+          },
         writer && "sep",
         writer && { icon: <Trash2 />, label: "Remove…", run: () => setRemoving(true), danger: true },
       ]}

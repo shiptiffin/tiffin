@@ -21,6 +21,23 @@ own](https://shiptiffin.com/docs/domains.md#a-domain-for-one-project), or [buy o
 On a self-hosted box whose domain you set with `tiffin domain set`, the box's names
 (`shop.example.com`) are your own domain, and findable.
 
+## Keeping an app out of search results
+
+A staging site, an internal tool or a site before launch can stay out of Google and
+Bing while it stays open for anyone with the link. In **Project › Settings › General ›
+Search engines**, turn on **Keep out of search results** for the whole project, or use
+**Keep out of search results** in one domain's ⋯ menu in Domains (a `staging.`
+subdomain in a public project; `search set` replaces both settings at once). Those addresses then send `X-Robots-Tag: noindex`;
+search engines drop pages they had within a few weeks; the box sends them no IndexNow
+messages and verifies nothing with Google. It is not a lock: for that, put sign-in in
+front of the app.
+
+```bash
+tiffin search set shop --hidden                                 # the whole project
+tiffin search set shop --hidden-hosts staging.example.com      # one address
+tiffin search set shop                                          # everything findable again
+```
+
 ## What the box does
 
 For each findable address it reads `robots.txt`, the home page and the sitemap, and
@@ -101,10 +118,18 @@ with the key (kept encrypted, never shown again). For each findable address it:
   on the host; that property covers the one host. The record must stay: Google checks
   it again from time to time.
 - **adds your Google account as an owner**, so the domain shows in your own Search
-  Console, and submits the sitemap.
+  Console, and submits the sitemap, once. Google reads a submitted sitemap again on its
+  own; the box submits it again only when you press **Tell search engines** (or run
+  `tiffin search ping`). It shows when Google last read it, how many pages it found and
+  any errors.
 - **reads the last 28 days** of web search every 12 hours: clicks, impressions,
   average position, the top searches and pages, and asks URL Inspection about about 20
   pages a day, so "Google has indexed 118 of 124 pages" fills in over a week.
+
+If Google later refuses the key (it was deleted, an API was turned off), Settings ›
+Search engines and the box's status checks say so, and the domains show it too. Make a
+new key for the same service account and choose **Replace key**: every domain stays
+verified. A different service account starts over and verifies each domain again.
 
 Without the connection, add the domain in Search Console yourself (**Domain**, then the
 TXT record it shows); the box notices the record and shows the domain as verified.
@@ -119,15 +144,14 @@ the owner later, leave the key out: `tiffin search google connect --owner you@gm
 **Domains**: each live domain of your own has a **Search engines** section: findable or
 not (and why), when the box last told search engines and about which pages, which bots
 came, what it found in `robots.txt`, the home page and the sitemap, and, with Google
-connected, its searches and index status. **Check now** reads the sitemap at once. **Settings › General ›
-Search engines** turns the IndexNow messages off for a project (the checks go on).
+connected, its searches and index status. **Tell search engines** reads the sitemap at once, sends IndexNow what changed and,
+with Google connected, submits the sitemap to Google again.
 
 ```bash
 tiffin search status shop                      # every address: findable, last ping, bots, checks
 tiffin search ping shop                        # check now; send what changed
 tiffin search ping shop --host example.com --urls https://example.com/pricing
 tiffin search ping shop --all                  # every page again (at most once an hour)
-tiffin search set shop --index-now=false       # stop the pings for this project
 tiffin search inspect shop --page https://example.com/pricing   # Google: indexed or not, and why
 tiffin search google                           # the Google connection and its properties
 ```

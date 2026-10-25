@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Check, FileKey, Search } from "lucide-react";
+import { ArrowUpRight, Check, FileKey, Search, TriangleAlert } from "lucide-react";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "@/api/client";
 import { Confirm } from "@/components/confirm";
@@ -142,10 +142,23 @@ function GoogleCard({ conn }: { conn: GoogleConnection }) {
                 <span className="block text-xs text-ink-3">
                   {p.state === "verified" ? `Verified ${p.verifiedAt ? relative(p.verifiedAt) : ""}${p.method === "DNS_TXT" ? ", through DNS" : ", through Google’s file on the host"}` : p.detail}
                 </span>
+                {p.state === "verified" && p.detail?.includes("would not add") && <span className="block text-xs text-warn-ink">{p.detail.replace(/^Verified, but /, "")}</span>}
               </span>
             </li>
           ))}
         </ul>
+      )}
+      {conn.connected && conn.error && (
+        <div className="mx-5 mt-4 flex items-start gap-2 rounded-[8px] bg-warn-wash px-3 py-2.5 text-sm text-ink sm:mx-6">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn-ink" />
+          <div className="min-w-0">
+            <p>Google refuses the key{conn.errorAt ? ` since ${relative(conn.errorAt)}` : ""}, so search data isn’t updating.</p>
+            <p className="mt-0.5 text-[0.8125rem] text-ink-2">{conn.error}</p>
+            <p className="mt-1 text-[0.8125rem] text-ink-2">
+              If the key was deleted, make a new one for the same service account and choose <b className="font-[550]">Replace key</b>: every domain stays verified. If an API was turned off, turn it back on.
+            </p>
+          </div>
+        </div>
       )}
       {conn.connected && !showForm && <OwnerForm current={conn.owner ?? ""} />}
 
@@ -188,7 +201,7 @@ function GoogleCard({ conn }: { conn: GoogleConnection }) {
                   <span className="min-w-0 truncate">{key ? <span className="ident text-ink">{key.email ?? key.name}</span> : "Choose the key file…"}</span>
                 </button>
                 <div className="flex w-full flex-col gap-2 sm:flex-row">
-                  <Input type="email" value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="you@gmail.com (optional)" autoComplete="email" className="sm:flex-1" aria-label="Your Google account" />
+                  <Input id="g-owner-new" name="email" type="email" value={owner} onChange={(e) => setOwner(e.target.value)} onInput={(e) => setOwner(e.currentTarget.value)} placeholder="you@gmail.com (optional)" autoComplete="email" className="sm:flex-1" aria-label="Your Google account" />
                   <Button type="submit" variant="primary" size="lg" className="h-9" disabled={!key || connect.isPending}>
                     {connect.isPending ? "Checking the key…" : "Connect"}
                   </Button>
@@ -285,7 +298,7 @@ function OwnerForm({ current }: { current: string }) {
         Your Google account <span className="text-ink-3">· added as an owner of each property, so they show in your Search Console</span>
       </label>
       <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
-        <Input id="g-owner" type="email" value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="you@gmail.com" autoComplete="email" className="sm:flex-1" />
+        <Input id="g-owner" name="email" type="email" value={owner} onChange={(e) => setOwner(e.target.value)} onInput={(e) => setOwner(e.currentTarget.value)} placeholder="you@gmail.com" autoComplete="email" className="sm:flex-1" />
         <Button type="submit" size="lg" className="h-9" disabled={save.isPending || owner.trim() === current}>
           {save.isPending ? "Saving…" : "Save"}
         </Button>

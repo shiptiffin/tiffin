@@ -113,7 +113,7 @@ func (m *Module) check(ctx context.Context, host string, o pingOpts) (*hostRecor
 
 	now := m.now()
 	var ping *Ping
-	if len(send) > 0 && m.settings(ctx, r.Project).IndexNow {
+	if len(send) > 0 {
 		ping = m.submit(ctx, host, key, send)
 		ping.At, ping.Reason = now, reason
 	}

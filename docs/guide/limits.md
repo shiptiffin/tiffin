@@ -682,6 +682,10 @@ Overviews and AI Mode report (it has no API), and search data older than 28 days
 
 - Only addresses on a domain of your own are findable. Every name on `shiptiffin.app`
   (chosen names too), `sslip.io` and local names says noindex, with no way to turn it off.
+- Keeping an address out of search results is a noindex, not a lock: anyone with the
+  link still opens it, and pages search engines already have take a few weeks to drop.
+- The sitemap goes to Google once; changes to it reach Google when Google reads it
+  again, or when you press Tell search engines.
 - Google takes no IndexNow pings; it finds changes through your sitemap on its own
   schedule.
 - Changes are found through the sitemap: a page missing from it is never sent, and

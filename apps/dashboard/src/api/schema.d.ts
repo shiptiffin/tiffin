@@ -4443,7 +4443,7 @@ export interface paths {
         put?: never;
         /**
          * Check now and tell search engines what changed
-         * @description Reads the sitemap of the project's findable addresses now and sends IndexNow the new, changed and removed pages, as the box does after a deploy. With urls, sends exactly those (for pages the sitemap does not date, such as ones a database changes); with all, every page again. Rarely needed: the box does this on its own. Returns the status with the new ping.
+         * @description Reads the sitemap of the project's findable addresses now and sends IndexNow the new, changed and removed pages, as the box does after a deploy. With Google connected, it also submits the sitemap to Google again (the box submits it once by itself, when the address is verified). With urls, sends exactly those (for pages the sitemap does not date, such as ones a database changes); with all, every page again. Rarely needed: the box does this on its own. Returns the status with the new ping.
          */
         post: operations["search-ping"];
         delete?: never;
@@ -4461,8 +4461,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Turn IndexNow pings on or off for a project
-         * @description indexNow: false stops the box from telling search engines about the project's pages (the checks go on). On by default. It does not hide the apps: search engines still find them through links and sitemaps.
+         * Keep a project's addresses out of search results, or let them back in
+         * @description hidden: true keeps every address of the project out of search results; hiddenHosts does it address by address (a staging subdomain in a public project). The apps still open for anyone with the link: their responses say X-Robots-Tag: noindex, so search engines drop them, and the box sends them no IndexNow pings and verifies nothing with Google. The settings are replaced as a whole: send both. Apps on a domain of their own are findable by default. Names on shiptiffin.app are always kept out.
          */
         put: operations["search-set"];
         post?: never;
@@ -12611,6 +12611,24 @@ export interface components {
             coverage: string;
             url: string;
         };
+        SearchGSitemap: {
+            /** Format: int64 */
+            errors: number;
+            /** @description When Google last downloaded it */
+            lastRead?: string;
+            /**
+             * Format: int64
+             * @description Web pages Google found in it
+             */
+            pages: number;
+            /** @description Google has not processed it yet */
+            pending?: boolean;
+            /** @description When it was last submitted */
+            submitted?: string;
+            url: string;
+            /** Format: int64 */
+            warnings: number;
+        };
         SearchGTop: {
             /** Format: int64 */
             clicks: number;
@@ -12633,6 +12651,10 @@ export interface components {
             connected: boolean;
             /** Format: date-time */
             connectedAt?: string;
+            /** @description Why Google refuses the key lately: replace it (a new key for the same account keeps every property) */
+            error?: string;
+            /** Format: date-time */
+            errorAt?: string;
             /** @description The Google account added as an owner of each property, so they show in that account's Search Console */
             owner?: string;
             /** @description Its Google Cloud project */
@@ -12646,6 +12668,8 @@ export interface components {
             ctr: number;
             daily?: components["schemas"]["SearchGDay"][] | null;
             detail?: string;
+            /** @description Why the box could not read Google's data lately (the key, an API turned off, a lost permission) */
+            error?: string;
             /** Format: int64 */
             impressions: number;
             /** @description What URL Inspection said about the pages checked so far (about 20 a day) */
@@ -12665,6 +12689,8 @@ export interface components {
             pulledAt?: string;
             /** @description Searches it showed up for, most clicks first */
             queries?: components["schemas"]["SearchGTop"][] | null;
+            /** @description The sitemap the box submitted (once, when the address was verified; again only when someone asks with search ping) and what Google did with it */
+            sitemap?: components["schemas"]["SearchGSitemap"];
             /**
              * @description not_connected: no Google service account on the box (Settings › Search engines)
              * @enum {string}
@@ -12705,6 +12731,8 @@ export interface components {
             fix?: string;
             /** @description Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with a Google service account connected) */
             google?: components["schemas"]["SearchGoogleHost"];
+            /** @description Kept out of search results by the project's settings (search set) */
+            hidden?: boolean;
             /** @description Earlier pings, newest first */
             history?: components["schemas"]["SearchPing"][] | null;
             host: string;
@@ -12760,8 +12788,10 @@ export interface components {
             urls?: string[] | null;
         };
         SearchSettings: {
-            /** @description Tell search engines about new and changed pages (IndexNow). On by default. */
-            indexNow: boolean;
+            /** @description Keep every address of the project out of search results. The apps still open for anyone with the link; their responses say noindex, and the box sends no IndexNow pings and verifies nothing with Google. For staging, internal tools and sites before launch. */
+            hidden?: boolean;
+            /** @description Addresses kept out one by one, such as staging.example.com in an otherwise public project */
+            hiddenHosts?: string[] | null;
         };
         SearchSitemapCheck: {
             detail: string;

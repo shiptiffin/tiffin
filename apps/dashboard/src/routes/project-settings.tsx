@@ -19,7 +19,7 @@ import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
 import { DeployAddresses } from "@/components/deploy-addresses";
 import { KeepVersions } from "@/components/keep-versions";
-import { IndexNowSetting } from "@/components/domains-search";
+import { SearchVisibility } from "@/components/domains-search";
 import { SettingsNav, useSettingsSection, type SettingsSection } from "@/components/settings-nav";
 
 /**
@@ -83,9 +83,9 @@ export function ProjectSettingsPage({ project }: { project: string }) {
               {apps.length > 0 && (
                 <Section
                   title="Search engines"
-                  note="Apps on a domain of your own are findable: the box tells Bing, Yandex and other IndexNow engines about their pages, and Google reads their sitemaps. Addresses on shiptiffin.app are never indexed."
+                  note="Apps on a domain of their own show up in Google and Bing: the box tells search engines about their pages. Keep a staging site, an internal tool or a site before launch out of search results; it still opens for anyone with the link. Addresses on shiptiffin.app are always kept out. For one domain only, use its ⋯ menu in Domains."
                 >
-                  <IndexNowSetting project={project} writer={can("apply:reversible")} />
+                  <SearchVisibility project={project} writer={can("apply:reversible")} />
                 </Section>
               )}
 

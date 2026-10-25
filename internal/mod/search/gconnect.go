@@ -45,6 +45,10 @@ type googleConn struct {
 	Owner       string    `json:"owner,omitempty"`
 	At          time.Time `json:"at"`
 	By          string    `json:"by,omitempty"`
+	// Error is why Google refused the key or its calls (a deleted key, an
+	// API turned off), since ErrorAt; cleared by the next call that works.
+	Error   string    `json:"error,omitempty"`
+	ErrorAt time.Time `json:"errorAt,omitzero"`
 }
 
 // gprop is one Search Console property the box looks after.
@@ -70,6 +74,7 @@ type GoogleHost struct {
 	State    string     `json:"state" enum:"not_connected,verifying,verified,failed" doc:"not_connected: no Google service account on the box (Settings › Search engines)"`
 	Property string     `json:"property,omitempty" doc:"The Search Console property: sc-domain:example.com covers every name under it"`
 	Detail   string     `json:"detail,omitempty"`
+	Error    string     `json:"error,omitempty" doc:"Why the box could not read Google's data lately (the key, an API turned off, a lost permission)"`
 	PulledAt *time.Time `json:"pulledAt,omitempty" doc:"When the search data below was read"`
 	// Last 28 days, web search, this address only.
 	Clicks      int          `json:"clicks"`
@@ -77,6 +82,7 @@ type GoogleHost struct {
 	CTR         float64      `json:"ctr"`
 	Position    float64      `json:"position" doc:"Average position (1 is the top)"`
 	Daily       []GDay       `json:"daily,omitempty"`
+	Sitemap     *GSitemap    `json:"sitemap,omitempty" doc:"The sitemap the box submitted (once, when the address was verified; again only when someone asks with search ping) and what Google did with it"`
 	Queries     []GTop       `json:"queries,omitempty" doc:"Searches it showed up for, most clicks first"`
 	Pages       []GTop       `json:"pages,omitempty"`
 	Index       *GIndexCount `json:"index,omitempty" doc:"What URL Inspection said about the pages checked so far (about 20 a day)"`
@@ -113,11 +119,14 @@ type GNotYet struct {
 
 type gdata struct {
 	At          time.Time               `json:"at"`
+	Error       string                  `json:"error,omitempty"`
+	TriedAt     time.Time               `json:"triedAt,omitzero"` // the last read that failed
 	Clicks      int                     `json:"clicks"`
 	Impressions int                     `json:"impressions"`
 	CTR         float64                 `json:"ctr"`
 	Position    float64                 `json:"position"`
 	Daily       []GDay                  `json:"daily,omitempty"`
+	Sitemap     *GSitemap               `json:"sitemap,omitempty"`
 	Queries     []GTop                  `json:"queries,omitempty"`
 	Pages       []GTop                  `json:"pages,omitempty"`
 	Inspected   map[string]gInspectSeen `json:"inspected,omitempty"`
@@ -176,12 +185,13 @@ func (m *Module) connectGoogle(ctx context.Context, raw []byte, owner, by string
 	}
 	g.base = m.googleBase
 	if _, err := g.sites(ctx); err != nil {
-		var ge *GoogleError
-		if errors.As(err, &ge) && ge.Status == 403 {
-			return nil, errors.New("the key works but Google refused: turn on the Google Search Console API and the Site Verification API in the key's Google Cloud project (" + g.key.ProjectID + "), wait a minute, and try again")
-		}
-		return nil, err
+		return nil, apiOff(err, "Google Search Console API", g.key.ProjectID)
 	}
+	// Any domain gets a token; Google refuses only when the API is off.
+	if _, err := g.verificationToken(ctx, gsite{Type: "INET_DOMAIN", Identifier: "example.com"}, "DNS_TXT"); err != nil {
+		return nil, apiOff(err, "Site Verification API", g.key.ProjectID)
+	}
+	prev, _ := m.googleConn(ctx)
 	if m.p.Secrets == nil {
 		return nil, errors.New("the box's secrets key is not available")
 	}
@@ -194,16 +204,30 @@ func (m *Module) connectGoogle(ctx context.Context, raw []byte, owner, by string
 	if err := m.p.DB.KVPut(ctx, kvNS, "google", b); err != nil {
 		return nil, err
 	}
-	// Properties that failed under an earlier key get another go.
+	// A different service account owns nothing yet: every property starts
+	// again under it. The same account (a new key) keeps them, and those
+	// that failed get another go.
+	other := prev != nil && prev.ClientEmail != c.ClientEmail
 	m.mu.Lock()
 	props, _ := m.gprops(ctx)
 	for _, gp := range props {
-		if gp.State == GFailed {
-			gp.State, gp.Tries, gp.Next, gp.Detail, gp.Token = GVerifying, 0, time.Time{}, "", ""
+		if other || gp.State == GFailed {
+			*gp = gprop{Prop: gp.Prop, Identifier: gp.Identifier, Method: gp.Method, Host: gp.Host, State: GVerifying, Since: c.At}
 			_ = m.saveGprop(ctx, gp)
 		}
 	}
+	if other {
+		all, _ := m.p.DB.KVList(ctx, kvNS)
+		for k := range all {
+			if strings.HasPrefix(k, "gdata/") {
+				_ = m.p.DB.KVDelete(ctx, kvNS, k)
+			}
+		}
+	}
 	m.mu.Unlock()
+	if other {
+		_ = m.p.RefreshRoutes(ctx) // the old account's verification files go
+	}
 	m.poke()
 	return c, nil
 }
@@ -223,8 +247,53 @@ func (m *Module) setGoogleOwner(ctx context.Context, owner string) (*googleConn,
 	if err := m.p.DB.KVPut(ctx, kvNS, "google", b); err != nil {
 		return nil, err
 	}
+	// Saving asks Google again for every property, the same owner included.
+	m.mu.Lock()
+	props, _ := m.gprops(ctx)
+	for _, gp := range props {
+		gp.OwnerAdded = ""
+		_ = m.saveGprop(ctx, gp)
+	}
+	m.mu.Unlock()
 	m.poke()
 	return c, nil
+}
+
+// apiOff explains a refusal at connect time.
+func apiOff(err error, api, project string) error {
+	var ge *GoogleError
+	if errors.As(err, &ge) && ge.Status == 403 {
+		return errors.New("the key signs in, but Google refused: turn on the " + api + " in the Google Cloud project " + project + ", wait a minute and try again (" + ge.Message + ")")
+	}
+	return err
+}
+
+// noteGoogle records whether Google took the key's calls: an auth or
+// permission refusal is kept on the connection (Settings, the box's
+// checks); a call that works clears it.
+func (m *Module) noteGoogle(ctx context.Context, err error) {
+	c, _ := m.googleConn(ctx)
+	if c == nil {
+		return
+	}
+	msg := ""
+	if err != nil {
+		var ge *GoogleError
+		if !errors.As(err, &ge) || (ge.Status != 401 && ge.Status != 403 && !strings.HasPrefix(ge.Message, "sign-in refused")) {
+			return // a network blip or a 5xx: not the key's fault
+		}
+		msg = err.Error()
+	}
+	if c.Error == msg {
+		return
+	}
+	c.Error = msg
+	c.ErrorAt = time.Time{}
+	if msg != "" {
+		c.ErrorAt = m.now().UTC()
+	}
+	b, _ := json.Marshal(c)
+	_ = m.p.DB.KVPut(ctx, kvNS, "google", b)
 }
 
 func (m *Module) disconnectGoogle(ctx context.Context) error {
@@ -311,6 +380,10 @@ func (m *Module) googlePass(ctx context.Context, findable []string) {
 	if g == nil {
 		return
 	}
+	if _, err := g.accessToken(ctx); err != nil {
+		m.noteGoogle(ctx, err)
+		return
+	}
 	now := m.now()
 	m.mu.Lock()
 	props, err := m.gprops(ctx)
@@ -357,12 +430,12 @@ func (m *Module) googlePass(ctx context.Context, findable []string) {
 			if gp.Method == "FILE" {
 				site.Type = "SITE"
 			}
-			if err := g.verify(ctx, site, gp.Method, []string{conn.Owner}); err == nil {
-				gp.OwnerAdded = conn.Owner
+			if err := g.addOwner(ctx, site, conn.Owner); err == nil {
+				gp.Detail = "Verified; " + conn.Owner + " is an owner."
 			} else {
-				gp.Detail = "Verified, but Google would not add " + conn.Owner + " as an owner: is it a Google account?"
-				gp.OwnerAdded = conn.Owner // asked once; a new owner asks again
+				gp.Detail = "Verified, but Google would not add " + conn.Owner + " as an owner: " + err.Error()
 			}
+			gp.OwnerAdded = conn.Owner // asked once; a new owner asks again
 		}
 		if gp.State == GVerified {
 			m.afterVerified(ctx, g, gp, hostsOf[prop], now)
@@ -404,21 +477,7 @@ func (m *Module) verifyStep(ctx context.Context, g *gclient, conn *googleConn, g
 		gp.Next = now.Add(15 * time.Second)
 		return
 	}
-	var owners []string
-	if conn.Owner != "" && gp.OwnerAdded != conn.Owner {
-		owners = []string{conn.Owner}
-	}
-	err := g.verify(ctx, site, gp.Method, owners)
-	if err != nil && len(owners) > 0 {
-		var ge *GoogleError
-		if errors.As(err, &ge) && ge.Status == 400 && !strings.Contains(strings.ToLower(ge.Message), "token") {
-			// The owner's address was refused (not a Google account?): verify without it.
-			owners = nil
-			if err = g.verify(ctx, site, gp.Method, nil); err == nil {
-				gp.Detail = "Verified, but Google would not add " + conn.Owner + " as an owner: is it a Google account?"
-			}
-		}
-	}
+	err := g.verify(ctx, site, gp.Method)
 	if err != nil {
 		gp.Tries++
 		if now.Sub(gp.Since) > gVerifyFor {
@@ -434,13 +493,7 @@ func (m *Module) verifyStep(ctx context.Context, g *gclient, conn *googleConn, g
 		}
 		return
 	}
-	gp.State, gp.VerifiedAt, gp.Tries, gp.Next = GVerified, now, 0, time.Time{}
-	if len(owners) > 0 {
-		gp.OwnerAdded = conn.Owner
-	}
-	if gp.Detail == "" || !strings.HasPrefix(gp.Detail, "Verified") {
-		gp.Detail = "Verified."
-	}
+	gp.State, gp.VerifiedAt, gp.Tries, gp.Next, gp.Detail = GVerified, now, 0, time.Time{}, "Verified."
 }
 
 func (m *Module) gfail(gp *gprop, now time.Time, why string) {
@@ -461,25 +514,76 @@ func (m *Module) afterVerified(ctx context.Context, g *gclient, gp *gprop, hosts
 		gp.Sitemaps = map[string]string{}
 	}
 	for _, h := range hosts {
+		// The sitemap goes to Google once; after that only when someone asks
+		// (search ping). Google reads a submitted sitemap again by itself.
 		r, _ := m.record(ctx, h)
-		if r != nil && r.Checks.Sitemap.OK && r.Checks.Sitemap.URL != "" && gp.Sitemaps[h] != r.Checks.Sitemap.URL {
+		if r != nil && r.Checks.Sitemap.OK && r.Checks.Sitemap.URL != "" && gp.Sitemaps[h] == "" {
 			if err := g.submitSitemap(ctx, gp.Prop, r.Checks.Sitemap.URL); err == nil {
 				gp.Sitemaps[h] = r.Checks.Sitemap.URL
 			}
 		}
 		d := m.gdataFor(ctx, h)
-		if d == nil || now.Sub(d.At) >= gPullEvery {
-			m.pull(ctx, g, gp.Prop, h, d, now)
+		if d == nil || now.Sub(d.At) >= gPullEvery && (d.Error == "" || now.Sub(d.TriedAt) >= time.Hour) {
+			m.pull(ctx, g, gp.Prop, h, gp.Sitemaps[h], d, now)
 		}
 	}
 }
 
+// resubmitSitemap sends a host's sitemap to Google again (someone asked)
+// and reads back its status. Nothing happens without a verified property.
+func (m *Module) resubmitSitemap(ctx context.Context, host string) error {
+	g, _, err := m.gclientFor(ctx)
+	if err != nil || g == nil {
+		return err
+	}
+	r, _ := m.record(ctx, host)
+	if r == nil || !r.Checks.Sitemap.OK || r.Checks.Sitemap.URL == "" {
+		return nil
+	}
+	want := m.propFor(ctx, host)
+	m.mu.Lock()
+	props, err := m.gprops(ctx)
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	gp := props[want.Prop]
+	if gp == nil || gp.State != GVerified {
+		return nil
+	}
+	feed := r.Checks.Sitemap.URL
+	if err := g.submitSitemap(ctx, gp.Prop, feed); err != nil {
+		return err
+	}
+	if gp.Sitemaps == nil {
+		gp.Sitemaps = map[string]string{}
+	}
+	gp.Sitemaps[host] = feed
+	m.mu.Lock()
+	_ = m.saveGprop(ctx, gp)
+	m.mu.Unlock()
+	d := m.gdataFor(ctx, host)
+	if d == nil {
+		d = &gdata{}
+	}
+	if sm, err := g.sitemapStatus(ctx, gp.Prop, feed); err == nil {
+		d.Sitemap = sm
+		m.saveGdata(ctx, host, d)
+	}
+	return nil
+}
+
 // pull reads 28 days of web search for one host, and asks URL Inspection
 // about a few pages.
-func (m *Module) pull(ctx context.Context, g *gclient, prop, host string, old *gdata, now time.Time) {
+func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap string, old *gdata, now time.Time) {
 	d := &gdata{At: now}
 	if old != nil {
-		d.Inspected, d.InspectDay, d.InspectUsed = old.Inspected, old.InspectDay, old.InspectUsed
+		d.Inspected, d.InspectDay, d.InspectUsed, d.Sitemap = old.Inspected, old.InspectDay, old.InspectUsed, old.Sitemap
+	}
+	if sitemap != "" {
+		if sm, err := g.sitemapStatus(ctx, prop, sitemap); err == nil {
+			d.Sitemap = sm
+		}
 	}
 	from, to := now.AddDate(0, 0, -28), now
 	filter := map[string]any{"dimension": "page", "operator": "includingRegex", "expression": "^https://" + regexpQuote(host) + "/"}
@@ -496,9 +600,16 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host string, old *g
 			d.Position = round1(pos / impr)
 			d.CTR = round3(float64(d.Clicks) / impr)
 		}
-	} else if old != nil {
-		return // keep what was there; try at the next pass
+	} else {
+		m.noteGoogle(ctx, err)
+		if old == nil {
+			old = &gdata{}
+		}
+		old.Error, old.TriedAt = "Google's search data could not be read: "+err.Error(), now
+		m.saveGdata(ctx, host, old) // keep what was there; try at the next pass (old.At stays)
+		return
 	}
+	m.noteGoogle(ctx, nil)
 	top := func(dim string) []GTop {
 		rows, err := g.query(ctx, prop, from, to, []string{dim}, filter, 10)
 		if err != nil {
@@ -570,12 +681,17 @@ func (m *Module) googleHost(ctx context.Context, host string) *GoogleHost {
 	if gp == nil {
 		return &GoogleHost{State: GVerifying, Property: want.Prop, Detail: "Starting in a moment."}
 	}
-	out := &GoogleHost{State: gp.State, Property: gp.Prop, Detail: gp.Detail}
+	out := &GoogleHost{State: gp.State, Property: gp.Prop, Detail: gp.Detail, Error: conn.Error}
 	if d := m.gdataFor(ctx, host); d != nil {
-		at := d.At
-		out.PulledAt = &at
+		if out.Error == "" {
+			out.Error = d.Error
+		}
+		if !d.At.IsZero() {
+			at := d.At
+			out.PulledAt = &at
+		}
 		out.Clicks, out.Impressions, out.CTR, out.Position = d.Clicks, d.Impressions, d.CTR, d.Position
-		out.Daily, out.Queries, out.Pages = d.Daily, d.Queries, d.Pages
+		out.Daily, out.Queries, out.Pages, out.Sitemap = d.Daily, d.Queries, d.Pages, d.Sitemap
 		if len(d.Inspected) > 0 {
 			ic := &GIndexCount{}
 			for u, s := range d.Inspected {

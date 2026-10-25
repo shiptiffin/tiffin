@@ -11,7 +11,7 @@ import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useMe } from "@/lib/me";
-import { pingSearch, purposeWords, reasonWords, searchQuery, setIndexNow, type Crawler, type SearchHost } from "@/lib/search";
+import { pingSearch, purposeWords, reasonWords, searchQuery, setSearchSettings, type Crawler, type SearchHost, type SearchStatus } from "@/lib/search";
 import { full } from "@/lib/time";
 
 /**
@@ -30,20 +30,24 @@ export function DomainSearch({ project, host, writer }: { project: string; host:
     onSuccess: (st) => {
       qc.setQueryData(["search", project], st);
       const h = st.hosts?.find((x) => x.host === host);
-      toast({ title: h?.last && Date.now() - new Date(h.last.at).getTime() < 60_000 ? `Told search engines about ${h.last.pages} ${h.last.pages === 1 ? "page" : "pages"}.` : "Checked: nothing new to tell search engines." });
+      const sent = h?.last && Date.now() - new Date(h.last.at).getTime() < 60_000;
+      const google = h?.google?.state === "verified";
+      toast({
+        title: sent ? `Told search engines about ${h.last!.pages} ${h.last!.pages === 1 ? "page" : "pages"}.` : "Nothing new for IndexNow.",
+        detail: google ? "The sitemap went to Google again too." : undefined,
+      });
     },
   });
   const h = s.data?.hosts?.find((x) => x.host === host);
-  const indexNow = s.data?.settings.indexNow ?? true;
 
   return (
     <section className="mt-6" aria-label={`Search engines for ${host}`}>
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h3 className="label">Search engines</h3>
         {writer && h?.findable && (
-          <Button size="sm" variant="ghost" onClick={() => ping.mutate()} disabled={ping.isPending}>
+          <Button size="sm" variant="ghost" onClick={() => ping.mutate()} disabled={ping.isPending} title="Read the sitemap now, send IndexNow what changed, and submit the sitemap to Google again">
             <RefreshCw className={cn("size-3.5!", ping.isPending && "animate-spin")} />
-            Check now
+            Tell search engines
           </Button>
         )}
       </div>
@@ -52,12 +56,18 @@ export function DomainSearch({ project, host, writer }: { project: string; host:
       ) : !h ? (
         <p className="text-[0.8125rem] text-ink-3">{s.data ? "The box looks at this domain once an app is deployed on it." : "Reading…"}</p>
       ) : !h.findable ? (
-        <p className="flex items-start gap-2.5 text-[0.875rem] text-ink-2">
-          <StatusDot tone="wait" className="mt-1.5" />
-          <span>
-            Not findable yet. {h.why} {h.fix}
-          </span>
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <p className="flex items-start gap-2.5 text-[0.875rem] text-ink-2">
+            <StatusDot tone="wait" className="mt-1.5" />
+            <span>
+              {h.hidden ? "Kept out of search results. " : "Not findable yet. "}
+              <span className="text-ink-3">
+                {h.hidden ? "Anyone with the link can still open it; search engines are asked not to list it." : h.why} {h.fix}
+              </span>
+            </span>
+          </p>
+          {writer && h.hidden && s.data && <ShowButton project={project} host={host} st={s.data} />}
+        </div>
       ) : (
         <div className="overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)]">
           <div className="flex items-start gap-2.5 border-b border-rule px-4 py-3">
@@ -73,7 +83,7 @@ export function DomainSearch({ project, host, writer }: { project: string; host:
           </div>
           <dl className="divide-y divide-rule px-4">
             <Row label="Told">
-              <Told h={h} indexNow={indexNow} now={now} project={project} />
+              <Told h={h} now={now} />
             </Row>
             <Row label="Crawled">
               <Crawled list={h.crawled ?? []} fakes={h.fakes7d ?? 0} now={now} />
@@ -101,7 +111,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Told({ h, indexNow, now, project }: { h: SearchHost; indexNow: boolean; now: number; project: string }) {
+function Told({ h, now }: { h: SearchHost; now: number }) {
   const last = h.last;
   const engines = (
     <InfoTip label="Which search engines">
@@ -110,14 +120,7 @@ function Told({ h, indexNow, now, project }: { h: SearchHost; indexNow: boolean;
   );
   return (
     <div className="space-y-1">
-      {!indexNow ? (
-        <p className="text-ink-2">
-          Off for {project}.{" "}
-          <Link to="/projects/$project/settings" params={{ project }} className="text-ink underline decoration-rule-3 underline-offset-4">
-            Settings
-          </Link>
-        </p>
-      ) : !last ? (
+      {!last ? (
         <p className="text-ink-2">Not yet: the box tells them within a minute of the domain going live.</p>
       ) : last.ok ? (
         <p className="text-ink">
@@ -202,34 +205,76 @@ function Checks({ h }: { h: SearchHost }) {
   );
 }
 
-/** Project Settings › General: IndexNow pings on or off. */
-export function IndexNowSetting({ project, writer }: { project: string; writer: boolean }) {
+/** Project Settings › General: keep the whole project out of search results. */
+export function SearchVisibility({ project, writer }: { project: string; writer: boolean }) {
   const qc = useQueryClient();
   const s = useQuery(searchQuery(project));
   const flip = useMutation({
-    mutationFn: (on: boolean) => setIndexNow(project, on),
+    mutationFn: (hidden: boolean) => setSearchSettings(project, { ...(s.data?.settings ?? {}), hidden }),
     onSuccess: (st) => qc.setQueryData(["search", project], st),
   });
   if (s.isError) return <ProblemNote error={s.error} title="The search setting can’t be read right now." />;
-  const on = flip.isPending ? !!flip.variables : (s.data?.settings.indexNow ?? true);
-  const findable = (s.data?.hosts ?? []).filter((h) => h.findable).map((h) => h.host);
+  const hidden = flip.isPending ? !!flip.variables : !!s.data?.settings.hidden;
+  const own = (s.data?.hosts ?? []).filter((h) => h.findable || h.hidden).map((h) => h.host);
   return (
     <div>
       <label className="inline-flex items-center gap-2.5 text-[0.875rem] text-ink-2">
-        <Breaker label="Tell search engines about new pages" state={on ? "on" : "off"} staged={flip.isPending ? (flip.variables ? "on" : "off") : undefined} onFlip={(n) => flip.mutate(n === "on")} disabled={!writer || !s.data} />
+        <Breaker label="Keep out of search results" state={hidden ? "on" : "off"} staged={flip.isPending ? (flip.variables ? "on" : "off") : undefined} onFlip={(n) => flip.mutate(n === "on")} disabled={!writer || !s.data} />
         <span>
-          {on ? "On" : "Off"}
+          {hidden ? "Kept out" : "Findable"}
           <span className="text-ink-3">
             {" "}
             ·{" "}
-            {findable.length > 0
-              ? `${findable.join(", ")} ${on ? "get" : "would get"} new, changed and removed pages sent after each deploy and every 6 hours`
-              : "nothing to send until an app has a domain of its own"}
+            {hidden
+              ? "its apps still open for anyone with the link, but search engines are asked not to list them"
+              : own.length > 0
+                ? `${own.join(", ")} ${own.length === 1 ? "is" : "are"} findable`
+                : "its apps become findable once they have a domain of their own"}
           </span>
         </span>
       </label>
       {flip.isError && <ProblemNote className="mt-2" error={flip.error} />}
     </div>
+  );
+}
+
+/** Keep one address out of search results, or let it back in (the domain's ⋯ menu, and the panel). */
+export function useHideHost(project: string) {
+  const qc = useQueryClient();
+  const s = useQuery(searchQuery(project));
+  const m = useMutation({
+    mutationFn: ({ host, hide }: { host: string; hide: boolean }) => {
+      const cur = s.data?.settings ?? { hidden: false };
+      const hosts = new Set(cur.hiddenHosts ?? []);
+      if (hide) hosts.add(host);
+      else hosts.delete(host);
+      return setSearchSettings(project, { ...cur, hiddenHosts: [...hosts] });
+    },
+    onSuccess: (st, { host, hide }) => {
+      qc.setQueryData(["search", project], st);
+      toast({ title: hide ? `${host} is kept out of search results.` : `${host} is findable again.`, detail: hide ? "It still opens for anyone with the link. Search engines drop it over the next few weeks." : undefined });
+    },
+  });
+  const status = s.data;
+  return {
+    hidden: (host: string) => !!status?.settings.hiddenHosts?.includes(host),
+    projectHidden: !!status?.settings.hidden,
+    set: (host: string, hide: boolean) => m.mutate({ host, hide }),
+  };
+}
+
+function ShowButton({ project, host, st }: { project: string; host: string; st: SearchStatus }) {
+  const hide = useHideHost(project);
+  if (st.settings.hidden)
+    return (
+      <Link to="/projects/$project/settings" params={{ project }} className="text-[0.8125rem] text-ink underline decoration-rule-3 underline-offset-4">
+        Project settings
+      </Link>
+    );
+  return (
+    <Button size="sm" variant="ghost" onClick={() => hide.set(host, false)}>
+      Let search engines list it
+    </Button>
   );
 }
 
@@ -270,9 +315,11 @@ function GoogleRow({ h, now }: { h: SearchHost; now: number }) {
       </p>
     );
   const scUrl = `https://search.google.com/search-console?resource_id=${encodeURIComponent(g.property ?? "")}`;
+  const err = g.error && <p className="text-[0.8125rem] text-warn-ink">{g.error}</p>;
   const ix = g.index;
   return (
     <div className="space-y-2">
+      {err}
       {g.pulledAt ? (
         <p className="text-ink">
           {g.clicks.toLocaleString()} {g.clicks === 1 ? "click" : "clicks"}
@@ -284,7 +331,7 @@ function GoogleRow({ h, now }: { h: SearchHost; now: number }) {
           <span className="text-ink-3"> · last 28 days</span>
         </p>
       ) : (
-        <p className="text-ink-2">Verified. Reading the search data now.</p>
+        !g.error && <p className="text-ink-2">Verified. Reading the search data now.</p>
       )}
       {(g.queries ?? []).length > 0 && (
         <ul className="space-y-0.5">
@@ -297,6 +344,24 @@ function GoogleRow({ h, now }: { h: SearchHost; now: number }) {
             </li>
           ))}
         </ul>
+      )}
+      {g.sitemap && (
+        <p className="text-[0.8125rem] text-ink-2">
+          {g.sitemap.lastRead
+            ? `Google read your sitemap ${agoWords(g.sitemap.lastRead, now)}: ${g.sitemap.pages} ${g.sitemap.pages === 1 ? "page" : "pages"}`
+            : "Sitemap submitted; Google hasn’t read it yet"}
+          {g.sitemap.errors > 0 ? (
+            <span className="text-warn-ink">
+              {" "}
+              · {g.sitemap.errors} {g.sitemap.errors === 1 ? "error" : "errors"}
+            </span>
+          ) : g.sitemap.lastRead ? (
+            ", no errors"
+          ) : (
+            ""
+          )}
+          {g.sitemap.warnings > 0 ? ` · ${g.sitemap.warnings} ${g.sitemap.warnings === 1 ? "warning" : "warnings"}` : ""}.
+        </p>
       )}
       {ix && (
         <div className="text-[0.8125rem]">
@@ -320,3 +385,4 @@ function GoogleRow({ h, now }: { h: SearchHost; now: number }) {
     </div>
   );
 }
+

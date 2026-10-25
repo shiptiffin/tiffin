@@ -339,19 +339,36 @@ func TestSitemapIndexAndSameDates(t *testing.T) {
 func TestSettingsAndManual(t *testing.T) {
 	h := newHarness(t)
 	h.s.set("shop.example", "/sitemap.xml", sitemap(map[string]string{"https://shop.example/": "2026-10-01"}))
-	if err := h.m.saveSettings(h.ctx, "shop", Settings{IndexNow: false}); err != nil {
+	h.serve("shop.example", "d1")
+	h.serve("staging.example", "d1")
+	// The whole project hidden: no address findable, nothing sent, and the
+	// edge is told to say noindex on them.
+	if err := h.m.saveSettings(h.ctx, "shop", Settings{Hidden: true}); err != nil {
 		t.Fatal(err)
 	}
-	h.serve("shop.example", "d1")
 	h.pass()
-	if len(h.s.sent()) != 0 || h.host("shop.example").Checked == nil {
-		t.Fatal("IndexNow off still pinged, or did not check")
+	if hs := h.host("shop.example"); hs.Findable || !hs.Hidden || len(h.s.sent()) != 0 {
+		t.Fatalf("hidden project %+v sent %v", hs, h.s.sent())
 	}
-	_ = h.m.saveSettings(h.ctx, "shop", Settings{IndexNow: true})
+	if hh := h.m.HiddenHosts(h.ctx); !hh["shop.example"] || !hh["staging.example"] {
+		t.Fatalf("hidden hosts %v", hh)
+	}
+	// One address hidden, the other findable.
+	_ = h.m.saveSettings(h.ctx, "shop", Settings{HiddenHosts: []string{"staging.example"}})
+	h.pass()
+	if st := h.host("staging.example"); st.Findable || !st.Hidden || !strings.Contains(st.Why, "kept it out") {
+		t.Fatalf("hidden host %+v", st)
+	}
+	if hh := h.m.HiddenHosts(h.ctx); hh["shop.example"] || !hh["staging.example"] {
+		t.Fatalf("hidden hosts %v", hh)
+	}
+	if got := h.s.sent(); len(got) != 1 || got[0][0] != "https://shop.example/" {
+		t.Fatalf("shown again: %v", got)
+	}
 	if _, err := h.m.check(h.ctx, "shop.example", pingOpts{reason: ReasonManual, urls: []string{"https://shop.example/x"}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.s.sent(); len(got) != 1 || got[0][0] != "https://shop.example/x" {
+	if got := h.s.sent(); len(got) != 2 || got[1][0] != "https://shop.example/x" {
 		t.Fatalf("manual %v", got)
 	}
 	if hs := h.host("shop.example"); hs.Last.Reason != ReasonManual {

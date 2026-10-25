@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -223,20 +224,69 @@ const historyMax = 10
 
 // Settings are a project's choices.
 type Settings struct {
-	IndexNow bool `json:"indexNow" doc:"Tell search engines about new and changed pages (IndexNow). On by default."`
+	Hidden      bool     `json:"hidden,omitempty" doc:"Keep every address of the project out of search results. The apps still open for anyone with the link; their responses say noindex, and the box sends no IndexNow pings and verifies nothing with Google. For staging, internal tools and sites before launch."`
+	HiddenHosts []string `json:"hiddenHosts,omitempty" doc:"Addresses kept out one by one, such as staging.example.com in an otherwise public project"`
 }
 
+func (s Settings) hides(host string) bool { return s.Hidden || slices.Contains(s.HiddenHosts, host) }
+
 func (m *Module) settings(ctx context.Context, project string) Settings {
-	s := Settings{IndexNow: true}
+	var s Settings
 	if raw, ok, err := m.p.DB.KVGet(ctx, kvNS, "settings/"+project); err == nil && ok {
 		_ = json.Unmarshal(raw, &s)
 	}
 	return s
 }
 
+// allSettings are every project's settings, by project.
+func (m *Module) allSettings(ctx context.Context) map[string]Settings {
+	out := map[string]Settings{}
+	all, err := m.p.DB.KVList(ctx, kvNS)
+	if err != nil {
+		return out
+	}
+	for k, raw := range all {
+		if project, ok := strings.CutPrefix(k, "settings/"); ok {
+			var s Settings
+			if json.Unmarshal(raw, &s) == nil {
+				out[project] = s
+			}
+		}
+	}
+	return out
+}
+
 func (m *Module) saveSettings(ctx context.Context, project string, s Settings) error {
 	raw, _ := json.Marshal(s)
 	return m.p.DB.KVPut(ctx, kvNS, "settings/"+project, raw)
+}
+
+// HiddenHosts are the addresses their owners hid from search engines: the
+// edge says noindex there (platform.SearchHider).
+func (m *Module) HiddenHosts(ctx context.Context) map[string]bool {
+	if m.p == nil || m.p.DB == nil {
+		return nil
+	}
+	sets := m.allSettings(ctx)
+	out := map[string]bool{}
+	var anyProject bool
+	for _, s := range sets {
+		for _, h := range s.HiddenHosts {
+			out[h] = true
+		}
+		anyProject = anyProject || s.Hidden
+	}
+	if anyProject {
+		live, err := m.liveHosts(ctx)
+		if err == nil {
+			for _, h := range live {
+				if sets[h.Project].Hidden {
+					out[h.Host] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (m *Module) records(ctx context.Context) (map[string]*hostRecord, error) {
@@ -385,6 +435,7 @@ type hostView struct {
 	Findable bool
 	Why      string // why not
 	Fix      string
+	Hidden   bool // by the project's settings
 	deploys  string
 }
 
@@ -407,6 +458,7 @@ func (m *Module) hosts(ctx context.Context) ([]hostView, error) {
 		}
 		root[rt.Host] = rt
 	}
+	sets := m.allSettings(ctx)
 	out := make([]hostView, 0, len(live))
 	for _, h := range live {
 		v := hostView{Host: h.Host, Project: h.Project, App: h.App, deploys: h.Deploys}
@@ -415,6 +467,12 @@ func (m *Module) hosts(ctx context.Context) ([]hostView, error) {
 		case platform.HiddenFromSearch(h.Host):
 			v.Why = "Addresses on " + sharedName(h.Host) + " are hidden from search engines."
 			v.Fix = "Add a domain of your own to be found."
+		case sets[h.Project].Hidden:
+			v.Why = "The project is kept out of search results (Settings › General)."
+			v.Hidden = true
+		case slices.Contains(sets[h.Project].HiddenHosts, h.Host):
+			v.Why = "You kept it out of search results."
+			v.Hidden = true
 		case redirect[h.Host] != "":
 			v.Why = "It redirects to " + redirect[h.Host] + ", which search engines see instead."
 		case !m.p.IsBoxHost(h.Host) && !m.domainLive(h.Host):

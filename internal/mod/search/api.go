@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ type HostStatus struct {
 	Findable bool   `json:"findable" doc:"Search engines may index it, and the box tells them about its pages"`
 	Why      string `json:"why,omitempty" doc:"Why it is not findable"`
 	Fix      string `json:"fix,omitempty"`
+	Hidden   bool   `json:"hidden,omitempty" doc:"Kept out of search results by the project's settings (search set)"`
 	// Since the address became findable.
 	Since   *time.Time  `json:"since,omitempty"`
 	Checked *time.Time  `json:"checked,omitempty" doc:"When the box last read its robots.txt, home page and sitemap"`
@@ -91,6 +93,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	pg := api.Outbound(api.Op("search-ping", http.MethodPost, "/v1/projects/{project}/search/ping", "search ping", api.RiskWrite,
 		"Check now and tell search engines what changed",
 		"Reads the sitemap of the project's findable addresses now and sends IndexNow the new, changed and removed pages, as the box does after a deploy. "+
+			"With Google connected, it also submits the sitemap to Google again (the box submits it once by itself, when the address is verified). "+
 			"With urls, sends exactly those (for pages the sitemap does not date, such as ones a database changes); with all, every page again. "+
 			"Rarely needed: the box does this on its own. Returns the status with the new ping.", tag))
 	pg.Errors = append(pg.Errors, 404, 409, 422, 429)
@@ -152,6 +155,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if _, err := m.check(ctx, h, pingOpts{reason: ReasonManual, urls: in.Body.URLs, all: in.Body.All}); err != nil {
 				return nil, err
 			}
+			if len(in.Body.URLs) == 0 {
+				if err := m.resubmitSitemap(ctx, h); err != nil {
+					return nil, api.NewProblem(502, "upstream", "IndexNow is done, but Google refused the sitemap: "+err.Error())
+				}
+			}
 		}
 		pr := api.PrincipalFrom(ctx)
 		_ = p.DB.Audit(ctx, pr.TokenID, "search.ping", in.Project, map[string]any{"session": pr.Session, "hosts": targets, "urls": len(in.Body.URLs), "all": in.Body.All})
@@ -162,10 +170,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	m.registerGoogle(a, p, ready)
 
 	set := api.Op("search-set", http.MethodPut, "/v1/projects/{project}/search/settings", "search set", api.RiskWrite,
-		"Turn IndexNow pings on or off for a project",
-		"indexNow: false stops the box from telling search engines about the project's pages (the checks go on). On by default. "+
-			"It does not hide the apps: search engines still find them through links and sitemaps.", tag)
-	set.Errors = append(set.Errors, 409)
+		"Keep a project's addresses out of search results, or let them back in",
+		"hidden: true keeps every address of the project out of search results; hiddenHosts does it address by address (a staging subdomain in a public project). "+
+			"The apps still open for anyone with the link: their responses say X-Robots-Tag: noindex, so search engines drop them, and the box sends them no IndexNow pings and verifies nothing with Google. "+
+			"The settings are replaced as a whole: send both. Apps on a domain of their own are findable by default. Names on shiptiffin.app are always kept out.", tag)
+	set.Errors = append(set.Errors, 409, 422)
 	huma.Register(a, set, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    Settings
@@ -176,11 +185,39 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := ready(); err != nil {
 			return nil, err
 		}
-		if err := m.saveSettings(ctx, in.Project, in.Body); err != nil {
+		live, err := m.liveHosts(ctx)
+		if err != nil {
 			return nil, err
 		}
+		mine := map[string]bool{}
+		for _, h := range live {
+			if h.Project == in.Project {
+				mine[h.Host] = true
+			}
+		}
+		set := Settings{Hidden: in.Body.Hidden}
+		for _, h := range in.Body.HiddenHosts {
+			h = strings.ToLower(strings.TrimSpace(h))
+			if h == "" {
+				continue
+			}
+			if !mine[h] {
+				return nil, api.NewProblem(422, "validation", h+" is not an address of project "+in.Project)
+			}
+			if !slices.Contains(set.HiddenHosts, h) {
+				set.HiddenHosts = append(set.HiddenHosts, h)
+			}
+		}
+		sort.Strings(set.HiddenHosts)
+		if err := m.saveSettings(ctx, in.Project, set); err != nil {
+			return nil, err
+		}
+		if err := p.RefreshRoutes(ctx); err != nil {
+			p.Log.Warn("search: routes", "err", err)
+		}
+		m.poke()
 		pr := api.PrincipalFrom(ctx)
-		_ = p.DB.Audit(ctx, pr.TokenID, "search.set", in.Project, map[string]any{"session": pr.Session, "indexNow": in.Body.IndexNow})
+		_ = p.DB.Audit(ctx, pr.TokenID, "search.set", in.Project, map[string]any{"session": pr.Session, "hidden": set.Hidden, "hiddenHosts": set.HiddenHosts})
 		s, err := m.status(ctx, in.Project)
 		return &struct{ Body Status }{s}, err
 	}))
@@ -216,7 +253,7 @@ func (m *Module) status(ctx context.Context, project string) (Status, error) {
 		if v.Project != project {
 			continue
 		}
-		h := HostStatus{Host: v.Host, App: v.App, Findable: v.Findable && !local, Why: v.Why, Fix: v.Fix}
+		h := HostStatus{Host: v.Host, App: v.App, Findable: v.Findable && !local, Why: v.Why, Fix: v.Fix, Hidden: v.Hidden}
 		if local && v.Findable {
 			h.Why = "This is a local box: nothing outside it can reach its apps."
 		}
@@ -258,6 +295,8 @@ type GoogleConnection struct {
 	Owner       string           `json:"owner,omitempty" doc:"The Google account added as an owner of each property, so they show in that account's Search Console"`
 	ConnectedAt *time.Time       `json:"connectedAt,omitempty"`
 	By          string           `json:"by,omitempty"`
+	Error       string           `json:"error,omitempty" doc:"Why Google refuses the key lately: replace it (a new key for the same account keeps every property)"`
+	ErrorAt     *time.Time       `json:"errorAt,omitempty"`
 	Properties  []GoogleProperty `json:"properties"`
 }
 
@@ -416,6 +455,10 @@ func (m *Module) googleView(ctx context.Context) (GoogleConnection, error) {
 	}
 	at := c.At
 	v.Connected, v.ClientEmail, v.ProjectID, v.Owner, v.ConnectedAt, v.By = true, c.ClientEmail, c.ProjectID, c.Owner, &at, c.By
+	if c.Error != "" {
+		et := c.ErrorAt
+		v.Error, v.ErrorAt = c.Error, &et
+	}
 	m.mu.Lock()
 	props, err := m.gprops(ctx)
 	m.mu.Unlock()
@@ -432,4 +475,20 @@ func (m *Module) googleView(ctx context.Context) (GoogleConnection, error) {
 	}
 	sort.Slice(v.Properties, func(i, j int) bool { return v.Properties[i].Property < v.Properties[j].Property })
 	return v, nil
+}
+
+// Checks reports the Google connection when the box has one: a refused key
+// shows on the box's status page and alerts the owner.
+func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Check {
+	if m.p == nil {
+		return nil
+	}
+	c, _ := m.googleConn(ctx)
+	if c == nil {
+		return nil
+	}
+	if c.Error != "" {
+		return []platform.Check{{Name: "search.google", OK: false, Detail: c.Error + " (Settings › Search engines: replace the key)"}}
+	}
+	return []platform.Check{{Name: "search.google", OK: true, Detail: "signed in as " + c.ClientEmail}}
 }

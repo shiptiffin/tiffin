@@ -58,6 +58,8 @@ type fakeGoogle struct {
 	sites    []string
 	sitemaps []string
 	inspects int
+	apiOff   bool // the Site Verification API is off
+	revoked  bool // the key was deleted
 }
 
 func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +74,15 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	switch {
 	case p == "/token":
+		if g.revoked {
+			w.WriteHeader(400)
+			reply(map[string]any{"error": "invalid_grant", "error_description": "Invalid JWT Signature."})
+			return
+		}
 		reply(map[string]any{"access_token": "tok", "expires_in": 3600})
+	case g.apiOff && strings.HasPrefix(p, "/siteVerification/"):
+		w.WriteHeader(403)
+		reply(map[string]any{"error": map[string]string{"message": "Site Verification API has not been used in project 1 before or it is disabled."}})
 	case p == "/siteVerification/v1/token":
 		if body["verificationMethod"] == "FILE" {
 			reply(map[string]string{"token": "google0123.html"})
@@ -94,6 +104,14 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(map[string]any{"error": map[string]string{"message": "The necessary verification token could not be found on your site."}})
 			return
 		}
+		if body["owners"] != nil {
+			w.WriteHeader(503) // what Google does
+			return
+		}
+		reply(body)
+	case strings.HasPrefix(p, "/siteVerification/v1/webResource/") && r.Method == http.MethodGet:
+		reply(map[string]any{"owners": []string{"tiffin@tiffin-test.iam.gserviceaccount.com"}})
+	case strings.HasPrefix(p, "/siteVerification/v1/webResource/") && r.Method == http.MethodPut:
 		var owners []string
 		for _, o := range body["owners"].([]any) {
 			owners = append(owners, o.(string))
@@ -102,6 +120,9 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(body)
 	case r.Method == http.MethodGet && p == "/webmasters/v3/sites":
 		reply(map[string]any{})
+	case strings.Contains(p, "/sitemaps/") && r.Method == http.MethodGet:
+		reply(map[string]any{"lastSubmitted": "2026-10-24T12:00:00Z", "lastDownloaded": "2026-10-24T12:05:00Z", "errors": "0", "warnings": "1",
+			"contents": []map[string]string{{"type": "web", "submitted": "2"}}})
 	case strings.Contains(p, "/sitemaps/"):
 		g.sitemaps = append(g.sitemaps, p)
 		w.WriteHeader(204)
@@ -128,7 +149,9 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func testKey(t *testing.T) []byte {
+func testKey(t *testing.T) []byte { return testKeyFor(t, "tiffin@tiffin-test.iam.gserviceaccount.com") }
+
+func testKeyFor(t *testing.T, email string) []byte {
 	t.Helper()
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -136,7 +159,7 @@ func testKey(t *testing.T) []byte {
 	}
 	der, _ := x509.MarshalPKCS8PrivateKey(k)
 	raw, _ := json.Marshal(map[string]string{
-		"type": "service_account", "project_id": "tiffin-test", "client_email": "tiffin@tiffin-test.iam.gserviceaccount.com",
+		"type": "service_account", "project_id": "tiffin-test", "client_email": email,
 		"private_key": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})), "token_uri": "https://oauth2.googleapis.com/token",
 	})
 	return raw
@@ -164,6 +187,11 @@ func TestGoogleConnection(t *testing.T) {
 	if _, err := h.m.connectGoogle(h.ctx, []byte(`{"type":"authorized_user"}`), "", "t"); err == nil {
 		t.Fatal("a user key was taken")
 	}
+	fg.apiOff = true
+	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "owner@gmail.com", "t"); err == nil || !strings.Contains(err.Error(), "Site Verification API") {
+		t.Fatalf("connected with the API off: %v", err)
+	}
+	fg.apiOff = false
 	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "owner@gmail.com", "t"); err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +227,19 @@ func TestGoogleConnection(t *testing.T) {
 	if len(fg.sitemaps) != 2 {
 		t.Fatalf("sitemaps %v", fg.sitemaps)
 	}
+	if sm := gh.Sitemap; sm == nil || sm.Pages != 2 || sm.Warnings != 1 || sm.LastRead == "" {
+		t.Fatalf("sitemap status %+v", gh.Sitemap)
+	}
+	// Once: a deploy and the regular checks never submit it again; asking does.
+	h.serve("shop.example.com", "d2")
+	h.now = h.now.Add(Settle)
+	h.pass()
+	if len(fg.sitemaps) != 2 {
+		t.Fatalf("resubmitted by itself: %v", fg.sitemaps)
+	}
+	if err := h.m.resubmitSitemap(h.ctx, "shop.example.com"); err != nil || len(fg.sitemaps) != 3 {
+		t.Fatalf("resubmit: %v %v", err, fg.sitemaps)
+	}
 	// A host without a sitemap still gets its data, and its home page inspected.
 	h.serve("nomap.example.com", "d1")
 	h.pass()
@@ -220,9 +261,39 @@ func TestGoogleConnection(t *testing.T) {
 	if last := fg.owners[len(fg.owners)-1]; last[1] != "second@gmail.com" {
 		t.Fatalf("new owner %v", fg.owners)
 	}
+	// The key is deleted in Google Cloud: said on the connection, in the
+	// box's checks and on each address; a working key clears it.
+	fg.revoked = true
+	h.m.gc.token = "" // the next call signs in again
+	h.now = h.now.Add(gPullEvery)
+	h.pass()
+	if c := h.m.Checks(h.ctx, h.m.p); len(c) != 1 || c[0].OK || !strings.Contains(c[0].Detail, "Invalid JWT") {
+		t.Fatalf("checks %+v", c)
+	}
+	if gh := h.host("shop.example.com").Google; !strings.Contains(gh.Error, "Invalid JWT") {
+		t.Fatalf("host error %+v", gh)
+	}
+	fg.revoked = false
+	h.pass()
+	if c := h.m.Checks(h.ctx, h.m.p); !c[0].OK {
+		t.Fatalf("checks after a working call %+v", c)
+	}
 	v, _ := h.m.googleView(h.ctx)
 	if !v.Connected || v.ClientEmail != "tiffin@tiffin-test.iam.gserviceaccount.com" || len(v.Properties) != 2 {
 		t.Fatalf("view %+v", v)
+	}
+	// Another service account: every property starts again under it.
+	if _, err := h.m.connectGoogle(h.ctx, testKeyFor(t, "other@p.iam.gserviceaccount.com"), "", "t"); err != nil {
+		t.Fatal(err)
+	}
+	if gh := h.host("shop.example.com").Google; gh.State != GVerifying || gh.PulledAt != nil {
+		t.Fatalf("after another account %+v", gh)
+	}
+	h.pass()
+	h.now = h.now.Add(20 * time.Second)
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified {
+		t.Fatalf("verified again %+v", gh)
 	}
 	if err := h.m.disconnectGoogle(h.ctx); err != nil {
 		t.Fatal(err)
