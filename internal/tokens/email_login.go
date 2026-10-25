@@ -143,7 +143,9 @@ type attributionByKey string
 func (e attributionByKey) Error() string {
 	return "an API key can't turn on " + string(e) + ": it links visits to people and your privacy policy has to say so, so a person turns it on in the dashboard (Analytics › Attribution), or with the owner token"
 }
-func (e attributionByKey) Is(target error) bool { return target == ErrAttributionByKey || target == ErrForbidden }
+func (e attributionByKey) Is(target error) bool {
+	return target == ErrAttributionByKey || target == ErrForbidden
+}
 
 // AttributionByKey is ErrAttributionByKey naming what was asked.
 func AttributionByKey(what string) error { return attributionByKey(what) }

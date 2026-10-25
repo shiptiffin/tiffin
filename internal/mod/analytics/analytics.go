@@ -238,10 +238,12 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	set := parseSettings(spec)
 	m.settings.set(project, set)
 	if !set.Attribution {
-		// Off (or turned off): what attribution linked to people goes.
+		// Off (or turned off): what attribution linked to people goes, and
+		// so does a Stripe connection (its webhook and key).
 		if err := m.attr.deleteProject(ctx, project); err != nil {
 			return err
 		}
+		m.sweepSoon()
 	}
 	m.pipe.Revive(project)
 	m.vit.Revive(project)
@@ -270,6 +272,7 @@ func (m *Module) deleteProject(ctx context.Context, project string) error {
 		if err := m.attr.deleteProject(ctx, project); err != nil {
 			return err
 		}
+		m.sweepSoon()
 	}
 	return m.store.DeleteProject(ctx, project)
 }

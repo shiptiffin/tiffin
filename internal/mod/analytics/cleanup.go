@@ -13,6 +13,7 @@ func (m *Module) Committed(context.Context, *platform.Platform, *change.Change) 
 	if m.sites != nil {
 		m.sites.Invalidate()
 	}
+	m.sweepSoon() // a Stripe webhook follows its project to a new address
 }
 
 // ProjectDeleted forgets everything analytics keeps about a destroyed

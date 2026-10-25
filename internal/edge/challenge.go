@@ -106,7 +106,9 @@ func (h *ChallengeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, nex
 
 func (h *ChallengeHandler) exempt(r *http.Request) bool {
 	p := r.URL.Path
-	if strings.HasPrefix(p, "/.well-known/") || p == "/robots.txt" || r.Method == http.MethodOptions {
+	// Payment providers' webhooks (/_tiffin/stripe) are servers, which can't
+	// pass a challenge; they are signed instead.
+	if strings.HasPrefix(p, "/.well-known/") || p == "/robots.txt" || strings.HasPrefix(p, "/_tiffin/stripe") || r.Method == http.MethodOptions {
 		return true
 	}
 	for _, x := range h.Exempt {

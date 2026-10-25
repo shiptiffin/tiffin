@@ -340,6 +340,24 @@ func (m *Module) sweepStripe(ctx context.Context) {
 	}
 }
 
+// sweepSoon sweeps in the background now, after a short wait for the
+// change that prompted it to settle (Reconcile, a project deleted, a change
+// committed: attribution off, a project gone or moved to another address).
+func (m *Module) sweepSoon() {
+	if m.p == nil || m.p.DB == nil {
+		return
+	}
+	go func() {
+		time.Sleep(sweepSettle)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		m.sweepStripe(ctx)
+	}()
+}
+
+// sweepSettle is how long sweepSoon waits (tests shorten it).
+var sweepSettle = 5 * time.Second
+
 // maybeSweep sweeps in the background at most every few minutes (the
 // receiver calls it on events it cannot place, the API on reads).
 func (m *Module) maybeSweep() {
