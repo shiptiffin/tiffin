@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clientIP, track } from "../src/analytics";
+import { clientIP, revenue, track } from "../src/analytics";
 
 describe("track", () => {
   test("does nothing without configuration", async () => {
@@ -46,5 +46,63 @@ describe("track", () => {
   test("clientIP takes the edge's entry", () => {
     expect(clientIP(new Request("http://x", { headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" } }))).toBe("2.2.2.2");
     expect(clientIP(new Request("http://x"))).toBeUndefined();
+  });
+});
+
+describe("revenue", () => {
+  const ok = (seen: { url?: string; body?: Record<string, unknown> }, reply: unknown = { ok: true, matched: "reference" }, status = 202) =>
+    (async (url: string, init: RequestInit) => {
+      seen.url = url;
+      seen.body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify(reply), { status });
+    }) as unknown as typeof fetch;
+
+  test("does nothing without configuration", async () => {
+    const r = await revenue({ id: "o1", amount: 4900, currency: "usd" }, { endpoint: "", key: "" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("not configured");
+  });
+
+  test("sends the payment with the request's visitor", async () => {
+    const seen: { url?: string; body?: Record<string, unknown> } = {};
+    const request = new Request("https://shop.example.com/checkout", {
+      headers: { "x-forwarded-for": "203.0.113.7", "user-agent": "Mozilla/5.0 Test" },
+    });
+    const r = await revenue(
+      { id: "o1", amount: 4900, currency: "USD", user: "u_1", at: new Date("2026-10-25T12:00:00Z") },
+      { request, endpoint: "http://127.0.0.1:7091/", key: "tak_x", fetch: ok(seen) },
+    );
+    expect(r).toEqual({ ok: true, matched: "reference" });
+    expect(seen.url).toBe("http://127.0.0.1:7091/revenue");
+    expect(seen.body).toEqual({ id: "o1", amount: 4900, currency: "usd", user: "u_1", at: "2026-10-25T12:00:00.000Z", ip: "203.0.113.7", ua: "Mozilla/5.0 Test" });
+  });
+
+  test("refunds name the payment they refund", async () => {
+    const seen: { body?: Record<string, unknown> } = {};
+    await revenue({ id: "r1", amount: 4900, currency: "eur", refund: "o1" }, { endpoint: "http://h", key: "k", fetch: ok(seen) });
+    expect(seen.body).toEqual({ id: "r1", amount: 4900, currency: "eur", refund: "o1" });
+  });
+
+  test("refuses amounts that are not whole minor units", async () => {
+    let called = false;
+    const f = (async () => { called = true; return new Response(); }) as unknown as typeof fetch;
+    const r = await revenue({ id: "o1", amount: 19.99, currency: "usd" }, { endpoint: "http://h", key: "k", fetch: f });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("smallest unit");
+    expect(called).toBe(false);
+  });
+
+  test("ignored while Stripe is connected", async () => {
+    const r = await revenue({ id: "o1", amount: 100, currency: "usd" }, { endpoint: "http://h", key: "k", fetch: ok({}, { ignored: "stripe connected" }) });
+    expect(r).toEqual({ ok: false, ignored: "stripe connected" });
+  });
+
+  test("reports the box's refusal and never throws", async () => {
+    const off = await revenue({ id: "o1", amount: 100, currency: "usd" }, { endpoint: "http://h", key: "k", fetch: ok({}, { error: "revenue needs marketing attribution" }, 409) });
+    expect(off).toEqual({ ok: false, error: "revenue needs marketing attribution" });
+    const fail = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch;
+    const down = await revenue({ id: "o1", amount: 100, currency: "usd" }, { endpoint: "http://h", key: "k", fetch: fail });
+    expect(down.ok).toBe(false);
+    expect(down.error).toContain("ECONNREFUSED");
   });
 });

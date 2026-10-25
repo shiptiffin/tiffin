@@ -82,3 +82,68 @@ export async function track(name, props, opts = {}) {
         return false;
     }
 }
+/**
+ * Record a payment from a provider other than Stripe (Stripe is connected
+ * in the dashboard instead), for revenue attribution: it is matched to the
+ * user's sign-up source, or to the visit the request belongs to, and shows
+ * in the revenue report by source, campaign and landing page. Needs marketing
+ * attribution on for the project.
+ *
+ * ```ts
+ * await revenue({ id: order.id, amount: 4900, currency: "usd", user: session.user.id }, { request });
+ * ```
+ *
+ * Never throws: resolves to `{ ok: false, error }` when it could not be recorded.
+ */
+export async function revenue(payment, opts = {}) {
+    const env = typeof process !== "undefined" ? process.env : {};
+    const endpoint = opts.endpoint ?? env.TIFFIN_ANALYTICS_URL;
+    const key = opts.key ?? env.TIFFIN_ANALYTICS_KEY;
+    if (!endpoint || !key)
+        return { ok: false, error: "analytics is not configured (TIFFIN_ANALYTICS_URL, TIFFIN_ANALYTICS_KEY)" };
+    if (!payment || !Number.isSafeInteger(payment.amount) || payment.amount <= 0) {
+        return { ok: false, error: "amount is a whole number in the currency's smallest unit: 1999 for 19.99" };
+    }
+    if (!payment.id || !/^[a-zA-Z]{3}$/.test(payment.currency ?? "")) {
+        return { ok: false, error: "id and a three-letter currency are required" };
+    }
+    const body = { id: String(payment.id), amount: payment.amount, currency: payment.currency.toLowerCase() };
+    if (payment.user)
+        body.user = String(payment.user);
+    if (payment.refund)
+        body.refund = payment.refund === true ? true : String(payment.refund);
+    if (payment.renewal)
+        body.renewal = true;
+    const at = payment.at ?? opts.at;
+    if (at)
+        body.at = at.toISOString();
+    const req = opts.request;
+    if (req) {
+        const ip = clientIP(req);
+        if (ip)
+            body.ip = ip;
+        const ua = req.headers.get("user-agent");
+        if (ua)
+            body.ua = ua;
+        if (req.headers.get("sec-gpc") === "1")
+            body.gpc = true;
+    }
+    const f = opts.fetch ?? fetch;
+    try {
+        const res = await f(endpoint.replace(/\/+$/, "") + "/revenue", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(opts.timeoutMs ?? 2000),
+        });
+        const out = (await res.json().catch(() => ({})));
+        if (res.status !== 202)
+            return { ok: false, error: out.error ?? `the box answered ${res.status}` };
+        if (out.ignored)
+            return { ok: false, ignored: out.ignored };
+        return { ok: out.ok === true, matched: out.matched ?? "", ...(out.duplicate ? { duplicate: true } : {}) };
+    }
+    catch (err) {
+        return { ok: false, error: `the box could not be reached: ${err instanceof Error ? err.message : String(err)}` };
+    }
+}

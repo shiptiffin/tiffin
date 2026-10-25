@@ -93,3 +93,89 @@ export async function track(name: string, props?: Props, opts: TrackOptions = {}
     return false;
   }
 }
+
+/** A payment for revenue attribution. */
+export interface Revenue {
+  /** In the currency's smallest unit, a whole number: 1999 for 19.99 USD, 500 for ¥500. */
+  amount: number;
+  /** Three-letter ISO code: "usd", "eur". */
+  currency: string;
+  /** Your payment's own id: a retry with the same id is not counted twice. */
+  id: string;
+  /** The signed-in user's id (Tiffin auth): the payment is credited to where the account came from. */
+  user?: string;
+  /** A refund (amount positive, it is subtracted). Give the refunded payment's id to credit it the same way. */
+  refund?: boolean | string;
+  /** A repeat payment (a subscription renewal). Payments after a user's first count as renewals anyway. */
+  renewal?: boolean;
+  /** When it was paid (default now; up to a year ago). */
+  at?: Date;
+}
+
+/** What the box did with a revenue() call. */
+export interface RevenueResult {
+  /** Recorded (or recorded before: duplicate). */
+  ok: boolean;
+  /** How it was matched: "reference" (the user given), "visit" (the request's visit), "customer" (an earlier payment), "" (not matched). */
+  matched?: string;
+  duplicate?: boolean;
+  /** Not recorded on purpose: "stripe connected" (the box imports Stripe payments itself, so nothing counts twice). */
+  ignored?: string;
+  /** Why it was not recorded (not configured, attribution off, invalid input, box unreachable). */
+  error?: string;
+}
+
+/**
+ * Record a payment from a provider other than Stripe (Stripe is connected
+ * in the dashboard instead), for revenue attribution: it is matched to the
+ * user's sign-up source, or to the visit the request belongs to, and shows
+ * in the revenue report by source, campaign and landing page. Needs marketing
+ * attribution on for the project.
+ *
+ * ```ts
+ * await revenue({ id: order.id, amount: 4900, currency: "usd", user: session.user.id }, { request });
+ * ```
+ *
+ * Never throws: resolves to `{ ok: false, error }` when it could not be recorded.
+ */
+export async function revenue(payment: Revenue, opts: Omit<TrackOptions, "url"> = {}): Promise<RevenueResult> {
+  const env = typeof process !== "undefined" ? process.env : {};
+  const endpoint = opts.endpoint ?? env.TIFFIN_ANALYTICS_URL;
+  const key = opts.key ?? env.TIFFIN_ANALYTICS_KEY;
+  if (!endpoint || !key) return { ok: false, error: "analytics is not configured (TIFFIN_ANALYTICS_URL, TIFFIN_ANALYTICS_KEY)" };
+  if (!payment || !Number.isSafeInteger(payment.amount) || payment.amount <= 0) {
+    return { ok: false, error: "amount is a whole number in the currency's smallest unit: 1999 for 19.99" };
+  }
+  if (!payment.id || !/^[a-zA-Z]{3}$/.test(payment.currency ?? "")) {
+    return { ok: false, error: "id and a three-letter currency are required" };
+  }
+  const body: Record<string, unknown> = { id: String(payment.id), amount: payment.amount, currency: payment.currency.toLowerCase() };
+  if (payment.user) body.user = String(payment.user);
+  if (payment.refund) body.refund = payment.refund === true ? true : String(payment.refund);
+  if (payment.renewal) body.renewal = true;
+  const at = payment.at ?? opts.at;
+  if (at) body.at = at.toISOString();
+  const req = opts.request;
+  if (req) {
+    const ip = clientIP(req);
+    if (ip) body.ip = ip;
+    const ua = req.headers.get("user-agent");
+    if (ua) body.ua = ua;
+    if (req.headers.get("sec-gpc") === "1") body.gpc = true;
+  }
+  const f = opts.fetch ?? fetch;
+  try {
+    const res = await f(endpoint.replace(/\/+$/, "") + "/revenue", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 2000),
+    });
+    const out = (await res.json().catch(() => ({}))) as RevenueResult;
+    if (res.status !== 202) return { ok: false, error: out.error ?? `the box answered ${res.status}` };
+    if (out.ignored) return { ok: false, ignored: out.ignored };
+    return { ok: out.ok === true, matched: out.matched ?? "", ...(out.duplicate ? { duplicate: true } : {}) };
+  } catch (err) {
+    return { ok: false, error: `the box could not be reached: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}

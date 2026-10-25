@@ -372,6 +372,19 @@ await track("Invoice paid", { amount: 49 });          // from a job: an event wi
 Pageviews need no code: the box counts them at its edge. `track()` never throws, and it returns
 `false` when analytics isn't available, as in local development.
 
+With marketing attribution on, `revenue()` records payments from providers other than Stripe
+(connect Stripe in the dashboard instead), credited to where the paying account came from:
+
+```ts
+import { revenue } from "@shiptiffin/sdk/analytics";
+
+await revenue({ id: order.id, amount: 4900, currency: "usd", user: session.user.id }, { request });
+await revenue({ id: refund.id, amount: 4900, currency: "usd", refund: order.id }); // credited like the order
+```
+
+`amount` is in the currency's smallest unit (cents). It never throws; while Stripe is connected
+the calls are ignored (`{ ok: false, ignored: "stripe connected" }`) so nothing counts twice.
+
 ## Web Vitals
 
 ```tsx
