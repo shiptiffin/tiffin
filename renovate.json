@@ -89,6 +89,11 @@
       "groupSlug": "bun",
       "labels": ["bun"],
       "automerge": false
+    },
+    {
+      "description": "Peer ranges are the SDK's promise to its users (next >=15): an update, even a security one, never narrows them.",
+      "matchDepTypes": ["peerDependencies"],
+      "enabled": false
     }
   ],
   "customManagers": [
