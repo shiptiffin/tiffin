@@ -1,3 +1,4 @@
+import { useQueries } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ListFilter, Search } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useId, useMemo, useState, type ReactNode } from "react";
@@ -5,6 +6,7 @@ import { CopyButton } from "@/components/copy";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { dec, int, MINUS, NNBSP, pct } from "@/lib/format";
+import { deploysQuery } from "@/lib/pulse";
 import type { FilterKey } from "@/routes/analytics-search";
 
 /**
@@ -318,5 +320,22 @@ export function CodeBox({ code, name, className }: { code: string; name: string;
         <code>{code}</code>
       </pre>
     </div>
+  );
+}
+
+/** When each app (or the one in view) went live, for the chart's markers. */
+export function useDeployMarkers(project: string, apps: string[], only?: string): Array<{ t: number; label: string }> {
+  const list = only ? apps.filter((a) => a === only) : apps;
+  const res = useQueries({ queries: list.map((a) => deploysQuery(project, a)) });
+  const all = res.flatMap((r) => r.data ?? []);
+  // Everything the markers read: a deploy that goes live after the first read gets its marker.
+  const key = all.map((x) => `${x.id}:${x.status}:${x.liveAt ?? ""}:${x.finishedAt ?? ""}`).join(",");
+  return useMemo(
+    () =>
+      all
+        .filter((x) => !x.preview && (x.liveAt || (x.status === "live" && x.finishedAt)))
+        .map((x) => ({ t: Date.parse(x.liveAt ?? x.finishedAt!), label: `${x.app} deployed` })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key],
   );
 }

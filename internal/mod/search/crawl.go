@@ -145,6 +145,26 @@ func (m *Module) startCrawlLog(ctx context.Context, root string) {
 	go tl.Run(ctx)
 }
 
+// seedCrawl copies the crawler log's saved days (30 of them) into the
+// history store, so counts from before it existed show too. Writing the
+// same days again changes nothing, so it runs at every start.
+func (m *Module) seedCrawl(ctx context.Context) {
+	all, err := m.p.DB.KVList(ctx, kvNS)
+	if err != nil {
+		return
+	}
+	for k, raw := range all {
+		host, ok := strings.CutPrefix(k, "crawl/")
+		if !ok {
+			continue
+		}
+		var r crawlRecord
+		if json.Unmarshal(raw, &r) == nil {
+			_ = m.hist.putCrawl(ctx, host, &r)
+		}
+	}
+}
+
 func parseLists(stored map[string][]string) map[string][]netip.Prefix {
 	out := map[string][]netip.Prefix{}
 	for u, ps := range stored {
@@ -357,6 +377,11 @@ func (m *Module) track(ctx context.Context, hosts map[string]bool, now time.Time
 		}
 		raw, _ := json.Marshal(r)
 		_ = m.p.DB.KVPut(ctx, kvNS, m.crawlKV(host), raw)
+		if m.hist != nil {
+			if err := m.hist.putCrawl(ctx, host, r); err != nil {
+				m.p.Log.Warn("search: crawler history", "err", err)
+			}
+		}
 	}
 	cl.dirty = map[string]bool{}
 }

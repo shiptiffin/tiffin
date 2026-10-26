@@ -168,6 +168,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	m.registerGoogle(a, p, ready)
+	m.registerReport(a, ready)
 
 	set := api.Op("search-set", http.MethodPut, "/v1/projects/{project}/search/settings", "search set", api.RiskWrite,
 		"Keep a project's addresses out of search results, or let them back in",
@@ -323,6 +324,19 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 		return ready()
 	}
 
+	in := api.Op("search-indexnow", http.MethodGet, "/v1/search/indexnow", "search indexnow", api.RiskRead,
+		"Show IndexNow across the box",
+		"IndexNow needs no setup: the box serves its key on every app host and tells the IndexNow engines (Bing, Yandex, Seznam, Naver, Yep and others) "+
+			"about new, changed and removed pages of every findable address, after each deploy and every 6 hours. This lists those addresses with their last ping. Box admins only.", tag)
+	in.Errors = append(in.Errors, 409)
+	huma.Register(a, in, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body IndexNowStatus }, error) {
+		if err := admin(ctx); err != nil {
+			return nil, err
+		}
+		v, err := m.indexNowView(ctx)
+		return &struct{ Body IndexNowStatus }{v}, err
+	}))
+
 	sh := api.Op("search-google", http.MethodGet, "/v1/search/google", "search google", api.RiskRead,
 		"Show the Google Search Console connection",
 		"Whether the box has a Google service account, which, and the Search Console properties it looks after with their state. Box admins only.", tag)
@@ -445,6 +459,46 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 		}
 		return &struct{ Body GInspection }{*r}, nil
 	}))
+}
+
+// IndexNowStatus is IndexNow across the box.
+type IndexNowStatus struct {
+	On        bool           `json:"on" doc:"False only on a local box, which nothing outside can reach"`
+	Addresses []IndexNowHost `json:"addresses" doc:"Every findable address, with its last ping"`
+}
+
+// IndexNowHost is one findable address.
+type IndexNowHost struct {
+	Host    string `json:"host"`
+	Project string `json:"project"`
+	Last    *Ping  `json:"last,omitempty"`
+}
+
+func (m *Module) indexNowView(ctx context.Context) (IndexNowStatus, error) {
+	v := IndexNowStatus{On: m.acme(), Addresses: []IndexNowHost{}}
+	if !v.On {
+		return v, nil
+	}
+	views, err := m.hosts(ctx)
+	if err != nil {
+		return v, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, h := range views {
+		if !h.Findable {
+			continue
+		}
+		x := IndexNowHost{Host: h.Host, Project: h.Project}
+		if r, _ := m.record(ctx, h.Host); r != nil && r.Last != nil {
+			last := *r.Last
+			last.Sample = nil
+			x.Last = &last
+		}
+		v.Addresses = append(v.Addresses, x)
+	}
+	sort.Slice(v.Addresses, func(i, j int) bool { return v.Addresses[i].Host < v.Addresses[j].Host })
+	return v, nil
 }
 
 func (m *Module) googleView(ctx context.Context) (GoogleConnection, error) {

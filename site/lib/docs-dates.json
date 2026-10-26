@@ -20,7 +20,7 @@
     "updated": "2026-10-13"
   },
   "limits": {
-    "sha": "ea65c582b2a58f03",
+    "sha": "757ee7e63cf36654",
     "updated": "2026-10-26"
   },
   "security": {
@@ -56,8 +56,8 @@
     "updated": "2026-10-25"
   },
   "search": {
-    "sha": "e595c95eb1d3c345",
-    "updated": "2026-10-25"
+    "sha": "b9d783e530108853",
+    "updated": "2026-10-26"
   },
   "observe": {
     "sha": "c5f46935b325b4c1",

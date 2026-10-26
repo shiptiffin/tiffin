@@ -4584,6 +4584,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/search/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show what people searched to find a project, and which bots read it
+         * @description For some days: Google's clicks, impressions, average position, top searches and pages (from Search Console, kept on the box for 16 months, with the days before for comparison); whether IndexNow and Google are set up and what Google's index says; and which search engines and AI bots fetched the project's pages (only bots from their operators' published addresses count). Google's numbers run 2 to 3 days behind.
+         */
+        get: operations["search-report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/search/settings": {
         parameters: {
             query?: never;
@@ -5624,6 +5644,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search/indexnow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show IndexNow across the box
+         * @description IndexNow needs no setup: the box serves its key on every app host and tells the IndexNow engines (Bing, Yandex, Seznam, Naver, Yep and others) about new, changed and removed pages of every findable address, after each deploy and every 6 hours. This lists those addresses with their last ping. Box admins only.
+         */
+        get: operations["search-indexnow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/server-access": {
         parameters: {
             query?: never;
@@ -6448,7 +6488,7 @@ export interface components {
             gross: number;
             /**
              * Format: int64
-             * @description Monthly recurring revenue now: active and past-due subscriptions at their list price per month (trials, discounts, metered and tiered prices left out)
+             * @description Monthly recurring revenue now: active and past-due subscriptions per month, at their list price less the discount their latest invoice had while it lasts (trials, metered and tiered prices left out)
              */
             mrr: number;
             /**
@@ -13000,6 +13040,36 @@ export interface components {
             robots: components["schemas"]["SearchCheck"];
             sitemap: components["schemas"]["SearchSitemapCheck"];
         };
+        SearchCrawlDay: {
+            /** Format: int64 */
+            ai: number;
+            date: string;
+            /** Format: int64 */
+            search: number;
+        };
+        SearchCrawled: {
+            /** @description An AI company's bot (OpenAI, Anthropic, Perplexity), not a search engine's */
+            ai: boolean;
+            bot: string;
+            /**
+             * Format: int64
+             * @description Requests answered 4xx or 5xx
+             */
+            errors: number;
+            /** Format: int64 */
+            hits: number;
+            /** Format: date-time */
+            lastAt?: string;
+            lastPath?: string;
+            /** Format: int64 */
+            lastStatus?: number;
+            operator: string;
+            /**
+             * @description search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models
+             * @enum {string}
+             */
+            purpose: "search" | "user" | "training";
+        };
         SearchCrawler: {
             /** @description Googlebot, Bingbot, OAI-SearchBot, ChatGPT-User, GPTBot, Claude-SearchBot, Claude-User, ClaudeBot, PerplexityBot, Perplexity-User, Applebot, DuckDuckBot */
             bot: string;
@@ -13029,6 +13099,15 @@ export interface components {
              * @enum {string}
              */
             purpose: "search" | "user" | "training";
+        };
+        SearchDay: {
+            /** Format: int64 */
+            clicks: number;
+            date: string;
+            /** Format: int64 */
+            impressions: number;
+            /** Format: double */
+            position: number;
         };
         SearchGDay: {
             /** Format: int64 */
@@ -13201,6 +13280,17 @@ export interface components {
             /** @description Why it is not findable */
             why?: string;
         };
+        SearchIndexNowHost: {
+            host: string;
+            last?: components["schemas"]["SearchPing"];
+            project: string;
+        };
+        SearchIndexNowStatus: {
+            /** @description Every findable address, with its last ping */
+            addresses: components["schemas"]["SearchIndexNowHost"][] | null;
+            /** @description False only on a local box, which nothing outside can reach */
+            on: boolean;
+        };
         SearchPending: {
             /** Format: date-time */
             at: string;
@@ -13238,6 +13328,84 @@ export interface components {
             /** @description Send exactly these URLs (on host) instead of what changed in the sitemap */
             urls?: string[] | null;
         };
+        SearchReport: {
+            /** @description Requests per day: search engines and AI apart */
+            crawlDays?: components["schemas"]["SearchCrawlDay"][] | null;
+            crawlFrom: string;
+            crawlTo: string;
+            /** @description Search and AI bots that fetched pages in the crawler days, most requests first. A bot counts only from the addresses its operator publishes. */
+            crawlers: components["schemas"]["SearchCrawled"][] | null;
+            /**
+             * Format: int64
+             * @description Requests whose user agent claimed a known bot from an address outside its operator's list
+             */
+            fakes: number;
+            /** @description The first day of Google's numbers (YYYY-MM-DD). Google's days run on Pacific time and its numbers 2 to 3 days behind, so a period ends on the last day Google has. */
+            from: string;
+            google: components["schemas"]["SearchReportGoogle"];
+            /** @description The one address shown, when asked for */
+            host?: string;
+            /** @description Every production address of the project's apps; the report covers the findable ones (or host) */
+            hosts: components["schemas"]["SearchReportHost"][] | null;
+            indexNow: components["schemas"]["SearchReportIndex"];
+            prevFrom: string;
+            prevTo: string;
+            project: string;
+            /** @description What people searched on Google to find the pages; missing until an address is verified in Search Console */
+            searches?: components["schemas"]["Searches"];
+            to: string;
+        };
+        SearchReportGoogle: {
+            detail?: string;
+            error?: string;
+            /** @description The box is still reading back Google's 16 months */
+            filling?: boolean;
+            /** @description The first day the box holds Google's numbers for */
+            first?: string;
+            /** @description What URL Inspection said about the pages checked so far (about 20 a day per address) */
+            index?: components["schemas"]["SearchGIndexCount"];
+            property?: string;
+            /**
+             * Format: date-time
+             * @description When Google was last read
+             */
+            pulledAt?: string;
+            /** @description What Google did with the sitemaps (pages found, errors), summed */
+            sitemap?: components["schemas"]["SearchGSitemap"];
+            /**
+             * @description none: no findable address to verify
+             * @enum {string}
+             */
+            state: "not_connected" | "verifying" | "verified" | "failed" | "none";
+        };
+        SearchReportHost: {
+            app?: string;
+            findable: boolean;
+            fix?: string;
+            /** @description Kept out of search results by the project's settings */
+            hidden?: boolean;
+            host: string;
+            /** @description Why it is not findable */
+            why?: string;
+        };
+        SearchReportIndex: {
+            /**
+             * Format: date-time
+             * @description When the box last read them
+             */
+            checked?: string;
+            /** @description The newest ping */
+            last?: components["schemas"]["SearchPing"];
+            /** @description The box tells IndexNow about new, changed and removed pages (every findable address, no setup) */
+            on: boolean;
+            /**
+             * Format: int64
+             * @description Pages in the sitemaps the box read
+             */
+            pages: number;
+            /** @description What the last look found wrong: robots.txt, the home page, the sitemap or the key file */
+            problems?: string[] | null;
+        };
         SearchSettings: {
             /** @description Keep every address of the project out of search results. The apps still open for anyone with the link; their responses say noindex, and the box sends no IndexNow pings and verifies nothing with Google. For staging, internal tools and sites before launch. */
             hidden?: boolean;
@@ -13262,6 +13430,38 @@ export interface components {
             hosts: components["schemas"]["SearchHostStatus"][] | null;
             project: string;
             settings: components["schemas"]["SearchSettings"];
+        };
+        SearchTotals: {
+            /** Format: int64 */
+            clicks: number;
+            /**
+             * Format: double
+             * @description Clicks per impression
+             */
+            ctr: number;
+            /**
+             * Format: int64
+             * @description Times a page showed in results
+             */
+            impressions: number;
+            /**
+             * Format: double
+             * @description Average position (1 is the top)
+             */
+            position: number;
+        };
+        Searches: {
+            daily: components["schemas"]["SearchDay"][] | null;
+            /** @description Pages that showed up, as paths (with the host when the report covers several addresses) */
+            pages: components["schemas"]["SearchGTop"][] | null;
+            prevDaily: components["schemas"]["SearchDay"][] | null;
+            /** @description The same number of days before */
+            previous: components["schemas"]["SearchTotals"];
+            /** @description What people searched, most clicks first (50 at most). Google leaves out rare searches, so these add up to less than the totals. */
+            queries: components["schemas"]["SearchGTop"][] | null;
+            /** @description The last day Google has numbers for */
+            through?: string;
+            totals: components["schemas"]["SearchTotals"];
         };
         "Secret-setRequest": {
             /** @description Why you are setting it, in one sentence. Shown in History. */
@@ -35410,6 +35610,101 @@ export interface operations {
             };
         };
     };
+    "search-report": {
+        parameters: {
+            query?: {
+                /** @description The days to show, ending on the last day Google has numbers for (default 30d) */
+                period?: "7d" | "30d" | "90d" | "12mo";
+                /** @description Or the first day (YYYY-MM-DD)... */
+                from?: string;
+                /** @description ...and the last (default today) */
+                to?: string;
+                /** @description Only this address (default: every findable one) */
+                host?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchReport"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "search-set": {
         parameters: {
             query?: never;
@@ -40341,6 +40636,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchGoogleConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "search-indexnow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchIndexNowStatus"];
                 };
             };
             /** @description Bad Request */

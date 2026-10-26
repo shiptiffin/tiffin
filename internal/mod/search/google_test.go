@@ -58,8 +58,9 @@ type fakeGoogle struct {
 	sites    []string
 	sitemaps []string
 	inspects int
-	apiOff   bool // the Site Verification API is off
-	revoked  bool // the key was deleted
+	queries  []string // the dimensions of each Search Analytics query
+	apiOff   bool     // the Site Verification API is off
+	revoked  bool     // the key was deleted
 }
 
 func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -127,12 +128,22 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.sitemaps = append(g.sitemaps, p)
 		w.WriteHeader(204)
 	case strings.HasSuffix(p, "/searchAnalytics/query"):
-		dim := body["dimensions"].([]any)[0].(string)
+		var dims []string
+		for _, d := range body["dimensions"].([]any) {
+			dims = append(dims, d.(string))
+		}
+		g.queries = append(g.queries, strings.Join(dims, ","))
 		rows := map[string][]map[string]any{
 			"date":  {{"keys": []string{"2026-10-20"}, "clicks": 3, "impressions": 40, "position": 8.0}, {"keys": []string{"2026-10-21"}, "clicks": 1, "impressions": 60, "position": 12.0}},
 			"query": {{"keys": []string{"self hosted vercel"}, "clicks": 3, "impressions": 50, "position": 7.5}},
 			"page":  {{"keys": []string{"https://shop.example.com/"}, "clicks": 4, "impressions": 100, "position": 10.4}},
-		}[dim]
+			// Day by day (the history): Google answers whatever days were asked
+			// for with these, so the store must keep only the days it asked for.
+			"date,query": {{"keys": []string{"2026-10-20", "self hosted vercel"}, "clicks": 3, "impressions": 30, "position": 7.0},
+				{"keys": []string{"2026-10-21", "tiffin box"}, "clicks": 1, "impressions": 20, "position": 10.0}},
+			"date,page": {{"keys": []string{"2026-10-20", "https://shop.example.com/"}, "clicks": 3, "impressions": 40, "position": 8.0},
+				{"keys": []string{"2026-10-21", "https://shop.example.com/pricing"}, "clicks": 1, "impressions": 60, "position": 12.0}},
+		}[strings.Join(dims, ",")]
 		reply(map[string]any{"rows": rows})
 	case r.Method == http.MethodPut && strings.HasPrefix(p, "/webmasters/v3/sites/"):
 		g.sites = append(g.sites, strings.TrimPrefix(p, "/webmasters/v3/sites/"))

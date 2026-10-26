@@ -1,4 +1,4 @@
-import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Accordion } from "radix-ui";
 import { ChevronRight, Monitor, Smartphone, Tablet } from "lucide-react";
@@ -8,7 +8,8 @@ import { mod2, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview,
 import { q as api } from "@/api/queries";
 import { AttributionView } from "@/components/analytics-attribution";
 import { RevenueView } from "@/components/analytics-revenue";
-import { AllRows, change, countryName, DeltaBadge, isPath, Panel, Rows, RowsHead, shown, visitLength, type Delta, type Row } from "@/components/analytics-kit";
+import { SearchView } from "@/components/analytics-search-view";
+import { AllRows, change, countryName, DeltaBadge, isPath, Panel, Rows, RowsHead, shown, useDeployMarkers, visitLength, type Delta, type Row } from "@/components/analytics-kit";
 import { SetupDialog, SetupGuide } from "@/components/analytics-setup";
 import { AppPicker, customPer, DAY, FilterChips, FilterMenu, HOUR, isoDay, LiveNow, periods, RangePicker, type Per } from "@/components/analytics-toolbar";
 import { WebVitals } from "@/components/analytics-vitals";
@@ -25,7 +26,6 @@ import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { ViewToggle } from "@/components/usage-charts";
 import { fromSpec, specOf } from "@/lib/attribution";
 import { cn } from "@/lib/cn";
-import { deploysQuery } from "@/lib/pulse";
 import { dec, int, num, pct } from "@/lib/format";
 import { analyticsSearch, FILTERS, type AnalyticsSearch, type FilterKey, type Metric, type Vital } from "@/routes/analytics-search";
 
@@ -69,19 +69,21 @@ const metrics: Record<Metric, { label: string; format: (v: number) => string; ax
 };
 
 export function AnalyticsPage({ project, search }: { project: string; search: AnalyticsSearch }) {
+  if (search.tab === "search") return <SearchPage project={project} search={search} />;
   if (search.tab === "attribution") return <AttributionPage project={project} />;
   if (search.tab === "revenue") return <RevenuePage project={project} search={search} />;
   return <OverviewPage project={project} search={search} />;
 }
 
-type PageTab = "overview" | "revenue" | "attribution";
+type PageTab = "overview" | "search" | "revenue" | "attribution";
 const tabSearch = (t: PageTab) => (t === "overview" ? {} : { tab: t });
 
-/** Overview and Attribution, the tab in the address (?tab=attribution). */
+/** Overview, Search, Revenue and Attribution, the tab in the address (?tab=search). */
 function AnalyticsTabs({ project, tab }: { project: string; tab: PageTab }) {
   const navigate = useNavigate();
   const tabs = [
     { v: "overview", label: "Overview" },
+    { v: "search", label: "Search" },
     { v: "revenue", label: "Revenue" },
     { v: "attribution", label: "Attribution" },
   ] as const;
@@ -118,6 +120,26 @@ function AttributionPage({ project }: { project: string }) {
       <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }]} />} title="Analytics" />
       <AnalyticsTabs project={project} tab="attribution" />
       <AttributionView project={project} onRevenue={() => to("revenue")} />
+    </Page>
+  );
+}
+
+function SearchPage({ project, search }: { project: string; search: AnalyticsSearch }) {
+  useTitle(`${project} · Search`);
+  const navigate = useNavigate();
+  const go = (patch: Partial<AnalyticsSearch>, replace = false) =>
+    void navigate({
+      to: "/projects/$project/analytics",
+      params: { project },
+      search: (prev: AnalyticsSearch) => analyticsSearch({ ...prev, ...patch }),
+      replace,
+      resetScroll: false,
+    } as never);
+  return (
+    <Page wide>
+      <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }]} />} title="Analytics" />
+      <AnalyticsTabs project={project} tab="search" />
+      <SearchView project={project} search={search} go={go} />
     </Page>
   );
 }
@@ -718,23 +740,6 @@ function Events({ data, pending, visitors, onSetup }: { data: AnalyticsEvent[]; 
         )}
       </div>
     </Panel>
-  );
-}
-
-/** When each app (or the one in view) went live, for the chart's markers. */
-function useDeployMarkers(project: string, apps: string[], only?: string): Array<{ t: number; label: string }> {
-  const list = only ? apps.filter((a) => a === only) : apps;
-  const res = useQueries({ queries: list.map((a) => deploysQuery(project, a)) });
-  const all = res.flatMap((r) => r.data ?? []);
-  // Everything the markers read: a deploy that goes live after the first read gets its marker.
-  const key = all.map((x) => `${x.id}:${x.status}:${x.liveAt ?? ""}:${x.finishedAt ?? ""}`).join(",");
-  return useMemo(
-    () =>
-      all
-        .filter((x) => !x.preview && (x.liveAt || (x.status === "live" && x.finishedAt)))
-        .map((x) => ({ t: Date.parse(x.liveAt ?? x.finishedAt!), label: `${x.app} deployed` })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [key],
   );
 }
 

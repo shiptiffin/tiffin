@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -84,6 +85,9 @@ type Module struct {
 
 	gc   *gclient // the Google client for the stored key
 	gcAt time.Time
+
+	hist     *histStore // the history behind the Search tab (nil: none)
+	prunedAt time.Time
 }
 
 // New returns the module wired to the box.
@@ -123,6 +127,12 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	if root == "" {
 		root = "/var/lib/tiffin"
 	}
+	hist, err := openHist(filepath.Join(root, "search", "search.db"))
+	if err != nil {
+		return err
+	}
+	m.hist = hist
+	m.seedCrawl(ctx)
 	m.startCrawlLog(ctx, root)
 	go m.loop(ctx)
 	return nil
@@ -324,6 +334,9 @@ func (m *Module) forget(ctx context.Context, host string) {
 	_ = m.p.DB.KVDelete(ctx, kvNS, "host/"+host)
 	_ = m.p.DB.KVDelete(ctx, kvNS, "urls/"+host)
 	_ = m.p.DB.KVDelete(ctx, kvNS, "gdata/"+host)
+	if m.hist != nil {
+		m.hist.forget(ctx, host, true)
+	}
 }
 
 // pass finds new findable hosts and deploys, then checks the hosts due.
@@ -416,6 +429,10 @@ func (m *Module) pass(ctx context.Context) {
 	}
 	sort.Strings(hosts)
 	m.googlePass(ctx, hosts)
+	if m.hist != nil && now.Sub(m.prunedAt) >= 24*time.Hour {
+		m.hist.prune(ctx, now)
+		m.prunedAt = now
+	}
 }
 
 func minTime(a, b time.Time) time.Time {

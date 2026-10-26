@@ -284,9 +284,17 @@ type gRow struct {
 
 // query runs a Search Analytics query (web search, final and fresh data).
 func (g *gclient) query(ctx context.Context, siteURL string, from, to time.Time, dims []string, filter map[string]any, limit int) ([]gRow, error) {
+	return g.queryAt(ctx, siteURL, from, to, dims, filter, limit, 0)
+}
+
+// queryAt is query from row start on (Google pages its answers).
+func (g *gclient) queryAt(ctx context.Context, siteURL string, from, to time.Time, dims []string, filter map[string]any, limit, start int) ([]gRow, error) {
 	body := map[string]any{
 		"startDate": from.Format(time.DateOnly), "endDate": to.Format(time.DateOnly),
 		"dimensions": dims, "rowLimit": limit, "dataState": "all", "type": "web",
+	}
+	if start > 0 {
+		body["startRow"] = start
 	}
 	if filter != nil {
 		body["dimensionFilterGroups"] = []any{map[string]any{"filters": []any{filter}}}

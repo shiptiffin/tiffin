@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Check, FileKey, Search, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Check, FileKey, RadioTower, Search, TriangleAlert } from "lucide-react";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "@/api/client";
 import { Confirm } from "@/components/confirm";
@@ -11,15 +11,19 @@ import { StatusDot } from "@/components/project-domains";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { connectGoogle, disconnectGoogle, GOOGLE_CONSOLE, googleQuery, type GoogleConnection } from "@/lib/search";
+import { cn } from "@/lib/cn";
+import { connectGoogle, disconnectGoogle, GOOGLE_CONSOLE, googleQuery, indexNowQuery, type GoogleConnection } from "@/lib/search";
 import { useWho } from "@/lib/me";
 import { relative } from "@/lib/time";
 
 /**
- * Settings › Search engines: IndexNow needs nothing (a line says so); Google
- * Search Console takes a service account key, made once in the owner's own
- * Google Cloud project. Then the box verifies every app on a domain of its
- * own, submits sitemaps and reads searches and index status back.
+ * Settings › Search engines: every engine the box works with. IndexNow is
+ * on with nothing to set up (it shows which addresses it covers and when
+ * it last told the engines); Google Search Console takes a service account
+ * key, made once in the owner's own Google Cloud project. Then the box
+ * verifies every app on a domain of its own, submits sitemaps and reads
+ * searches and index status back. What it finds shows in each project's
+ * Analytics › Search.
  */
 export function SearchSettingsPage() {
   useTitle("Search engines");
@@ -31,18 +35,64 @@ export function SearchSettingsPage() {
       <PageHeader
         eyebrow={accessCrumbs}
         title="Search engines"
-        lede="Apps on a domain of their own are findable. The box tells Bing and the other IndexNow engines about new pages by itself; nothing to set up for that."
+        lede="Apps on a domain of their own are findable. What people search for and which bots read the pages shows in each project’s Analytics › Search."
       />
+      {!forbidden && <IndexNowCard />}
       {forbidden ? (
-        <p className="mt-8 max-w-[40rem] border-y border-rule py-4 text-[0.875rem] text-ink-2">Only the box’s owner or an admin can connect Google. Ask them to open Settings › Search engines.</p>
+        <p className="mt-8 max-w-[40rem] border-y border-rule py-4 text-[0.875rem] text-ink-2">IndexNow is on for every app on a domain of its own. Only the box’s owner or an admin can connect Google. Ask them to open Settings › Search engines.</p>
       ) : g.isError ? (
         <ProblemNote className="mt-8" error={g.error} />
       ) : !g.data ? (
-        <Skeleton className="mt-9 h-72 max-w-[44rem]" />
+        <Skeleton className="mt-5 h-72 max-w-[44rem]" />
       ) : (
         <GoogleCard conn={g.data} />
       )}
     </Page>
+  );
+}
+
+/** IndexNow: on by itself. Which addresses it covers and when each was last told. */
+function IndexNowCard() {
+  const q = useQuery(indexNowQuery);
+  const v = q.data;
+  const list = v?.addresses ?? [];
+  return (
+    <section className="mt-9 max-w-[44rem] rounded-[14px] border border-rule-2 bg-paper-raised shadow-raised" aria-label="IndexNow">
+      <div className="flex items-start gap-4 px-5 py-5 sm:px-6">
+        <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-paper-sunk text-ink">
+          <RadioTower className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2 text-[1rem] font-[550] text-ink">
+            {v?.on !== false && <Check className="size-4 text-ok" strokeWidth={2.5} />}
+            {v?.on === false ? "IndexNow is off on a local box." : "IndexNow is on. Nothing to set up."}
+          </h2>
+          <p className="mt-0.5 text-[0.875rem] text-ink-2">
+            {v?.on === false
+              ? "Nothing outside this box can reach its apps, so there is nothing to tell search engines."
+              : "Bing, Yandex, Seznam, Naver and Yep hear about new, changed and removed pages after each deploy and every 6 hours. Bing Webmaster Tools isn’t needed for that."}
+          </p>
+          {q.isError && <ProblemNote className="mt-3" error={q.error} />}
+          {v?.on !== false && q.isSuccess && (
+            <ul className="mt-3 divide-y divide-rule border-y border-rule">
+              {list.length === 0 && <li className="py-2.5 text-[0.8125rem] text-ink-3">No app has a domain of its own yet. Each one is covered as soon as it goes live.</li>}
+              {list.map((a) => (
+                <li key={a.host} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2.5">
+                  <span className="ident min-w-0 truncate text-[0.8125rem] text-ink">{a.host}</span>
+                  <span className={cn("text-xs", a.last && !a.last.ok ? "text-warn-ink" : "text-ink-3")}>
+                    {!a.last
+                      ? "Not told yet"
+                      : a.last.ok
+                        ? `Told ${relative(a.last.at)}${a.last.pages ? ` · ${a.last.pages === 1 ? "1 page" : `${a.last.pages} pages`}` : " · nothing new"}`
+                        : `Refused ${relative(a.last.at)}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -87,7 +137,7 @@ function GoogleCard({ conn }: { conn: GoogleConnection }) {
   };
 
   return (
-    <section className="mt-9 max-w-[44rem] rounded-[14px] border border-rule-2 bg-paper-raised shadow-raised" aria-label="Google Search Console">
+    <section className="mt-5 max-w-[44rem] rounded-[14px] border border-rule-2 bg-paper-raised shadow-raised" aria-label="Google Search Console">
       <div className="flex items-start gap-4 px-5 pt-5 sm:px-6">
         <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-paper-sunk text-ink">
           <Search className="size-5" />
@@ -121,7 +171,7 @@ function GoogleCard({ conn }: { conn: GoogleConnection }) {
         <ul className="mt-4 grid gap-2 px-5 text-[0.875rem] text-ink sm:grid-cols-3 sm:px-6">
           {[
             ["Verified for you", "Every app on a domain of its own, through DNS. No TXT records to copy."],
-            ["Searches beside analytics", "Clicks, impressions and queries for each domain, every 12 hours."],
+            ["Searches beside analytics", "Clicks, impressions and searches for each domain, 16 months of them, in Analytics › Search."],
             ["Which pages are indexed", "Google’s answer for each page, and why one isn’t."],
           ].map(([t, d]) => (
             <li key={t} className="rounded-[10px] bg-paper-sunk px-3.5 py-3">

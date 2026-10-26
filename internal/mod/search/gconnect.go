@@ -132,6 +132,11 @@ type gdata struct {
 	Inspected   map[string]gInspectSeen `json:"inspected,omitempty"`
 	InspectDay  string                  `json:"inspectDay,omitempty"`
 	InspectUsed int                     `json:"inspectUsed,omitempty"`
+	// The history store: the oldest day it holds without a gap, whether that
+	// reaches back as far as Google keeps, and the last time it was read.
+	HistFrom string    `json:"histFrom,omitempty"`
+	HistDone bool      `json:"histDone,omitempty"`
+	HistAt   time.Time `json:"histAt,omitzero"`
 }
 
 type gInspectSeen struct {
@@ -223,6 +228,9 @@ func (m *Module) connectGoogle(ctx context.Context, raw []byte, owner, by string
 				_ = m.p.DB.KVDelete(ctx, kvNS, k)
 			}
 		}
+		if m.hist != nil {
+			m.hist.forget(ctx, "", false) // read again under the new account
+		}
 	}
 	m.mu.Unlock()
 	if other {
@@ -307,6 +315,9 @@ func (m *Module) disconnectGoogle(ctx context.Context) error {
 		if k == "google" || strings.HasPrefix(k, "gprop/") || strings.HasPrefix(k, "gdata/") {
 			_ = m.p.DB.KVDelete(ctx, kvNS, k)
 		}
+	}
+	if m.hist != nil {
+		m.hist.forget(ctx, "", false)
 	}
 	m.gc = nil
 	return nil
@@ -523,8 +534,14 @@ func (m *Module) afterVerified(ctx context.Context, g *gclient, gp *gprop, hosts
 			}
 		}
 		d := m.gdataFor(ctx, h)
-		if d == nil || now.Sub(d.At) >= gPullEvery && (d.Error == "" || now.Sub(d.TriedAt) >= time.Hour) {
+		switch {
+		case d == nil || now.Sub(d.At) >= gPullEvery && (d.Error == "" || now.Sub(d.TriedAt) >= time.Hour):
 			m.pull(ctx, g, gp.Prop, h, gp.Sitemaps[h], d, now)
+		case m.hist != nil && !d.HistDone && d.Error == "" && now.Sub(d.HistAt) >= time.Hour:
+			// The history is still filling (or a read failed): carry on now
+			// rather than at the next pull.
+			m.pullHistory(ctx, g, gp.Prop, h, d, now)
+			m.saveGdata(ctx, h, d)
 		}
 	}
 }
@@ -579,6 +596,7 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 	d := &gdata{At: now}
 	if old != nil {
 		d.Inspected, d.InspectDay, d.InspectUsed, d.Sitemap = old.Inspected, old.InspectDay, old.InspectUsed, old.Sitemap
+		d.HistFrom, d.HistDone, d.HistAt = old.HistFrom, old.HistDone, old.HistAt
 	}
 	if sitemap != "" {
 		if sm, err := g.sitemapStatus(ctx, prop, sitemap); err == nil {
@@ -586,7 +604,7 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 		}
 	}
 	from, to := now.AddDate(0, 0, -28), now
-	filter := map[string]any{"dimension": "page", "operator": "includingRegex", "expression": "^https://" + regexpQuote(host) + "/"}
+	filter := hostFilter(host)
 	if rows, err := g.query(ctx, prop, from, to, []string{"date"}, filter, 100); err == nil {
 		var pos, impr float64
 		for _, r := range rows {
@@ -627,7 +645,101 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 	}
 	d.Queries, d.Pages = top("query"), top("page")
 	m.inspectSome(ctx, g, prop, host, d, now)
+	m.pullHistory(ctx, g, prop, host, d, now)
 	m.saveGdata(ctx, host, d)
+}
+
+// hostFilter keeps a property's search data to one host's pages.
+func hostFilter(host string) map[string]any {
+	return map[string]any{"dimension": "page", "operator": "includingRegex", "expression": "^https://" + regexpQuote(host) + "/"}
+}
+
+const (
+	gRecentDays = 10    // read again at every pull: Google revises its last few days
+	gChunkDays  = 30    // the history fills a month per read, newest first
+	gHistRows   = 25000 // rows per request, Google's most
+	gHistPages  = 4     // requests per month and dimension, at most
+)
+
+// pullHistory stores the host's searches day by day: the last few days at
+// every pull, and, until the store reaches as far back as Google keeps (16
+// months), each month before what it holds. A read that fails stops it; the
+// next pass carries on from there.
+func (m *Module) pullHistory(ctx context.Context, g *gclient, prop, host string, d *gdata, now time.Time) {
+	if m.hist == nil {
+		return
+	}
+	d.HistAt = now
+	day := func(t time.Time) string { return t.UTC().Format(time.DateOnly) }
+	from := now.AddDate(0, 0, 1-gRecentDays)
+	if err := m.pullRange(ctx, g, prop, host, from, now); err != nil {
+		m.p.Log.Warn("search: google history", "host", host, "err", err)
+		return
+	}
+	if d.HistFrom == "" || d.HistFrom > day(from) {
+		d.HistFrom = day(from)
+	}
+	floor := now.Add(-histKeep)
+	for !d.HistDone && ctx.Err() == nil {
+		first, err := time.Parse(time.DateOnly, d.HistFrom)
+		if err != nil {
+			d.HistFrom = day(from)
+			return
+		}
+		end := first.AddDate(0, 0, -1)
+		if end.Before(floor) {
+			d.HistDone = true
+			return
+		}
+		start := end.AddDate(0, 0, 1-gChunkDays)
+		if start.Before(floor) {
+			start = floor
+		}
+		if err := m.pullRange(ctx, g, prop, host, start, end); err != nil {
+			m.p.Log.Warn("search: google history", "host", host, "err", err)
+			return
+		}
+		d.HistFrom = day(start)
+	}
+}
+
+// pullRange reads one host's days, queries and pages from..to and replaces
+// what the store holds for those days.
+func (m *Module) pullRange(ctx context.Context, g *gclient, prop, host string, from, to time.Time) error {
+	filter := hostFilter(host)
+	var sets [3][]gscRow
+	for i, dims := range [][]string{{"date"}, {"date", "query"}, {"date", "page"}} {
+		rows, err := gscRows(ctx, g, prop, from, to, dims, filter)
+		if err != nil {
+			return err
+		}
+		sets[i] = rows
+	}
+	return m.hist.putGSC(ctx, host, from.UTC().Format(time.DateOnly), to.UTC().Format(time.DateOnly), sets[0], sets[1], sets[2])
+}
+
+func gscRows(ctx context.Context, g *gclient, prop string, from, to time.Time, dims []string, filter map[string]any) ([]gscRow, error) {
+	var out []gscRow
+	for page := range gHistPages {
+		rows, err := g.queryAt(ctx, prop, from, to, dims, filter, gHistRows, page*gHistRows)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			if len(r.Keys) < len(dims) {
+				continue
+			}
+			x := gscRow{Day: r.Keys[0], Clicks: int(r.Clicks), Impression: int(r.Impressions), Pos: r.Position * r.Impressions}
+			if len(dims) > 1 {
+				x.Key = r.Keys[1]
+			}
+			out = append(out, x)
+		}
+		if len(rows) < gHistRows {
+			break
+		}
+	}
+	return out, nil
 }
 
 // inspectSome asks URL Inspection about up to gInspectDaily pages a day:

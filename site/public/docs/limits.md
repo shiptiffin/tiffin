@@ -692,14 +692,24 @@ automatic events from deploys.
 ## Search engines
 
 Not yet: Bing Webmaster Tools data (IndexNow covers Bing's indexing), Google's AI
-Overviews and AI Mode report (it has no API), and search data older than 28 days.
+Overviews and AI Mode report and Bing's AI Performance report (no API, and no CSV import
+yet), and Analytics › Search filtered by country, device or search type.
 
 - Google Search Console needs a service account key made in your own Google Cloud
   project (Settings › Search engines). Organisations whose Google Workspace policy blocks
   service account keys can't use it.
-- With Google connected, search data is read every 12 hours and covers the last 28
-  days; URL Inspection checks about 20 pages per domain a day, so a large site takes a
-  while to fill in.
+- With Google connected, search data is read every 12 hours and kept for 16 months (as
+  long as Google keeps it); the first read fills them in. URL Inspection checks about 20
+  pages per domain a day, so a large site takes a while to fill in.
+- Google's days run on Pacific time and its numbers 2 to 3 days behind; the crawler log
+  and visits count UTC days up to today, so their days differ a little.
+- Google leaves out searches only a few people made, so the top searches add up to less
+  than the totals. Each month of history keeps at most 100,000 searches and 100,000
+  pages per address.
+- Visits from AI apps come from the project's analytics: they cover the whole project,
+  not one address, and an app that hides where a visit came from counts as direct.
+- Crawler counts before this release were kept for 30 days only, so a longer period
+  shows them from the update on.
 - A domain whose DNS is not on a connected provider is verified per host with Google's
   verification file, not as a whole Domain property.
 - Disconnecting leaves the verification records in DNS and the properties in Search
@@ -720,7 +730,8 @@ Overviews and AI Mode report (it has no API), and search data older than 28 days
   list and tries again at the next one.
 - The crawler log counts bots from their companies' published address lists. Bots
   without one (Meta, ByteDance, Common Crawl, Mistral) are not shown, and Anthropic's
-  one list covers its three bots, told apart by user agent. 30 days are kept.
+  one list covers its three bots, told apart by user agent. Daily counts are kept 16
+  months; the pages each bot read, 30 days.
 - `tiffin protect under-attack` challenges search bots too while it is on.
 
 ## Managed boxes (ShipTiffin)

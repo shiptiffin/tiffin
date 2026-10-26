@@ -88,7 +88,7 @@ fetched for someone's question in a chat), and GPTBot and ClaudeBot (AI training
 A bot counts only when it comes from the addresses its company publishes; anything
 else claiming to be Googlebot is counted apart, as a fake, and ignored. For each: when
 it last came, which page, how many pages in the last 7 days and how many answered with
-an error. It keeps 30 days.
+an error. The daily counts are kept for 16 months, for Analytics › Search.
 
 These are visits, not rankings: Googlebot reading a page does not mean Google shows
 it. For that, use Google Search Console.
@@ -122,9 +122,12 @@ with the key (kept encrypted, never shown again). For each findable address it:
   own; the box submits it again only when you press **Tell search engines** (or run
   `tiffin search ping`). It shows when Google last read it, how many pages it found and
   any errors.
-- **reads the last 28 days** of web search every 12 hours: clicks, impressions,
-  average position, the top searches and pages, and asks URL Inspection about about 20
-  pages a day, so "Google has indexed 118 of 124 pages" fills in over a week.
+- **reads web search every 12 hours**: clicks, impressions, average position, the top
+  searches and pages, day by day. The first read goes back as far as Google keeps (16
+  months) and the box keeps them as long, in `search/search.db` on the data disk; later
+  reads take the last 10 days again, since Google revises its last few days. It also asks
+  URL Inspection about about 20 pages a day, so "Google has indexed 118 of 124 pages"
+  fills in over a week.
 
 If Google later refuses the key (it was deleted, an API was turned off), Settings ›
 Search engines and the box's status checks say so, and the domains show it too. Make a
@@ -141,6 +144,26 @@ the owner later, leave the key out: `tiffin search google connect --owner you@gm
 
 ## In the dashboard and for agents
 
+**Analytics › Search** in each project shows it for any days you choose, beside the
+project's other analytics:
+
+- **Searches**: Google's clicks, impressions, click rate and average position, each
+  against the days before, a chart with the project's deploys marked, and the top
+  searches and pages. Google's numbers run 2 to 3 days behind, so a period ends on the
+  last day Google has.
+- **Found**: when the box last told IndexNow, how many pages the sitemap lists (and how
+  many Google found in it), whether Google is connected and verified, how many of the
+  pages checked are in Google's index, with Google's reason for each one that isn't, in
+  plain words, and anything wrong with robots.txt, the home page or the sitemap.
+- **Search engine crawlers**: which search engines read the pages, how often, when last,
+  and their errors; requests that claimed to be one from elsewhere are counted apart.
+- **AI**: visits from ChatGPT, Claude, Perplexity, Gemini and other AI apps (from the
+  project's analytics), and the AI companies' bots: fetched for someone's chat, AI search
+  or training.
+
+**Settings › Search engines** lists every engine: IndexNow (on, with each findable
+address and when it was last told) and the Google connection.
+
 **Domains**: each live domain of your own has a **Search engines** section: findable or
 not (and why), when the box last told search engines and about which pages, which bots
 came, what it found in `robots.txt`, the home page and the sitemap, and, with Google
@@ -153,6 +176,9 @@ tiffin search ping shop                        # check now; send what changed
 tiffin search ping shop --host example.com --urls https://example.com/pricing
 tiffin search ping shop --all                  # every page again (at most once an hour)
 tiffin search inspect shop --page https://example.com/pricing   # Google: indexed or not, and why
+tiffin search report shop --period 90d         # searches, found, crawlers for some days
+tiffin search report shop --from 2026-09-01 --to 2026-09-30 --host example.com
+tiffin search indexnow                         # every findable address and its last ping
 tiffin search google                           # the Google connection and its properties
 ```
 
@@ -160,3 +186,5 @@ An agent asked "why isn't my site on Google?" starts with `tiffin search status`
 a hidden address, a `Disallow: /` in robots.txt, a noindex home page or a missing
 sitemap shows there in words. With Google connected it also shows the searches, the
 pages Google has not indexed and why, and `search inspect` asks about any one page.
+"Why did traffic drop?" compares two `search report` periods (clicks, impressions,
+position, which searches and pages fell) with the deploys around the drop.

@@ -49,18 +49,18 @@ export function customPer(from: string, to?: string): Per {
 const trigger =
   "inline-flex h-8 max-w-full items-center gap-1.5 rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 text-[0.8125rem] text-ink shadow-[var(--top-light)] transition-colors duration-[var(--dur-state)] hover:border-rule-3 data-[state=open]:border-rule-3";
 
-export function AppPicker({ apps, app, onChange }: { apps: string[]; app?: string; onChange: (a: string | undefined) => void }) {
+export function AppPicker({ apps, app, onChange, label = "All apps" }: { apps: string[]; app?: string; onChange: (a: string | undefined) => void; label?: string }) {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <button type="button" className={trigger} aria-label={`App: ${app ?? "all apps"}`}>
-          <span className={cn("truncate font-[550]", app ? "font-mono text-[0.78rem]" : "")}>{app ?? "All apps"}</span>
+        <button type="button" className={trigger} aria-label={`${label.replace(/^All /, "").replace(/s$/, "").replace(/^./, (c) => c.toUpperCase())}: ${app ?? label.toLowerCase()}`}>
+          <span className={cn("truncate font-[550]", app ? "font-mono text-[0.78rem]" : "")}>{app ?? label}</span>
           <ChevronDown aria-hidden className="size-3.5 shrink-0 text-ink-3" />
         </button>
       </MenuTrigger>
       <MenuContent align="start">
         <MenuRadioGroup value={app ?? ""} onValueChange={(v) => onChange(v || undefined)}>
-          <MenuRadioItem value="">All apps</MenuRadioItem>
+          <MenuRadioItem value="">{label}</MenuRadioItem>
           {apps.map((a) => (
             <MenuRadioItem key={a} value={a} className="font-mono text-[0.8125rem]">
               {a}
@@ -81,6 +81,7 @@ export function RangePicker({
   onPeriod,
   onDays,
   onCompare,
+  presets = periods,
 }: {
   per: Per;
   from?: string;
@@ -89,6 +90,8 @@ export function RangePicker({
   onPeriod: (v: string) => void;
   onDays: (from: string, to?: string) => void;
   onCompare: (on: boolean) => void;
+  /** The periods offered (all of them by default). */
+  presets?: Per[];
 }) {
   const [days, setDays] = useState(false);
   return (
@@ -106,9 +109,9 @@ export function RangePicker({
         </Popover.Anchor>
         <MenuContent align="start" className="w-64">
           <MenuRadioGroup value={per.v} onValueChange={onPeriod}>
-            {periods.map((p, i) => (
+            {presets.map((p, i) => (
               <div key={p.v}>
-                {i === 3 && <MenuSeparator />}
+                {i > 0 && p.v === "7d" && <MenuSeparator />}
                 <MenuRadioItem value={p.v}>{p.label}</MenuRadioItem>
               </div>
             ))}

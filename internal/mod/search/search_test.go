@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -138,8 +139,11 @@ func newHarness(t *testing.T) *harness {
 		}
 		return nil, nil
 	}
-	p := &platform.Platform{DB: db, Domain: "box.example.net"}
+	p := &platform.Platform{DB: db, Domain: "box.example.net", Log: slog.New(slog.DiscardHandler)}
 	if err := m.init(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if m.hist, err = openHist(":memory:"); err != nil {
 		t.Fatal(err)
 	}
 	h.m = m

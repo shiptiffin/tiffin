@@ -66,3 +66,28 @@ export const GOOGLE_CONSOLE = {
   verifyApi: "https://console.cloud.google.com/apis/library/siteverification.googleapis.com",
   accounts: "https://console.cloud.google.com/iam-admin/serviceaccounts/create",
 };
+
+export type IndexNowStatus = S["SearchIndexNowStatus"];
+
+/** IndexNow across the box: every findable address and its last ping (box admins). */
+export const indexNowQuery = queryOptions({
+  queryKey: ["search-indexnow"],
+  queryFn: () => request<IndexNowStatus>("GET", "/v1/search/indexnow"),
+  retry: false,
+});
+
+export type SearchReport = S["SearchReport"];
+export type ReportQuery = { period?: string; from?: string; to?: string; host?: string };
+
+/** Analytics › Search: Google's numbers for some days, the engines' state and the crawlers. */
+export const reportQuery = (project: string, q: ReportQuery) =>
+  queryOptions({
+    queryKey: ["search", project, "report", q],
+    queryFn: () => {
+      const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]);
+      const qs = p.size ? `?${p}` : "";
+      return request<SearchReport>("GET", `${path(project)}/report${qs}`);
+    },
+    retry: false,
+    refetchInterval: (qq) => (qq.state.data?.google.state === "verifying" || qq.state.data?.google.filling ? 15_000 : 300_000),
+  });
