@@ -103,8 +103,10 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
       success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: renew ? `${base}/account` : `${base}/start?canceled=1`,
       client_reference_id: b.id,
-      metadata: { box_id: b.id },
-      subscription_data: { metadata: { box_id: b.id } },
+      // tiffin_user names the account for the box's analytics (revenue by the
+      // source that brought it); client_reference_id stays the box.
+      metadata: { box_id: b.id, tiffin_user: acct.id },
+      subscription_data: { metadata: { box_id: b.id, tiffin_user: acct.id } },
       ...(customer ? { customer } : { customer_email: acct.email }),
       ...(founding ? { discounts: [{ coupon }] } : {}),
     };

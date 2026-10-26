@@ -285,8 +285,11 @@ func newRevHarness(t *testing.T) *revHarness {
 	revStates.Delete(m)
 	m.rev().lastSweep = time.Now().Add(time.Hour) // no background sweeps: tests sweep themselves
 	stripeInline = true
-	oldUser, oldLive, oldRedirect := userByEmail, liveDomain, redirectTarget
-	t.Cleanup(func() { stripeInline, userByEmail, liveDomain, redirectTarget = false, oldUser, oldLive, oldRedirect })
+	oldUser, oldExists, oldLive, oldRedirect := userByEmail, userExists, liveDomain, redirectTarget
+	t.Cleanup(func() {
+		stripeInline, userByEmail, userExists, liveDomain, redirectTarget = false, oldUser, oldExists, oldLive, oldRedirect
+	})
+	userExists = func(_ context.Context, _, id string) (bool, error) { return strings.HasPrefix(id, "u_"), nil }
 	liveDomain = func(string) bool { return false }
 	redirectTarget = func(string) string { return "" }
 	userByEmail = func(_ context.Context, project, email string) (string, error) {
@@ -459,7 +462,7 @@ func TestStripeRevenue(t *testing.T) {
 	if c := h.call("POST", "/v1/analytics/stripe", map[string]string{"project": "plain", "key": key}, &prob); c != 409 || !strings.Contains(prob.Hint, "Attribution") {
 		t.Fatalf("connect without attribution: %d %+v", c, prob)
 	}
-	if c := h.call("POST", "/v1/analytics/stripe", map[string]string{"project": "shop", "key": "rk_test_wrongwrongwrong"}, &prob); c != 422 || !strings.Contains(prob.Hint, "Webhook Endpoints: Write") {
+	if c := h.call("POST", "/v1/analytics/stripe", map[string]string{"project": "shop", "key": "rk_test_wrongwrongwrong"}, &prob); c != 422 || !strings.Contains(prob.Hint, "Webhook Endpoints, Event Destinations: Write") {
 		t.Fatalf("bad key: %d %+v", c, prob)
 	}
 	if c := h.call("POST", "/v1/analytics/stripe", map[string]string{"project": "shop", "key": "pk_test_123456789012"}, &prob); c != 422 {
@@ -792,5 +795,42 @@ func TestServerRevenue(t *testing.T) {
 	var prob api.Problem
 	if c := h.call("GET", "/v1/analytics/revenue?project=plain", nil, &prob); c != 409 {
 		t.Fatalf("report without attribution: %d", c)
+	}
+}
+
+// An app's own id in client_reference_id (a box, an order) is not taken for
+// an account: the payment falls through to the email. metadata.tiffin_user
+// names the account and wins over client_reference_id.
+func TestReferenceMustBeAnAccount(t *testing.T) {
+	h := newRevHarness(t)
+	ctx := context.Background()
+	applyManifest(t, h.db, `{"project":"shop","apps":{"web":{"routes":["shop"]}},"services":{"analytics":{"attribution":{}}}}`)
+	email := func(context.Context) (string, error) { return "alice@example.com", nil }
+	pay := func(id, ref string) *payment {
+		p := &payment{ID: id, Provider: providerStripe, Kind: kindPayment, At: time.Now(), Amount: 1900, Currency: "usd",
+			AccountAmount: 1900, AccountCurrency: "usd", Status: "succeeded", Customer: "cus_" + id, RefUser: ref}
+		saved, err := h.m.attr.putPayment(ctx, "shop", *p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.m.match(ctx, "shop", saved, email); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := h.m.attr.getPayment(ctx, "shop", id)
+		return got
+	}
+	if p := pay("ch_box", "box_7"); p.UserID != "u_alice" || p.MatchedBy != "email" {
+		t.Fatalf("a box id in client_reference_id: %+v", p)
+	}
+	if p := pay("ch_named", "u_carol"); p.UserID != "u_carol" || p.MatchedBy != "reference" {
+		t.Fatalf("an account reference: %+v", p)
+	}
+	email = func(context.Context) (string, error) { return "", nil }
+	if p := pay("ch_none", "box_8"); p.UserID != "" || !strings.Contains(p.Unmatched, "is not an account") {
+		t.Fatalf("unmatched reason: %+v", p)
+	}
+	s := sessionHints(&stSession{ClientReferenceID: "box_9", Metadata: map[string]string{"tiffin_user": "u_dan"}})
+	if s.RefUser != "u_dan" {
+		t.Fatalf("metadata.tiffin_user must win: %+v", s)
 	}
 }

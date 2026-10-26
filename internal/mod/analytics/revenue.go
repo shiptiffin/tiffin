@@ -53,8 +53,12 @@ func init() {
 	}
 }
 
-// userByEmail finds a project's sign-in user by email; tests replace it.
-var userByEmail = auth.UserByEmail
+// userByEmail finds a project's sign-in user by email, and userExists
+// checks an id is one; tests replace them.
+var (
+	userByEmail = auth.UserByEmail
+	userExists  = auth.UserExists
+)
 
 // revenueState is the module's revenue bookkeeping that is not in a store.
 type revenueState struct {
@@ -89,10 +93,31 @@ func (m *Module) match(ctx context.Context, project string, p *payment, emailOf 
 	np.UserID, np.MatchedBy, np.Unmatched = "", "", ""
 	np.FirstFrom, np.LastFrom, np.First, np.Last = "", "", Touch{}, Touch{}
 	var why []string
+	named := false
 	if p.RefUser != "" {
-		np.UserID, np.MatchedBy = p.RefUser, "reference"
+		// The reference must be an account: one that signed up with
+		// attribution on, or a sign-in user of the project.
+		su, err := m.attr.signup(ctx, project, p.RefUser)
+		if err != nil {
+			return err
+		}
+		named = su != nil
+		if !named {
+			if ok, err := userExists(ctx, project, p.RefUser); err != nil {
+				why = append(why, "sign-in users could not be checked ("+err.Error()+")")
+			} else {
+				named = ok
+			}
+		}
+		if named {
+			np.UserID, np.MatchedBy = p.RefUser, "reference"
+		} else {
+			why = append(why, "its reference ("+clip(p.RefUser, 40)+") is not an account of the project: set metadata.tiffin_user to the user id")
+		}
 	} else {
-		why = append(why, "it names no account (client_reference_id or metadata.tiffin_user)")
+		why = append(why, "it names no account (metadata.tiffin_user or client_reference_id)")
+	}
+	if !named {
 		if emailOf != nil {
 			email, err := emailOf(ctx)
 			switch {
@@ -324,4 +349,12 @@ func (m *Module) serverRevenue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusAccepted, map[string]any{"ok": true, "matched": saved.MatchedBy})
+}
+
+// clip shortens s to n runes for a reason shown to people.
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }

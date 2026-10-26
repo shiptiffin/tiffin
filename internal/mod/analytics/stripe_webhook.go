@@ -255,9 +255,12 @@ func (m *Module) processEvent(ctx context.Context, project string, ev *stEvent) 
 }
 
 func sessionHints(s *stSession) hints {
-	h := hints{Checkout: s.ID, RefUser: s.ClientReferenceID, Invoice: s.Invoice.ID, Subscription: s.Subscription.ID}
+	// metadata.tiffin_user names the account for analytics alone; an app's
+	// client_reference_id may be its own id (an order, a box), so it counts
+	// only when it is an account (match checks).
+	h := hints{Checkout: s.ID, RefUser: s.Metadata["tiffin_user"], Invoice: s.Invoice.ID, Subscription: s.Subscription.ID}
 	if h.RefUser == "" {
-		h.RefUser = s.Metadata["tiffin_user"]
+		h.RefUser = s.ClientReferenceID
 	}
 	if s.CustomerDetails != nil {
 		h.Email = s.CustomerDetails.Email
