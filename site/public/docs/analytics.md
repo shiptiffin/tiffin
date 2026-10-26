@@ -220,7 +220,9 @@ tiffin analytics revenue --project shop --period 30d --touch first  # first touc
 Amounts are in the Stripe account's currency: a payment in another currency counts as
 what Stripe settled it for (its balance transaction), so totals never mix currencies.
 Refunds count against the payment they refund. MRR is the active subscriptions'
-prices, per month. Agents get `analytics_revenue` and the `analytics_stripe_*` tools.
+prices per month, less their discounts while those last: a subscription with a discount
+counts at the share of its list price its latest invoice billed (a free plan counts
+nothing). Agents get `analytics_revenue` and the `analytics_stripe_*` tools.
 
 **Other payment providers**: send each payment from your server instead. It is ignored
 while Stripe is connected, so nothing counts twice:

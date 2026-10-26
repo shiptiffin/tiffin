@@ -656,8 +656,10 @@ automatic events from deploys.
   VPN that exits elsewhere can get it without being asked, and someone outside on an EU
   exit is asked. An address the database doesn't know counts as the EU.
 - **Revenue is Stripe's, imported 12 months back.** Refunds of older payments are
-  skipped. Disputes aren't counted. MRR uses list prices: discounts, trials, tiered and
-  metered prices aren't reflected. Other providers (Lemon Squeezy, Polar, Paddle) go
+  skipped. Disputes aren't counted. MRR takes a discount at the share its latest
+  invoice billed, so a discount that changes from one invoice to the next (or a "once"
+  coupon, until the next invoice) shows as it last billed; trials, tiered and metered
+  prices aren't reflected. Other providers (Lemon Squeezy, Polar, Paddle) go
   through `revenue()` from your code; there is no direct connection for them yet.
 - **The product choice is per project, with no overview.** Two projects on one Stripe
   account each choose their own products; nothing warns when both count the same one,

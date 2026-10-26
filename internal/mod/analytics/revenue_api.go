@@ -96,7 +96,7 @@ type RevenueTotals struct {
 	Refunds           int64   `json:"refunds"`
 	Customers         int64   `json:"customers" doc:"Customers who paid"`
 	NewCustomers      int64   `json:"newCustomers" doc:"Customers whose first payment was in the range"`
-	MRR               int64   `json:"mrr" doc:"Monthly recurring revenue now: active and past-due subscriptions at their list price per month (trials, discounts, metered and tiered prices left out)"`
+	MRR               int64   `json:"mrr" doc:"Monthly recurring revenue now: active and past-due subscriptions per month, at their list price less the discount their latest invoice had while it lasts (trials, metered and tiered prices left out)"`
 	Visitors          int64   `json:"visitors" doc:"Unique visitors in the range (counted per day)"`
 	ConversionRate    float64 `json:"conversionRate" doc:"New customers / visitors, 0-1"`
 	RevenuePerVisitor float64 `json:"revenuePerVisitor" doc:"Revenue / visitors, in the smallest unit"`
@@ -428,11 +428,21 @@ func (m *Module) mrr(ctx context.Context, project, currency string, pf *productF
 	if err != nil {
 		return 0, nil, err
 	}
+	disc, err := m.attr.discounts(ctx, project, time.Now())
+	if err != nil {
+		return 0, nil, err
+	}
 	var total float64
 	other := map[string]*CurrencyAmount{}
 	for _, s := range subs {
 		if !pf.keepSub(s.ID) {
 			continue
+		}
+		if f, ok := disc[s.ID]; ok {
+			s.Monthly = int64(math.Round(float64(s.Monthly) * f))
+			if s.Monthly == 0 {
+				continue
+			}
 		}
 		if s.Currency == currency || currency == "" {
 			total += float64(s.Monthly)

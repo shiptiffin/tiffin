@@ -966,3 +966,67 @@ func TestStripeProductChoice(t *testing.T) {
 		t.Fatalf("after disconnect %v", rows)
 	}
 }
+
+// MRR takes subscriptions' discounts off while they last: a free plan counts
+// nothing, half off counts half, an ended repeating discount and no discount
+// count the list price; a discount removed (by webhook) stops counting.
+func TestMRRDiscounts(t *testing.T) {
+	h := newRevHarness(t)
+	applyManifest(t, h.db, `{"project":"shop","apps":{"web":{"routes":["shop"]}},"services":{"analytics":{"attribution":{}}}}`)
+	key := "rk_" + "test_" + "fake0000000000000000000009999"
+	f := newFakeStripe(t, key)
+	disc := func(id string, end *time.Time) map[string]any {
+		var e any
+		if end != nil {
+			e = end.Unix()
+		}
+		return map[string]any{"id": id, "object": "discount", "end": e, "source": map[string]any{"type": "coupon", "coupon": "co_x"}}
+	}
+	inv := func(id string, subtotal, total int64) map[string]any {
+		return map[string]any{"id": id, "object": "invoice_totals", "subtotal": subtotal, "total": total, "total_excluding_tax": total}
+	}
+	withDisc := func(s map[string]any, latest string, ds ...map[string]any) map[string]any {
+		list := []any{}
+		for _, d := range ds {
+			list = append(list, d)
+		}
+		s["discounts"], s["latest_invoice"] = list, latest
+		return s
+	}
+	past := time.Now().AddDate(0, -1, 0)
+	f.put(
+		inv("in_free", 500, 0), inv("in_half", 1000, 500), inv("in_rep", 800, 400),
+		withDisc(stSub("sub_free", "cus_1", "active", "usd", 500, "month"), "in_free", disc("di_free", nil)),
+		withDisc(stSub("sub_half", "cus_2", "active", "usd", 1000, "month"), "in_half", disc("di_half", nil)),
+		withDisc(stSub("sub_rep", "cus_3", "active", "usd", 800, "month"), "in_rep", disc("di_rep", &past)),
+		stSub("sub_plain", "cus_4", "active", "usd", 300, "month"),
+	)
+	var st StripeStatus
+	if c := h.call("POST", "/v1/analytics/stripe", map[string]string{"project": "shop", "key": key}, &st); c != 200 {
+		t.Fatalf("connect %d", c)
+	}
+	mrr := func() int64 {
+		t.Helper()
+		var r RevenueReport
+		if c := h.call("GET", "/v1/analytics/revenue?project=shop&period=30d", nil, &r); c != 200 {
+			t.Fatalf("revenue %d", c)
+		}
+		return r.Totals.MRR
+	}
+	if got := mrr(); got != 0+500+800+300 {
+		t.Fatalf("MRR %d, want 1600", got)
+	}
+
+	// The half-off discount is removed: the subscription pays its list price again.
+	we := f.endpoint()
+	secret, _ := we["secret"].(string)
+	plain := withDisc(stSub("sub_half", "cus_2", "active", "usd", 1000, "month"), "in_half")
+	body := event("evt_d1", "customer.subscription.updated", plain, time.Now())
+	if c, b := h.webhook("shop.box.test", body, signStripe(body, secret, time.Now())); c != 200 {
+		t.Fatalf("webhook %d %s", c, b)
+	}
+	h.m.drainStripe(context.Background())
+	if got := mrr(); got != 0+1000+800+300 {
+		t.Fatalf("MRR after the discount went %d, want 2100", got)
+	}
+}

@@ -279,6 +279,9 @@ type stSubscription struct {
 	Metadata  map[string]string `json:"metadata"`
 	StartDate int64             `json:"start_date"`
 	EndedAt   int64             `json:"ended_at"`
+	// Discounts are ids, or objects when expanded; LatestInvoice likewise.
+	Discounts     []stDiscountRef      `json:"discounts"`
+	LatestInvoice ref[stInvoiceTotals] `json:"latest_invoice"`
 	Items     struct {
 		Data []struct {
 			Quantity int64 `json:"quantity"`

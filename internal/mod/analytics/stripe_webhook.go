@@ -249,7 +249,7 @@ func (m *Module) processEvent(ctx context.Context, project string, ev *stEvent) 
 		if err := json.Unmarshal(obj, &s); err != nil {
 			return err
 		}
-		return m.recordSubscription(ctx, project, &s, time.Unix(ev.Created, 0), ev.Type == "customer.subscription.deleted")
+		return m.recordSubscription(ctx, project, sa, &s, time.Unix(ev.Created, 0), ev.Type == "customer.subscription.deleted")
 	}
 	return nil
 }
@@ -469,7 +469,7 @@ func (m *Module) recordRefund(ctx context.Context, project string, sa *stripeAPI
 }
 
 // recordSubscription keeps a subscription's state for MRR.
-func (m *Module) recordSubscription(ctx context.Context, project string, s *stSubscription, at time.Time, deleted bool) error {
+func (m *Module) recordSubscription(ctx context.Context, project string, sa *stripeAPI, s *stSubscription, at time.Time, deleted bool) error {
 	sub := subscription{ID: s.ID, Customer: s.Customer.ID, Status: s.Status, Currency: s.Currency, Monthly: s.monthly(),
 		RefUser: s.Metadata["tiffin_user"], Updated: at}
 	if deleted && sub.Status == "" {
@@ -487,6 +487,19 @@ func (m *Module) recordSubscription(ctx context.Context, project string, s *stSu
 	}
 	if err := m.attr.putItems(ctx, project, itemSub, s.ID, prods); err != nil {
 		return err
+	}
+	if sub.Status == "active" || sub.Status == "past_due" {
+		factor, ends, ok, err := m.discount(ctx, sa, s)
+		if err != nil {
+			// MRR then counts the list price: never a reason to lose the subscription.
+			if m.p != nil && m.p.Log != nil {
+				m.p.Log.Warn("analytics: a subscription's discount", "project", project, "subscription", s.ID, "err", err)
+			}
+			ok = false
+		}
+		if err := m.attr.putDiscount(ctx, project, s.ID, factor, ends, ok); err != nil {
+			return err
+		}
 	}
 	return m.attr.putSubscription(ctx, project, sub)
 }

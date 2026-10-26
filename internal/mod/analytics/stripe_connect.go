@@ -304,6 +304,12 @@ func (m *Module) repairStripe(ctx context.Context, project string) (*stripeConn,
 	})
 	if err == nil && rerun {
 		m.startBackfill(project, sa)
+	} else if err == nil {
+		// Subscriptions again (status, products, discounts): cheap, and it
+		// brings ones imported by an older version up to date.
+		if serr := m.refreshSubscriptions(rctx, project, sa); serr != nil && m.p.Log != nil {
+			m.p.Log.Warn("analytics: refresh subscriptions", "project", project, "err", serr)
+		}
 	}
 	return c, err
 }
@@ -453,13 +459,13 @@ func (m *Module) backfill(ctx context.Context, project string, sa *stripeAPI, pr
 		st.mu.Unlock()
 	}
 	for _, status := range []string{"active", "past_due"} {
-		err := sa.list(ctx, "/v1/subscriptions", url.Values{"status": {status}}, func(raw json.RawMessage) error {
+		err := sa.list(ctx, "/v1/subscriptions", url.Values{"status": {status}, "expand[]": {"data.discounts", "data.latest_invoice"}}, func(raw json.RawMessage) error {
 			var s stSubscription
 			if err := json.Unmarshal(raw, &s); err != nil {
 				return err
 			}
 			count(func() { prog.Subscriptions++ })
-			return m.recordSubscription(ctx, project, &s, time.Now(), false)
+			return m.recordSubscription(ctx, project, sa, &s, time.Now(), false)
 		})
 		if err != nil {
 			return fmt.Errorf("subscriptions: %w", err)
