@@ -167,7 +167,8 @@ func keyHint(key string) string {
 }
 
 func permissionHint() string {
-	return "create a restricted key at https://dashboard.stripe.com/apikeys (Create restricted key) with " + strings.Join(stripePermissions, ", ") + ", and None for everything else"
+	return "create a restricted key at https://dashboard.stripe.com/apikeys (Create restricted key, then Powering an integration you built, then Choose your own) with " +
+		strings.Join(stripePermissions, "; ") + ", and None for everything else"
 }
 
 func stripeProblem(err error, what string) error {

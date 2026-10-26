@@ -520,7 +520,7 @@ func (m *Module) registerRevenueAPI(a huma.API) {
 	type projectIn struct {
 		Project string `query:"project" required:"true" doc:"Project"`
 	}
-	stripeTag := "Stripe: a restricted key with " + strings.Join(stripePermissions, ", ") + " (None for everything else)."
+	stripeTag := "Stripe: a restricted key with " + strings.Join(stripePermissions, "; ") + " (None for everything else)."
 
 	huma.Register(a, api.Op("analytics-stripe-status", http.MethodGet, "/v1/analytics/stripe", "analytics stripe status", api.RiskRead,
 		"Show a project's Stripe connection",
@@ -538,7 +538,7 @@ func (m *Module) registerRevenueAPI(a huma.API) {
 		"Checks the key, creates a webhook endpoint in the Stripe account pointing at /_tiffin/stripe on the project's main production address "+
 			"(events: "+strings.Join(stripeEvents, ", ")+"), stores the key and the endpoint's signing secret encrypted with the box's key, "+
 			"and imports the last 12 months of payments, refunds and subscriptions in the background (stripe status shows progress). "+
-			"Payments are then matched to accounts and to where they came from: pass client_reference_id or metadata.tiffin_user (the user id) on the Checkout Session or subscription for exact matches. "+
+			"Payments are then matched to accounts and to where they came from: pass metadata.tiffin_user (the user id) on the Checkout Session and subscription for exact matches; client_reference_id counts too when it is a user id. "+
 			"Needs marketing attribution on. Reconnecting replaces the key and the endpoint. "+stripeTag, "analytics"))
 	cn.Errors = append(cn.Errors, 409, 422, 502)
 	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct {

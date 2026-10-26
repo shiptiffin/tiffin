@@ -216,7 +216,8 @@ function ConnectStripe({ project, status }: { project: string; status: StripeSta
       <ol className="mt-7">
         <Step n={1} title="Create a restricted key">
           <p>
-            In Stripe, open API keys and choose Create restricted key. Give it these permissions, and None for everything else.{" "}
+            In Stripe, open API keys, choose Create restricted key, then Powering an integration you built and Choose your own. Set these rows, and leave
+            everything else at None.{" "}
             <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noreferrer" className={cn(link, "inline-flex items-center gap-0.5 whitespace-nowrap")}>
               Open API keys
               <ArrowUpRight aria-hidden className="size-3.5" />
@@ -224,9 +225,9 @@ function ConnectStripe({ project, status }: { project: string; status: StripeSta
           </p>
           <dl className="mt-3 grid gap-x-8 gap-y-2 rounded-[10px] border border-rule-2 bg-paper-sunk/60 px-4 py-3 text-[0.8125rem] sm:grid-cols-[auto_minmax(0,1fr)]">
             <dt className="font-[550] text-ink">Read</dt>
-            <dd className="text-ink-2">{read.join(", ")}</dd>
+            <dd className="text-ink-2">{read.join(" · ")}</dd>
             <dt className="font-[550] text-ink">Write</dt>
-            <dd className="text-ink-2">{write.join(", ")}</dd>
+            <dd className="text-ink-2">{write.join(" · ")}</dd>
           </dl>
         </Step>
         <Step n={2} title="Paste it here">
@@ -648,7 +649,7 @@ function Matching({ project, d }: { project: string; d: RevenueReport }) {
         </div>
       )}
       <p className="mt-4 max-w-[46rem] text-[0.8125rem] text-ink-3">
-        Matching is exact when your Checkout Session names the account: add <code className="rounded-[4px] bg-paper-sunk px-1 py-px font-mono text-[0.75rem] text-ink-2">client_reference_id: user.id</code> where you create it.
+        Matching is exact when your Checkout Session names the account: add <code className="rounded-[4px] bg-paper-sunk px-1 py-px font-mono text-[0.75rem] text-ink-2">metadata: {"{ tiffin_user: user.id }"}</code> where you create it (and to its subscription).
       </p>
     </section>
   );

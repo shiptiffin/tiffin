@@ -5,14 +5,13 @@ import type { components } from "../../src/api/schema";
 type S = components["schemas"];
 
 export const PERMISSIONS = [
-  "Charges: Read",
-  "Refunds: Read",
-  "Balance transactions: Read",
+  "Balance: Read",
+  "Charges and Refunds: Read",
   "Customers: Read",
   "Invoices: Read",
   "Subscriptions: Read",
   "Checkout Sessions: Read",
-  "Webhook Endpoints: Write",
+  "Webhook Endpoints, Event Destinations: Write",
 ];
 
 const day = 86_400_000;

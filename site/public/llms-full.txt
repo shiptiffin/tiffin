@@ -5833,9 +5833,12 @@ Connect Stripe and every payment is linked to the account, or the visit, that pa
 revenue, new customers, conversion rate and revenue per visitor break down by source,
 campaign, first page and country. It needs attribution on.
 
-1. In Stripe, create a **restricted key** (Developers › API keys) with: Charges, Refunds,
-   Balance transactions, Customers, Invoices, Subscriptions and Checkout Sessions **Read**,
-   and Webhook Endpoints **Write**.
+1. In Stripe, create a **restricted key**: Developers › API keys › Create restricted key,
+   then **Powering an integration you built** and **Choose your own**. Set these rows and
+   leave everything else at None (Stripe asks you to confirm it's you before it makes the key):
+   - **Read**: Balance, Charges and Refunds, Customers, Invoices, Subscriptions, Checkout
+     Sessions
+   - **Write**: Webhook Endpoints, Event Destinations
 2. Paste it:
 
    ```bash
@@ -5852,11 +5855,16 @@ changes, the webhook follows it (`tiffin analytics stripe repair` does it by han
 
 **How a payment finds its customer**, in order (each payment records which one worked):
 
-1. `client_reference_id` (or `metadata.tiffin_user`) on the Checkout Session or
-   subscription: the account id. Set it and matching is exact:
+1. `metadata.tiffin_user` on the Checkout Session and its subscription: the account id.
+   Set it and matching is exact. `client_reference_id` counts too, but only when it is an
+   account of the project: apps often keep their own ids there (an order, a cart).
 
    ```ts
-   await stripe.checkout.sessions.create({ ..., client_reference_id: session.user.id });
+   await stripe.checkout.sessions.create({
+     ...,
+     metadata: { tiffin_user: session.user.id },
+     subscription_data: { metadata: { tiffin_user: session.user.id } },
+   });
    ```
 
 2. The Stripe customer's email, matched to an account of the project's sign-in.
@@ -5865,7 +5873,7 @@ changes, the webhook follows it (`tiffin analytics stripe repair` does it by han
 4. An earlier payment by the same Stripe customer: a renewal, credited like the first.
 
 The rest show as unmatched, with the reason; `tiffin analytics revenue match` tries again
-(after you add `client_reference_id`, say).
+(after you add `metadata.tiffin_user`, say).
 
 ```bash
 tiffin analytics revenue --project shop --period 30d                # last touch: the visit that paid

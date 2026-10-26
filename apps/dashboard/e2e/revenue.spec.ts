@@ -67,7 +67,7 @@ test("revenue: off without attribution, then connect Stripe with a restricted ke
       return r.fulfill({
         status: 422,
         contentType: "application/problem+json",
-        json: { status: 422, code: "validation", title: "Unprocessable", detail: "Stripe refused the key: the key lacks webhook_endpoint_write", hint: "create a restricted key at https://dashboard.stripe.com/apikeys (Create restricted key) with Webhook Endpoints: Write" },
+        json: { status: 422, code: "validation", title: "Unprocessable", detail: "Stripe refused the key: the key lacks webhook_endpoint_write", hint: "create a restricted key at https://dashboard.stripe.com/apikeys (Create restricted key) with Webhook Endpoints, Event Destinations: Write" },
       });
     }
     status = stripeStatus("hello", { backfill: { state: "running", payments: 412, refunds: 6, subscriptions: 31, started: new Date().toISOString() } });
@@ -76,7 +76,7 @@ test("revenue: off without attribution, then connect Stripe with a restricted ke
   await page.goto(url);
   await expect(page.getByText("Connect Stripe to see which sources bring paying customers.")).toBeVisible();
   // The permissions come from the box, grouped as Stripe's form has them.
-  await expect(page.getByText("Charges, Refunds, Balance transactions, Customers, Invoices, Subscriptions, Checkout Sessions")).toBeVisible();
+  await expect(page.getByText("Balance · Charges and Refunds · Customers · Invoices · Subscriptions · Checkout Sessions")).toBeVisible();
   await expect(page.getByRole("link", { name: "Open API keys" })).toHaveAttribute("href", "https://dashboard.stripe.com/apikeys");
 
   const key = page.getByLabel("Stripe restricted key");
@@ -86,7 +86,7 @@ test("revenue: off without attribution, then connect Stripe with a restricted ke
   await key.fill("rk_live_wrong12345678");
   await connect.click();
   await expect(page.getByText("Stripe didn’t take that key")).toBeVisible();
-  await expect(page.getByText(/Webhook Endpoints: Write/).last()).toBeVisible();
+  await expect(page.getByText(/Webhook Endpoints, Event Destinations: Write/).last()).toBeVisible();
 
   await key.fill("rk_live_51Qgood12345678");
   await connect.click();
@@ -127,7 +127,7 @@ test("revenue: the report, first and last touch, match again, repair, disconnect
   await expect(page.getByText("No account has this customer's email.")).toBeVisible();
   await page.getByRole("button", { name: "Match again" }).click();
   await expect(page.getByText("Matched 1 of 3 payments.")).toBeVisible();
-  await expect(page.getByText("client_reference_id: user.id")).toBeVisible();
+  await expect(page.getByText("metadata: { tiffin_user: user.id }")).toBeVisible();
 
   // The webhook points at an old address: Repair.
   await expect(page.getByText(/The webhook points at https:\/\/hello\.example\.com/)).toBeVisible();

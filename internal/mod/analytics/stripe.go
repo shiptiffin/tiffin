@@ -35,11 +35,12 @@ var stripeEvents = []string{
 	"customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted",
 }
 
-// stripePermissions are the restricted key's permissions, as Stripe's
-// restricted-key form names the resources.
+// stripePermissions are the restricted key's permissions, named as the rows
+// of Stripe's restricted-key form (Balance covers balance transactions;
+// Charges and Refunds is one row).
 var stripePermissions = []string{
-	"Charges: Read", "Refunds: Read", "Balance transactions: Read", "Customers: Read",
-	"Invoices: Read", "Subscriptions: Read", "Checkout Sessions: Read", "Webhook Endpoints: Write",
+	"Balance: Read", "Charges and Refunds: Read", "Customers: Read", "Invoices: Read", "Subscriptions: Read",
+	"Checkout Sessions: Read", "Webhook Endpoints, Event Destinations: Write",
 }
 
 type stripeAPI struct {
