@@ -41,9 +41,9 @@ import { change, doneWords, intentFor, pendingFor, planEdits, undoChange, usePen
  *
  * Off, it says what it does and offers Turn on. Turning it on, and setting
  * the first-visit cookie, open a dialog first: what it means in plain words
- * and the privacy text to add, then plan and apply. The box asks a dashboard
- * session to confirm it's the person (reauth_required) before either; the
- * dialog does that in place and tries again. The other switches change at
+ * and the privacy text to add, then plan and apply (should the box ever answer
+ * reauth_required, the dialog confirms it's the person in place and tries
+ * again). The other switches change at
  * once, with Undo. Turning it off deletes what it saved: the plan comes back
  * irreversible and the usual confirm dialog shows the box's reason.
  */

@@ -452,8 +452,7 @@ type Analytics struct {
 	RetentionDays int `json:"retentionDays"`
 	// Attribution turns on marketing attribution: campaign tags, the source
 	// of each sign-up and, with Stripe connected, of each payment. Off (nil)
-	// by default. Only a person turns it on: API keys can't, and a dashboard
-	// session needs a recent strong sign-in.
+	// by default. Only a person turns it on: API keys can't.
 	Attribution *Attribution `json:"attribution,omitempty"`
 }
 

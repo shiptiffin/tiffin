@@ -41,9 +41,9 @@ func cookieRank(c string) int {
 
 // AttributionTurnedOn reports what plan turns on that only a person may
 // turn on: "marketing attribution", "the first-visit cookie", or "" for
-// neither. API keys are refused it, and a dashboard session needs a recent
-// strong sign-in: it links visits to people, and the project's privacy
-// policy has to say so.
+// neither. API keys are refused it (people in the dashboard and the owner
+// token may): it links visits to people, and the project's privacy policy
+// has to say so.
 func AttributionTurnedOn(plan *Plan) string {
 	if plan == nil {
 		return ""

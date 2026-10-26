@@ -1113,13 +1113,6 @@ func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan,
 func (a *API) applyWith(ctx context.Context, p *tokens.Principal, req change.ApplyRequest) (*struct{ Body ApplyResult }, error) {
 	plan := req.Plan
 	req.Actor, req.Authorize = p.Actor(), p.Authorizer()
-	if change.AttributionTurnedOn(plan) != "" && a.deps.Tokens != nil {
-		// A dashboard session confirms it's the person (keys are refused by
-		// the authorizer, the owner token is not asked).
-		if err := a.deps.Tokens.RequireSudo(ctx, p, tokens.ErrReauthAttribution); err != nil {
-			return nil, err
-		}
-	}
 	c, err := a.deps.Engine.Apply(ctx, req)
 	if err != nil {
 		return nil, err

@@ -5815,9 +5815,8 @@ Attribution answers "which sources and campaigns bring us customers". With it on
   [The first-visit cookie](#the-first-visit-cookie).
 
 **Only a person turns it on.** It links visits to people, so API keys can plan the
-change but not apply it (`403`, "an API key can't turn on marketing attribution"); in the
-dashboard it needs a sign-in with a passkey, Google, GitHub or an emailed link in the last
-10 minutes (`reauth_required`); the owner token may. The plan step says it is turning
+change but not apply it (`403`, "an API key can't turn on marketing attribution"); people
+in the dashboard and the owner token can. The plan step says it is turning
 attribution on and names the privacy text's version, so History records what the person
 was shown. Turning it off is irreversible: it deletes the sign-up sources, checkout
 returns, first visits and payments it collected. Anyone whose browser sends Global

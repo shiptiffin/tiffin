@@ -9,8 +9,7 @@ import (
 )
 
 // Only a person turns marketing attribution on: API keys are refused,
-// sessions and the owner token pass (sessions are asked to confirm by the
-// API, not here). Turning it off is open to keys.
+// dashboard sessions and the owner token pass. Turning it off is open to keys.
 func TestAuthorizerAttribution(t *testing.T) {
 	on := &change.Plan{Project: "shop", Risk: change.TierReversible, Ops: []change.Op{{Action: change.Update, Address: "service/analytics",
 		Before: json.RawMessage(`{"retentionDays":365}`), After: json.RawMessage(`{"retentionDays":365,"attribution":{}}`)}}}
