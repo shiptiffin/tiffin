@@ -230,6 +230,11 @@ type stSession struct {
 	Invoice       ref[struct{}] `json:"invoice"`
 	Subscription  ref[struct{}] `json:"subscription"`
 	Created       int64         `json:"created"`
+	// LineItems is there only when expanded (the import asks for it).
+	LineItems *struct {
+		Data    []stLineItem `json:"data"`
+		HasMore bool         `json:"has_more"`
+	} `json:"line_items"`
 }
 
 type stInvoice struct {
@@ -237,7 +242,10 @@ type stInvoice struct {
 	BillingReason string            `json:"billing_reason"`
 	CustomerEmail string            `json:"customer_email"`
 	Metadata      map[string]string `json:"metadata"`
-	Parent        *struct {
+	Lines         struct {
+		Data []stLineItem `json:"data"`
+	} `json:"lines"`
+	Parent *struct {
 		Type                string `json:"type"`
 		SubscriptionDetails *struct {
 			Subscription ref[struct{}]     `json:"subscription"`
@@ -275,8 +283,9 @@ type stSubscription struct {
 		Data []struct {
 			Quantity int64 `json:"quantity"`
 			Price    struct {
-				UnitAmount *int64 `json:"unit_amount"`
-				Currency   string `json:"currency"`
+				Product    ref[struct{}] `json:"product"`
+				UnitAmount *int64        `json:"unit_amount"`
+				Currency   string        `json:"currency"`
 				Recurring  *struct {
 					Interval      string `json:"interval"`
 					IntervalCount int64  `json:"interval_count"`

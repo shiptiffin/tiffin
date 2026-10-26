@@ -35,6 +35,14 @@ type stripeConn struct {
 	ConnectedAt     time.Time     `json:"connectedAt"`
 	ConnectedBy     string        `json:"connectedBy"`
 	Backfill        BackfillState `json:"backfill"`
+	// Products are the Stripe products whose payments the project counts,
+	// and NoProduct whether payments with no product count too. Neither set
+	// (the default, and every connection made before the choice): every
+	// payment counts.
+	Products  []string `json:"products,omitempty"`
+	NoProduct bool     `json:"noProduct,omitempty"`
+	// Catalog: the key reads Stripe's product list (Products: Read).
+	Catalog bool `json:"catalog,omitempty"`
 }
 
 // BackfillState is how importing the last 12 months went.
@@ -459,10 +467,17 @@ func (m *Module) backfill(ctx context.Context, project string, sa *stripeAPI, pr
 	}
 	byPI := map[string]hints{}      // payment intent → checkout and invoice links
 	byInvoice := map[string]hints{} // invoice → its subscription, reason, checkout
-	err := sa.list(ctx, "/v1/checkout/sessions", mergeQ(since(from), url.Values{"status": {"complete"}}), func(raw json.RawMessage) error {
+	err := sa.list(ctx, "/v1/checkout/sessions", mergeQ(since(from), url.Values{"status": {"complete"}, "expand[]": {"data.line_items"}}), func(raw json.RawMessage) error {
 		var s stSession
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return err
+		}
+		if s.LineItems != nil && !s.LineItems.HasMore {
+			if err := m.recordLineItems(ctx, project, itemCheckout, s.ID, s.LineItems.Data); err != nil {
+				return err
+			}
+		} else if err := m.sessionItems(ctx, project, sa, s.ID); err != nil && m.p.Log != nil {
+			m.p.Log.Warn("analytics: a Checkout Session's products", "project", project, "session", s.ID, "err", err)
 		}
 		h := sessionHints(&s)
 		if s.PaymentIntent.ID != "" {
@@ -482,6 +497,9 @@ func (m *Module) backfill(ctx context.Context, project string, sa *stripeAPI, pr
 	err = sa.list(ctx, "/v1/invoices", mergeQ(since(from), url.Values{"status": {"paid"}}), func(raw json.RawMessage) error {
 		var in stInvoice
 		if err := json.Unmarshal(raw, &in); err != nil {
+			return err
+		}
+		if err := m.recordLineItems(ctx, project, itemInvoice, in.ID, in.Lines.Data); err != nil {
 			return err
 		}
 		byInvoice[in.ID] = m.invoiceHints(ctx, project, &in, byInvoice[in.ID])
@@ -549,6 +567,10 @@ func (m *Module) backfill(ctx context.Context, project string, sa *stripeAPI, pr
 	})
 	if err != nil {
 		return fmt.Errorf("refunds: %w", err)
+	}
+	// Product names, when the key may read them (best effort).
+	if ok, err := m.catalog(ctx, project, sa); err == nil && ok {
+		_ = m.setCatalog(ctx, project)
 	}
 	return nil
 }

@@ -286,6 +286,10 @@ func (m *Module) invoiceHints(ctx context.Context, project string, in *stInvoice
 // buyer's return visit and to the account it names.
 func (m *Module) recordSession(ctx context.Context, project string, sa *stripeAPI, s *stSession) error {
 	h := sessionHints(s)
+	if err := m.sessionItems(ctx, project, sa, s.ID); err != nil && m.p != nil && m.p.Log != nil {
+		// Products are for the product choice: never a reason to lose the payment.
+		m.p.Log.Warn("analytics: a Checkout Session's products", "project", project, "session", s.ID, "err", err)
+	}
 	if s.Subscription.ID != "" && h.RefUser != "" {
 		if err := m.attr.setSubscriptionRef(ctx, project, s.Subscription.ID, h.RefUser); err != nil {
 			return err
@@ -318,6 +322,9 @@ func (m *Module) recordSession(ctx context.Context, project string, sa *stripeAP
 // recordInvoice records a paid invoice's charges (through its payments).
 func (m *Module) recordInvoice(ctx context.Context, project string, sa *stripeAPI, in *stInvoice, h hints) error {
 	h = m.invoiceHints(ctx, project, in, h)
+	if err := m.recordLineItems(ctx, project, itemInvoice, in.ID, in.Lines.Data); err != nil {
+		return err
+	}
 	pays, err := sa.invoicePayments(ctx, in.ID)
 	if err != nil {
 		return err
@@ -473,6 +480,13 @@ func (m *Module) recordSubscription(ctx context.Context, project string, s *stSu
 	}
 	if s.EndedAt > 0 {
 		sub.Ended = time.Unix(s.EndedAt, 0)
+	}
+	var prods []string
+	for _, it := range s.Items.Data {
+		prods = append(prods, it.Price.Product.ID)
+	}
+	if err := m.attr.putItems(ctx, project, itemSub, s.ID, prods); err != nil {
+		return err
 	}
 	return m.attr.putSubscription(ctx, project, sub)
 }

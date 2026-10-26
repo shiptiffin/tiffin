@@ -284,8 +284,10 @@ func (s *attrStore) deleteRevenue(ctx context.Context, project, provider string)
 	if provider != providerStripe {
 		return nil
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM subscriptions WHERE project = ?`, project); err != nil {
-		return err
+	for _, t := range []string{"subscriptions", "stripe_items", "stripe_products"} {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM `+t+` WHERE project = ?`, project); err != nil {
+			return err
+		}
 	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM stripe_events WHERE project = ?`, project)
 	return err

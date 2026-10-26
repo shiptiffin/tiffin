@@ -155,6 +155,14 @@ func (f *fakeStripe) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		list("invoice_payment", func(o map[string]any) bool { return q.Get("invoice") == "" || o["invoice"] == q.Get("invoice") })
 	case r.URL.Path == "/v1/checkout/sessions":
 		list("checkout.session", func(o map[string]any) bool { return o["status"] == q.Get("status") })
+	case r.URL.Path == "/v1/products":
+		list("product", nil)
+	case len(parts) == 4 && parts[0] == "checkout" && parts[3] == "line_items":
+		items, _ := f.objects[parts[2]]["line_items_data"].([]any)
+		if items == nil {
+			items = []any{}
+		}
+		send(map[string]any{"object": "list", "data": items, "has_more": false})
 	case r.URL.Path == "/v1/subscriptions":
 		list("subscription", func(o map[string]any) bool { return o["status"] == q.Get("status") })
 	case len(parts) == 2:
@@ -832,5 +840,129 @@ func TestReferenceMustBeAnAccount(t *testing.T) {
 	s := sessionHints(&stSession{ClientReferenceID: "box_9", Metadata: map[string]string{"tiffin_user": "u_dan"}})
 	if s.RefUser != "u_dan" {
 		t.Fatalf("metadata.tiffin_user must win: %+v", s)
+	}
+}
+
+
+// lineItem is a Checkout line item for product (description = its name).
+func lineItem(product, name string, amount int64) map[string]any {
+	return map[string]any{"object": "item", "description": name, "amount_total": amount, "price": map[string]any{"product": product}}
+}
+
+// One Stripe account sells two apps' products: with no choice every payment
+// counts (exactly as before); a choice counts only its products' payments
+// (through subscription, invoice or Checkout), refunds following their
+// payment, and MRR its subscriptions; changing it needs no import.
+func TestStripeProductChoice(t *testing.T) {
+	h := newRevHarness(t)
+	applyManifest(t, h.db, `{"project":"shop","apps":{"web":{"routes":["shop"]}},"services":{"analytics":{"attribution":{}}}}`)
+	key := "rk_" + "test_" + "fake0000000000000000000005678"
+	f := newFakeStripe(t, key)
+	sub := func(id string, unit int64, product string) map[string]any {
+		o := stSub(id, "cus_"+id, "active", "usd", unit, "month")
+		it := o["items"].(map[string]any)["data"].([]any)[0].(map[string]any)
+		it["price"].(map[string]any)["product"] = product
+		return o
+	}
+	inv := func(id, sub, product string) map[string]any {
+		o := stInvoiceObj(id, "subscription_create", sub, days(8))
+		o["lines"] = map[string]any{"object": "list", "data": []any{map[string]any{"description": "1 × it",
+			"pricing": map[string]any{"type": "price_details", "price_details": map[string]any{"product": product, "price": "price_x"}}}}}
+		return o
+	}
+	csReel := stSessionObj("cs_reel", "payment", "pi_r1", "", "", "", days(10))
+	csReel["line_items_data"] = []any{lineItem("prod_reel", "Reelbird Pro", 500)}
+	csDibs := stSessionObj("cs_dibs", "payment", "pi_d1", "", "", "", days(9))
+	csDibs["line_items_data"] = []any{lineItem("prod_dibs", "Dibs Plus", 800)}
+	f.put(
+		map[string]any{"id": "prod_reel", "object": "product", "name": "Reelbird Pro", "active": true},
+		map[string]any{"id": "prod_dibs", "object": "product", "name": "Dibs Plus", "active": true},
+		map[string]any{"id": "prod_oss", "object": "product", "name": "Open Source Sponsor", "active": true},
+		// Reelbird: a Checkout purchase and a subscription paid by invoice.
+		csReel, stCh("ch_r1", 500, "usd", "cus_r1", "pi_r1", days(10), "txn_r1", nil), stBT("txn_r1", 500, "usd"),
+		sub("sub_reel", 500, "prod_reel"), inv("in_reel", "sub_reel", "prod_reel"), stInvoicePay("ip_reel", "in_reel", "pi_r2", days(8)),
+		stCh("ch_r2", 500, "usd", "cus_sub_reel", "pi_r2", days(8), "txn_r2", nil), stBT("txn_r2", 500, "usd"),
+		// Dibs: a Checkout purchase, partly refunded, and a subscription.
+		csDibs, stCh("ch_d1", 800, "usd", "cus_d1", "pi_d1", days(9), "txn_d1", nil), stBT("txn_d1", 800, "usd"),
+		stRefundObj("re_d1", "ch_d1", 200, "usd", "txn_rd", days(4)), stBT("txn_rd", -200, "usd"),
+		sub("sub_dibs", 900, "prod_dibs"),
+		// A charge with no product (outside Checkout and invoices).
+		stCh("ch_x", 300, "usd", "", "pi_x", days(2), "txn_x", nil), stBT("txn_x", 300, "usd"),
+	)
+	var st StripeStatus
+	if c := h.call("POST", "/v1/analytics/stripe", map[string]string{"project": "shop", "key": key}, &st); c != 200 {
+		t.Fatalf("connect %d %+v", c, st)
+	}
+	report := func() RevenueReport {
+		t.Helper()
+		var r RevenueReport
+		if c := h.call("GET", "/v1/analytics/revenue?project=shop&period=30d", nil, &r); c != 200 {
+			t.Fatalf("revenue %d", c)
+		}
+		return r
+	}
+	set := func(body map[string]any) (int, StripeProducts) {
+		t.Helper()
+		body["project"] = "shop"
+		var out StripeProducts
+		return h.call("POST", "/v1/analytics/stripe/products", body, &out), out
+	}
+	all := report()
+	if all.Totals.Gross != 2100 || all.Totals.Refunded != 200 || all.Totals.Revenue != 1900 || all.Totals.MRR != 1400 || all.Totals.Payments != 4 {
+		t.Fatalf("every payment: %+v", all.Totals)
+	}
+
+	var list StripeProducts
+	if c := h.call("GET", "/v1/analytics/stripe/products?project=shop", nil, &list); c != 200 || !list.All || !list.Catalog || list.NoneCount != 1 {
+		t.Fatalf("products %d %+v", c, list)
+	}
+	byID := map[string]StripeProduct{}
+	for _, p := range list.Products {
+		byID[p.ID] = p
+	}
+	if byID["prod_reel"].Name != "Reelbird Pro" || byID["prod_reel"].Payments != 2 || byID["prod_dibs"].Payments != 1 || byID["prod_oss"].Payments != 0 || !byID["prod_dibs"].Counted {
+		t.Fatalf("products %+v", list.Products)
+	}
+
+	if c, out := set(map[string]any{"products": []string{"prod_reel"}}); c != 200 || out.All || out.NoProduct {
+		t.Fatalf("choose reelbird %d %+v", c, out)
+	}
+	reel := report()
+	if reel.Totals.Gross != 1000 || reel.Totals.Refunded != 0 || reel.Totals.Payments != 2 || reel.Totals.MRR != 500 || reel.Totals.NewCustomers != 2 {
+		t.Fatalf("reelbird only: %+v", reel.Totals)
+	}
+
+	if c, _ := set(map[string]any{"products": []string{"prod_dibs"}, "noProduct": true}); c != 200 {
+		t.Fatalf("choose dibs %d", c)
+	}
+	dibs := report()
+	if dibs.Totals.Gross != 1100 || dibs.Totals.Refunded != 200 || dibs.Totals.Revenue != 900 || dibs.Totals.MRR != 900 {
+		t.Fatalf("dibs and no product: %+v", dibs.Totals)
+	}
+	for _, u := range dibs.Unmatched {
+		if u.ID == "ch_r1" || u.ID == "ch_r2" {
+			t.Fatalf("another product's payment in unmatched: %+v", u)
+		}
+	}
+
+	if c, _ := set(map[string]any{}); c != 422 {
+		t.Fatalf("an empty choice: %d", c)
+	}
+	if c, _ := set(map[string]any{"products": []string{"price_123"}}); c != 422 {
+		t.Fatalf("not a product id: %d", c)
+	}
+	if c, out := set(map[string]any{"all": true}); c != 200 || !out.All {
+		t.Fatalf("back to every payment %d %+v", c, out)
+	}
+	if again := report(); again.Totals != all.Totals {
+		t.Fatalf("every payment again:\n got %+v\nwant %+v", again.Totals, all.Totals)
+	}
+
+	// Disconnecting forgets the products with the payments.
+	if c := h.call("DELETE", "/v1/analytics/stripe?project=shop", nil, nil); c != 200 && c != 204 {
+		t.Fatalf("disconnect %d", c)
+	}
+	if rows, _ := h.m.attr.projectRows(context.Background(), "shop"); rows["stripe_items"] != 0 || rows["stripe_products"] != 0 {
+		t.Fatalf("after disconnect %v", rows)
 	}
 }

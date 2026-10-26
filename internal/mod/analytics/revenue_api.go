@@ -209,8 +209,13 @@ func (m *Module) Revenue(ctx context.Context, in revenueQuery, now time.Time) (*
 	if err != nil {
 		return nil, err
 	}
+	pf, err := m.productFilter(ctx, in.Project, conn)
+	if err != nil {
+		return nil, err
+	}
+	rows = pf.filter(ctx, rows)
 	r.Currency = reportCurrency(conn, rows)
-	firsts, err := m.attr.firstPayments(ctx, in.Project, r.Provider, r.Currency)
+	firsts, err := m.firstPaymentsFiltered(ctx, in.Project, r.Provider, r.Currency, pf)
 	if err != nil {
 		return nil, err
 	}
@@ -377,13 +382,20 @@ func (m *Module) Revenue(ctx context.Context, in revenueQuery, now time.Time) (*
 		*dst = out
 	}
 	if r.Provider == providerStripe {
-		if r.Totals.MRR, r.MRROther, err = m.mrr(ctx, in.Project, r.Currency); err != nil {
+		if r.Totals.MRR, r.MRROther, err = m.mrr(ctx, in.Project, r.Currency, pf); err != nil {
 			return nil, err
 		}
 	}
-	un, err := m.attr.paymentsWhere(ctx, `project = ? AND provider = ? AND kind != 'refund' AND matched_by = '' ORDER BY at DESC LIMIT ?`, in.Project, r.Provider, limit)
+	unLimit := limit
+	if pf.on {
+		unLimit = 500 // then the choice narrows it
+	}
+	un, err := m.attr.paymentsWhere(ctx, `project = ? AND provider = ? AND kind != 'refund' AND matched_by = '' ORDER BY at DESC LIMIT ?`, in.Project, r.Provider, unLimit)
 	if err != nil {
 		return nil, err
+	}
+	if un = pf.filter(ctx, un); len(un) > limit {
+		un = un[:limit]
 	}
 	for _, p := range un {
 		r.Unmatched = append(r.Unmatched, UnmatchedPayment{ID: p.ID, Provider: p.Provider, Kind: p.Kind, At: p.At, Amount: p.Amount, Currency: p.Currency,
@@ -411,7 +423,7 @@ func reportCurrency(conn *stripeConn, rows []*payment) string {
 
 // mrr sums the subscriptions in force per month in currency: a
 // subscription in another currency converts at its latest payment's rate.
-func (m *Module) mrr(ctx context.Context, project, currency string) (int64, []CurrencyAmount, error) {
+func (m *Module) mrr(ctx context.Context, project, currency string, pf *productFilter) (int64, []CurrencyAmount, error) {
 	subs, rates, err := m.attr.activeSubscriptions(ctx, project)
 	if err != nil {
 		return 0, nil, err
@@ -419,6 +431,9 @@ func (m *Module) mrr(ctx context.Context, project, currency string) (int64, []Cu
 	var total float64
 	other := map[string]*CurrencyAmount{}
 	for _, s := range subs {
+		if !pf.keepSub(s.ID) {
+			continue
+		}
 		if s.Currency == currency || currency == "" {
 			total += float64(s.Monthly)
 			continue
@@ -517,6 +532,7 @@ func (m *Module) attributionOn(ctx context.Context, project string) error {
 }
 
 func (m *Module) registerRevenueAPI(a huma.API) {
+	m.registerProductsAPI(a)
 	type projectIn struct {
 		Project string `query:"project" required:"true" doc:"Project"`
 	}
