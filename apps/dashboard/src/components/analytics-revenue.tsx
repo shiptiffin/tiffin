@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { ArrowUpRight } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { isProblem } from "@/api/client";
-import { mod2, type RevenueCount, type RevenueQuery, type RevenueReport, type StripeStatus } from "@/api/modules";
+import { mod2, type RevenueCount, type RevenueQuery, type RevenueReport, type StripeProducts, type StripeStatus } from "@/api/modules";
 import { change, countryName, DeltaBadge, Panel, type Delta } from "@/components/analytics-kit";
 import { customPer, DAY, HOUR, periods, RangePicker, type Per } from "@/components/analytics-toolbar";
 import { SeriesTable, TimeSeries, type Series } from "@/components/charts/time-series";
@@ -12,6 +12,7 @@ import { ProblemNote, sentence } from "@/components/problem";
 import { Segmented } from "@/components/segmented";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Checkbox, Radio, RadioGroup } from "@/components/ui/choice";
 import { ViewToggle } from "@/components/usage-charts";
 import type { Attribution } from "@/lib/attribution";
 import { cn } from "@/lib/cn";
@@ -134,6 +135,7 @@ export function RevenueView({
             </span>
           </div>
           {s.connected && <Health project={project} s={s} />}
+          {s.connected && <Counts project={project} />}
           {r.isError ? (
             <ProblemNote className="mt-5 max-w-[46rem]" error={r.error} title="Couldn’t load revenue" />
           ) : !r.data ? (
@@ -392,6 +394,126 @@ function Connection({ project, s }: { project: string; s: StripeStatus }) {
       />
     </section>
   );
+}
+
+// ------------------------------------------------------------------ counts
+
+/**
+ * Which payments the project counts. One Stripe account often sells several
+ * apps' products; with no choice every payment counts. Collapsed to one line,
+ * with Change to pick products (and payments with no product).
+ */
+function Counts({ project }: { project: string }) {
+  const qc = useQueryClient();
+  const { can } = useMe();
+  const q = useQuery({ queryKey: ["analytics-stripe-products", project], queryFn: () => mod2.stripeProducts(project), staleTime: 30_000 });
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"all" | "some">("all");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [none, setNone] = useState(false);
+  const save = useMutation({
+    mutationFn: () => mod2.stripeProductsSet(project, mode === "all" ? { all: true } : { products: picked, noProduct: none }),
+    onSuccess: (d) => {
+      qc.setQueryData(["analytics-stripe-products", project], d);
+      void qc.invalidateQueries({ queryKey: ["analytics-revenue", project] });
+      setOpen(false);
+      toast({ title: `Revenue now counts ${summary(d)}.` });
+    },
+  });
+  const d = q.data;
+  if (!d) return null;
+  const products = d.products ?? [];
+  const begin = () => {
+    setMode(d.all ? "all" : "some");
+    setPicked(d.all ? [] : products.filter((p) => p.counted).map((p) => p.id));
+    setNone(d.noProduct);
+    save.reset();
+    setOpen(true);
+  };
+  const toggle = (id: string, on: boolean) => setPicked((xs) => (on ? [...xs, id] : xs.filter((x) => x !== id)));
+  const valid = mode === "all" || picked.length > 0 || none;
+  return (
+    <section aria-labelledby="revenue-counts" className="mt-4 max-w-[46rem] rounded-[10px] border border-rule-2 px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="min-w-0 text-[0.875rem] text-ink-2">
+          <span id="revenue-counts" className="font-[550] text-ink">
+            Counts
+          </span>{" "}
+          {summary(d)}
+        </p>
+        {!open && can("apply:reversible") && (
+          <button type="button" className={link + " text-[0.8125rem]"} onClick={begin}>
+            Change
+          </button>
+        )}
+      </div>
+      {open && (
+        <form
+          className="mt-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) save.mutate();
+          }}
+        >
+          <RadioGroup value={mode} onValueChange={(v) => setMode(v === "some" ? "some" : "all")} aria-label="Which payments count" className="grid gap-2">
+            <label className="flex items-center gap-2.5 text-[0.875rem] text-ink">
+              <Radio value="all" /> Every payment in this Stripe account
+            </label>
+            <label className="flex items-center gap-2.5 text-[0.875rem] text-ink">
+              <Radio value="some" /> Only these products
+            </label>
+          </RadioGroup>
+          {mode === "some" && (
+            <ul className="mt-2 ml-6.5 grid gap-1.5" aria-label="Products">
+              {products.map((p) => (
+                <li key={p.id}>
+                  <label className="flex items-baseline gap-2.5 text-[0.875rem]">
+                    <Checkbox className="translate-y-[3px]" checked={picked.includes(p.id)} onCheckedChange={(v) => toggle(p.id, v === true)} />
+                    <span className="min-w-0 text-ink">{p.name}</span>
+                    <span className="text-[0.8125rem] text-ink-3">
+                      {p.payments === 0 ? "no payments yet" : `${int(p.payments)} ${p.payments === 1 ? "payment" : "payments"}`}
+                      {!p.active && ", archived"}
+                    </span>
+                  </label>
+                </li>
+              ))}
+              <li>
+                <label className="flex items-baseline gap-2.5 text-[0.875rem]">
+                  <Checkbox className="translate-y-[3px]" checked={none} onCheckedChange={(v) => setNone(v === true)} />
+                  <span className="text-ink">Payments with no product</span>
+                  <span className="text-[0.8125rem] text-ink-3">{int(d.noProductPayments)} so far</span>
+                </label>
+              </li>
+            </ul>
+          )}
+          {mode === "some" && !d.catalog && (
+            <p className="mt-2 ml-6.5 text-[0.8125rem] text-ink-3">
+              Products show here once they’ve sold through Checkout. To list every product with its name, give the Stripe key Products: Read.
+            </p>
+          )}
+          {save.isError && <ProblemNote className="mt-3" error={save.error} title="Couldn’t save" />}
+          <div className="mt-3 flex items-center gap-2">
+            <Button type="submit" variant="primary" disabled={!valid || save.isPending}>
+              {save.isPending ? "Saving…" : "Save"}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            {!valid && <span className="text-[0.8125rem] text-ink-3">Pick at least one.</span>}
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+/** "every payment in this Stripe account", or the products counted, in words. */
+function summary(d: StripeProducts) {
+  if (d.all) return "every payment in this Stripe account";
+  const names = (d.products ?? []).filter((p) => p.counted).map((p) => p.name);
+  if (d.noProduct) names.push("payments with no product");
+  if (names.length === 0) return "nothing";
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 // ------------------------------------------------------------------ report

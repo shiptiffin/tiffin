@@ -103,6 +103,7 @@ export type AnalyticsEvent = S["AnalyticsEventSummary"];
 export type AnalyticsVitals = S["AnalyticsVitalsView"];
 export type AnalyticsPrivacy = S["AnalyticsPrivacyView"];
 export type StripeStatus = S["AnalyticsStripeStatus"];
+export type StripeProducts = S["AnalyticsStripeProducts"];
 export type RevenueReport = S["AnalyticsRevenueReport"];
 export type RevenueTotals = S["AnalyticsRevenueTotals"];
 export type RevenueCount = S["AnalyticsRevenueCount"];
@@ -345,6 +346,11 @@ export const mod2 = {
   /** Connects Stripe with a restricted key (409 while attribution is off; 422 for a key Stripe refuses, with the permissions in the hint). */
   stripeConnect: (p: string, key: string) => request<StripeStatus>("POST", "/v1/analytics/stripe", { project: p, key }),
   stripeRepair: (p: string) => request<StripeStatus>("POST", "/v1/analytics/stripe/repair", { project: p }),
+  /** The Stripe account's products, how many imported payments each had, and which the project counts. */
+  stripeProducts: (p: string) => request<StripeProducts>("GET", `/v1/analytics/stripe/products${qs({ project: p })}`),
+  /** Which payments count: every one (all), or these products' (and those with no product). Re-imports nothing. */
+  stripeProductsSet: (p: string, choice: { all: true } | { products: string[]; noProduct: boolean }) =>
+    request<StripeProducts>("POST", "/v1/analytics/stripe/products", { project: p, ...choice }),
   /** Deletes the webhook endpoint, the key and every payment imported from Stripe. */
   stripeDisconnect: (p: string) => request<S["Analytics-stripe-disconnectResponse"]>("DELETE", `/v1/analytics/stripe${qs({ project: p })}`),
   revenue: (p: string, q: RevenueQuery) => request<RevenueReport>("GET", `/v1/analytics/revenue${qs({ project: p, ...q })}`),

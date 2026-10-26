@@ -36,8 +36,54 @@ async function stubRevenue(page: Page, status: () => ReturnType<typeof stripeSta
   });
   await page.route("**/v1/analytics/revenue/match", (r) => (calls.push("match"), r.fulfill({ json: { checked: 3, matched: 1 } })));
   await page.route("**/v1/analytics/stripe/repair", (r) => (calls.push("repair"), r.fulfill({ json: stripeStatus("hello") })));
+  // Which products count: one account selling two apps' products.
+  let choice: { all: boolean; products: string[]; noProduct: boolean } = { all: true, products: [], noProduct: false };
+  const products = () => ({
+    project: "hello",
+    all: choice.all,
+    noProduct: choice.noProduct,
+    noProductPayments: 2,
+    catalog: true,
+    products: [
+      { id: "prod_reel", name: "Reelbird Pro", active: true, payments: 34, last: "2026-10-20T10:00:00Z", counted: choice.all || choice.products.includes("prod_reel") },
+      { id: "prod_dibs", name: "Dibs Plus", active: true, payments: 12, last: "2026-10-18T10:00:00Z", counted: choice.all || choice.products.includes("prod_dibs") },
+    ],
+  });
+  await page.route("**/v1/analytics/stripe/products*", async (r) => {
+    if (r.request().method() === "POST") {
+      const b = r.request().postDataJSON() as { all?: boolean; products?: string[]; noProduct?: boolean };
+      calls.push(`products ${JSON.stringify({ all: b.all, products: b.products, noProduct: b.noProduct })}`);
+      choice = { all: b.all === true, products: b.products ?? [], noProduct: b.noProduct === true };
+    }
+    return r.fulfill({ json: products() });
+  });
   return calls;
 }
+
+test("revenue: count only some Stripe products, then every payment again", async ({ page, baseURL }) => {
+  await attributionOn(page);
+  const calls = await stubRevenue(page, () => stripeStatus("hello"));
+  await signIn(page, baseURL!);
+  await page.goto(url);
+
+  const counts = page.locator("section[aria-labelledby=revenue-counts]");
+  await expect(counts).toContainText("every payment in this Stripe account");
+  await counts.getByRole("button", { name: "Change" }).click();
+  await counts.getByRole("radio", { name: "Only these products" }).click();
+  await expect(counts.getByText("34 payments")).toBeVisible();
+  if (process.env.SHOTS) await counts.screenshot({ path: `${out}/counts.png` });
+  await expect(counts.getByRole("button", { name: "Save" })).toBeDisabled(); // nothing picked yet
+  await counts.getByRole("checkbox", { name: /Reelbird Pro/ }).click();
+  await counts.getByRole("button", { name: "Save" }).click();
+  await expect(counts).toContainText("Counts Reelbird Pro");
+  expect(calls).toContain(`products {"products":["prod_reel"],"noProduct":false}`);
+
+  await counts.getByRole("button", { name: "Change" }).click();
+  await counts.getByRole("radio", { name: "Every payment in this Stripe account" }).click();
+  await counts.getByRole("button", { name: "Save" }).click();
+  await expect(counts).toContainText("every payment in this Stripe account");
+  expect(calls).toContain(`products {"all":true}`);
+});
 
 async function noSeriousA11y(page: Page, what: string) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));

@@ -172,6 +172,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics/stripe/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Stripe products and which count
+         * @description The products the project's Stripe account sells or sold (names from Stripe's product list when the key has Products: Read, else from Checkout line items), with how many imported payments each had, and which the project's revenue counts. One Stripe account often sells several products, one per app: choose this project's with analytics stripe products set; with no choice every payment counts.
+         */
+        get: operations["analytics-stripe-products"];
+        put?: never;
+        /**
+         * Choose which Stripe products count
+         * @description Sets which payments the project's revenue counts: those for the given products (through their subscription, invoice or Checkout Session), plus payments with no product when noProduct is set; all: true counts every payment again. Nothing is deleted or imported again: the report changes at once.
+         */
+        post: operations["analytics-stripe-products-set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/stripe/repair": {
         parameters: {
             query?: never;
@@ -6489,6 +6513,39 @@ export interface components {
             /** @description Web Vitals from a Next.js app: render this once in the root layout */
             vitals: string;
         };
+        AnalyticsStripeProduct: {
+            active: boolean;
+            /** @description The project's revenue counts it */
+            counted: boolean;
+            id: string;
+            /**
+             * Format: date-time
+             * @description Its latest payment
+             */
+            last?: string;
+            /** @description Its name in Stripe (the id when the box doesn't know it) */
+            name: string;
+            /**
+             * Format: int64
+             * @description Payments for it imported so far (all time, refunds left out)
+             */
+            payments: number;
+        };
+        AnalyticsStripeProducts: {
+            /** @description Every payment in the Stripe account counts (no choice made) */
+            all: boolean;
+            /** @description Names come from Stripe's product list (the key has Products: Read); otherwise only from Checkout line items */
+            catalog: boolean;
+            /** @description Payments with no product (a charge outside Checkout and invoices) count */
+            noProduct: boolean;
+            /**
+             * Format: int64
+             * @description Payments with no product, imported so far
+             */
+            noProductPayments: number;
+            products: components["schemas"]["AnalyticsStripeProduct"][] | null;
+            project: string;
+        };
         AnalyticsStripeStatus: {
             /** @description The Stripe account's currency (of its balance transactions): every sum is in it */
             accountCurrency?: string;
@@ -11352,6 +11409,16 @@ export interface components {
             /** @description URI identifying the problem type */
             type?: string;
         };
+        ProductsInBody: {
+            /** @description Count every payment in the Stripe account (clears the choice) */
+            all?: boolean;
+            /** @description Also count payments with no product */
+            noProduct?: boolean;
+            /** @description Stripe product ids (prod_...) whose payments count */
+            products?: string[] | null;
+            /** @description Project */
+            project: string;
+        };
         "Project-duplicateRequest": {
             /** @description The copy's name, e.g. shop-copy */
             name: string;
@@ -15194,6 +15261,143 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "analytics-stripe-products": {
+        parameters: {
+            query: {
+                /** @description Project */
+                project: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsStripeProducts"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "analytics-stripe-products-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductsInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsStripeProducts"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

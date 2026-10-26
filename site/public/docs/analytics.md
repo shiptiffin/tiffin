@@ -159,6 +159,8 @@ campaign, first page and country. It needs attribution on.
    - **Read**: Balance, Charges and Refunds, Customers, Invoices, Subscriptions, Checkout
      Sessions
    - **Write**: Webhook Endpoints, Event Destinations
+
+   Add **Products: Read** if the account sells more than one app's products (below).
 2. Paste it:
 
    ```bash
@@ -172,6 +174,21 @@ the last 12 months of payments, refunds and subscriptions. When the project's ad
 changes, the webhook follows it (`tiffin analytics stripe repair` does it by hand);
 `tiffin analytics stripe status` shows the connection, the import and any warning.
 `tiffin analytics stripe disconnect` deletes the webhook, the key and the payments.
+
+**One Stripe account, several apps.** Every project connected to a Stripe account sees
+all of its payments. If the account sells more than this project's products, choose which
+count: **Counts › Change** on the Revenue tab, or
+
+```bash
+tiffin analytics stripe products --project shop                                  # the products, their payments, which count
+tiffin analytics stripe products set --project shop --products prod_123,prod_456 # only these (add --no-product for payments with none)
+tiffin analytics stripe products set --project shop --all                        # every payment again (the default)
+```
+
+A payment's products come from its subscription, invoice or Checkout line items; a charge
+made outside them has none. Refunds and MRR follow the choice, and changing it takes effect
+at once: nothing is imported again. With **Products: Read** the list shows every product by
+name; without it, only products sold through Checkout.
 
 **How a payment finds its customer**, in order (each payment records which one worked):
 

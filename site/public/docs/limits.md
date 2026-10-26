@@ -659,6 +659,10 @@ automatic events from deploys.
   skipped. Disputes aren't counted. MRR uses list prices: discounts, trials, tiered and
   metered prices aren't reflected. Other providers (Lemon Squeezy, Polar, Paddle) go
   through `revenue()` from your code; there is no direct connection for them yet.
+- **The product choice is per project, with no overview.** Two projects on one Stripe
+  account each choose their own products; nothing warns when both count the same one,
+  or shows money no project counts. Payments imported before v0.29.2 have no products until
+  imported again (Disconnect, then connect).
 - **Stripe must reach the box.** A box without a public address (a local VM) can connect,
   but webhooks never arrive; the status says so. Payments still import at connect.
 - **The consent prompt is plain.** One wording, the box's own styling; build your own and
