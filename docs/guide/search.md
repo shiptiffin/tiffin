@@ -149,8 +149,9 @@ project's other analytics:
 
 - **Searches**: Google's clicks, impressions, click rate and average position, each
   against the days before, a chart with the project's deploys marked, and the top
-  searches and pages. Google's numbers run 2 to 3 days behind, so a period ends on the
-  last day Google has.
+  searches and pages, and **what moved**: the searches and pages that gained or lost the
+  most clicks (then impressions) against the days before. Google's numbers run 2 to 3
+  days behind, so a period ends on the last day Google has.
 - **Found**: when the box last told IndexNow, how many pages the sitemap lists (and how
   many Google found in it), whether Google is connected and verified, how many of the
   pages checked are in Google's index, with Google's reason for each one that isn't, in
@@ -186,5 +187,6 @@ An agent asked "why isn't my site on Google?" starts with `tiffin search status`
 a hidden address, a `Disallow: /` in robots.txt, a noindex home page or a missing
 sitemap shows there in words. With Google connected it also shows the searches, the
 pages Google has not indexed and why, and `search inspect` asks about any one page.
-"Why did traffic drop?" compares two `search report` periods (clicks, impressions,
-position, which searches and pages fell) with the deploys around the drop.
+"Why did traffic drop?" starts with `search report`: `searches.moved` lists the searches
+and pages that fell (and rose) against the days before; line them up with the deploys
+around the drop.

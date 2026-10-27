@@ -79,6 +79,27 @@ type Searches struct {
 	Queries  []GTop       `json:"queries" doc:"What people searched, most clicks first (50 at most). Google leaves out rare searches, so these add up to less than the totals."`
 	Pages    []GTop       `json:"pages" doc:"Pages that showed up, as paths (with the host when the report covers several addresses)"`
 	Through  string       `json:"through,omitempty" doc:"The last day Google has numbers for"`
+	Moved    *Moved       `json:"moved,omitempty" doc:"The searches and pages that gained or lost the most against the days before; missing when Google had nothing then"`
+}
+
+// Moved is what changed most between the days shown and the days before:
+// clicks first, then impressions.
+type Moved struct {
+	QueriesUp   []Mover `json:"queriesUp"`
+	QueriesDown []Mover `json:"queriesDown"`
+	PagesUp     []Mover `json:"pagesUp"`
+	PagesDown   []Mover `json:"pagesDown"`
+}
+
+// Mover is one search or page in both periods.
+type Mover struct {
+	Key             string  `json:"key"`
+	Clicks          int     `json:"clicks"`
+	PrevClicks      int     `json:"prevClicks"`
+	Impressions     int     `json:"impressions"`
+	PrevImpressions int     `json:"prevImpressions"`
+	Position        float64 `json:"position" doc:"0 when it didn't show"`
+	PrevPosition    float64 `json:"prevPosition" doc:"0 when it didn't show the days before"`
 }
 
 // SearchTotals sum some days.
@@ -354,11 +375,12 @@ func (m *Module) reportSearches(ctx context.Context, r *Report, hosts []string, 
 		return nil, err
 	}
 	for i := range s.Pages {
-		k := strings.TrimPrefix(s.Pages[i].Key, "https://")
-		if len(hosts) == 1 {
-			k = strings.TrimPrefix(k, hosts[0])
+		s.Pages[i].Key = pageKey(s.Pages[i].Key, hosts)
+	}
+	if s.Previous.Impressions > 0 {
+		if s.Moved, err = m.moved(ctx, r, hosts); err != nil {
+			return nil, err
 		}
-		s.Pages[i].Key = k
 	}
 	// Never null: an empty list reads as "nothing in these days".
 	for _, l := range []*[]SearchDay{&s.Daily, &s.PrevDays} {
@@ -372,6 +394,98 @@ func (m *Module) reportSearches(ctx context.Context, r *Report, hosts []string, 
 		}
 	}
 	return s, nil
+}
+
+// pageKey is a page as the report shows it: a path for one address, host
+// and path for several.
+func pageKey(u string, hosts []string) string {
+	k := strings.TrimPrefix(u, "https://")
+	if len(hosts) == 1 {
+		k = strings.TrimPrefix(k, hosts[0])
+	}
+	return k
+}
+
+// movedMax is how many risers and fallers each list keeps; moveDepth how
+// many searches or pages per period are compared.
+const (
+	movedMax  = 10
+	moveDepth = 1000
+)
+
+// moved compares the searches and pages of the days shown with the days before.
+func (m *Module) moved(ctx context.Context, r *Report, hosts []string) (*Moved, error) {
+	out := &Moved{}
+	for _, t := range []struct {
+		table, col string
+		up, down   *[]Mover
+	}{{"gsc_query", "query", &out.QueriesUp, &out.QueriesDown}, {"gsc_page", "page", &out.PagesUp, &out.PagesDown}} {
+		now, err := m.hist.gscTop(ctx, hosts, t.table, t.col, r.From, r.To, moveDepth)
+		if err != nil {
+			return nil, err
+		}
+		before, err := m.hist.gscTop(ctx, hosts, t.table, t.col, r.PrevFrom, r.PrevTo, moveDepth)
+		if err != nil {
+			return nil, err
+		}
+		*t.up, *t.down = movers(now, before)
+		if t.col == "page" {
+			for _, l := range []*[]Mover{t.up, t.down} {
+				for i := range *l {
+					(*l)[i].Key = pageKey((*l)[i].Key, hosts)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// movers ranks what changed between two periods: gains (most clicks gained,
+// then impressions) and losses, movedMax of each.
+func movers(now, before []GTop) (up, down []Mover) {
+	all := map[string]*Mover{}
+	get := func(k string) *Mover {
+		if all[k] == nil {
+			all[k] = &Mover{Key: k}
+		}
+		return all[k]
+	}
+	for _, t := range now {
+		x := get(t.Key)
+		x.Clicks, x.Impressions, x.Position = t.Clicks, t.Impressions, t.Position
+	}
+	for _, t := range before {
+		x := get(t.Key)
+		x.PrevClicks, x.PrevImpressions, x.PrevPosition = t.Clicks, t.Impressions, t.Position
+	}
+	// A move: clicks decide; with the same clicks, impressions do.
+	gain := func(x *Mover) (int, int) { return x.Clicks - x.PrevClicks, x.Impressions - x.PrevImpressions }
+	up, down = []Mover{}, []Mover{}
+	for _, x := range all {
+		c, i := gain(x)
+		switch {
+		case c > 0 || c == 0 && i > 0:
+			up = append(up, *x)
+		case c < 0 || c == 0 && i < 0:
+			down = append(down, *x)
+		}
+	}
+	rank := func(l []Mover, sign int) {
+		sort.Slice(l, func(a, b int) bool {
+			ca, ia := gain(&l[a])
+			cb, ib := gain(&l[b])
+			if ca != cb {
+				return sign*ca > sign*cb
+			}
+			if ia != ib {
+				return sign*ia > sign*ib
+			}
+			return l[a].Key < l[b].Key
+		})
+	}
+	rank(up, 1)
+	rank(down, -1)
+	return up[:min(len(up), movedMax)], down[:min(len(down), movedMax)]
 }
 
 func (m *Module) reportCrawlers(ctx context.Context, r *Report, hosts []string, now time.Time) error {

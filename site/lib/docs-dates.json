@@ -20,8 +20,8 @@
     "updated": "2026-10-13"
   },
   "limits": {
-    "sha": "757ee7e63cf36654",
-    "updated": "2026-10-26"
+    "sha": "d341df4f6e4739f1",
+    "updated": "2026-10-27"
   },
   "security": {
     "sha": "75de3467f40791c8",
@@ -56,8 +56,8 @@
     "updated": "2026-10-25"
   },
   "search": {
-    "sha": "b9d783e530108853",
-    "updated": "2026-10-26"
+    "sha": "2fadbea61eeac0ac",
+    "updated": "2026-10-27"
   },
   "observe": {
     "sha": "c5f46935b325b4c1",

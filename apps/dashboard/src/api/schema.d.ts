@@ -13291,6 +13291,33 @@ export interface components {
             /** @description False only on a local box, which nothing outside can reach */
             on: boolean;
         };
+        SearchMoved: {
+            pagesDown: components["schemas"]["SearchMover"][] | null;
+            pagesUp: components["schemas"]["SearchMover"][] | null;
+            queriesDown: components["schemas"]["SearchMover"][] | null;
+            queriesUp: components["schemas"]["SearchMover"][] | null;
+        };
+        SearchMover: {
+            /** Format: int64 */
+            clicks: number;
+            /** Format: int64 */
+            impressions: number;
+            key: string;
+            /**
+             * Format: double
+             * @description 0 when it didn't show
+             */
+            position: number;
+            /** Format: int64 */
+            prevClicks: number;
+            /** Format: int64 */
+            prevImpressions: number;
+            /**
+             * Format: double
+             * @description 0 when it didn't show the days before
+             */
+            prevPosition: number;
+        };
         SearchPending: {
             /** Format: date-time */
             at: string;
@@ -13452,6 +13479,8 @@ export interface components {
         };
         Searches: {
             daily: components["schemas"]["SearchDay"][] | null;
+            /** @description The searches and pages that gained or lost the most against the days before; missing when Google had nothing then */
+            moved?: components["schemas"]["SearchMoved"];
             /** @description Pages that showed up, as paths (with the host when the report covers several addresses) */
             pages: components["schemas"]["SearchGTop"][] | null;
             prevDaily: components["schemas"]["SearchDay"][] | null;

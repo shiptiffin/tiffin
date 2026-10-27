@@ -78,6 +78,17 @@ func TestReport(t *testing.T) {
 	if r.Searches.Totals.Clicks != 1 || r.Searches.Previous.Clicks != 3 || len(r.Searches.Queries) != 1 || r.Searches.Queries[0].Key != "tiffin box" {
 		t.Fatalf("one day %+v", r.Searches)
 	}
+	// What moved against the 20th: "tiffin box" and /pricing came, the rest fell.
+	mv := r.Searches.Moved
+	if mv == nil || len(mv.QueriesUp) != 1 || mv.QueriesUp[0].Key != "tiffin box" || mv.QueriesUp[0].PrevClicks != 0 ||
+		len(mv.QueriesDown) != 1 || mv.QueriesDown[0].Key != "self hosted vercel" || mv.QueriesDown[0].Clicks != 0 || mv.QueriesDown[0].PrevClicks != 3 ||
+		len(mv.PagesUp) != 1 || mv.PagesUp[0].Key != "/pricing" || len(mv.PagesDown) != 1 || mv.PagesDown[0].Key != "/" {
+		t.Fatalf("moved %+v", mv)
+	}
+	// Nothing the days before: nothing to compare.
+	if r = report(reportIn{From: "2026-10-20", To: "2026-10-20"}); r.Searches.Moved != nil {
+		t.Fatalf("moved with no days before %+v", r.Searches.Moved)
+	}
 	if _, err := h.m.report(h.ctx, &reportIn{Project: "shop", From: "2026-10-22", To: "2026-10-21"}); err == nil {
 		t.Fatal("days the wrong way round were taken")
 	}
@@ -134,5 +145,22 @@ func TestReport(t *testing.T) {
 	h.m.forget(context.Background(), "shop.example.com")
 	if days, _ := h.m.hist.crawlDays(h.ctx, []string{"shop.example.com"}, "2026-01-01", "2026-12-31"); len(days) != 0 {
 		t.Fatalf("crawl history after forget %+v", days)
+	}
+}
+
+func TestMovers(t *testing.T) {
+	now := []GTop{{Key: "a", Clicks: 5, Impressions: 50}, {Key: "b", Clicks: 2, Impressions: 300}, {Key: "c", Clicks: 2, Impressions: 40}, {Key: "new", Clicks: 0, Impressions: 9}}
+	before := []GTop{{Key: "a", Clicks: 1, Impressions: 20}, {Key: "b", Clicks: 2, Impressions: 100}, {Key: "c", Clicks: 4, Impressions: 40}, {Key: "gone", Clicks: 1, Impressions: 5}}
+	up, down := movers(now, before)
+	var u, d []string
+	for _, x := range up {
+		u = append(u, x.Key)
+	}
+	for _, x := range down {
+		d = append(d, x.Key)
+	}
+	// Clicks first (a +4), then impressions (b +200 at the same clicks, new +9).
+	if strings.Join(u, ",") != "a,b,new" || strings.Join(d, ",") != "c,gone" {
+		t.Fatalf("up %v down %v", u, d)
 	}
 }

@@ -29,7 +29,12 @@ async function noSeriousA11y(page: Page, what: string) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(bad.map((v) => `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => `${n.target.join(" ")} ${n.html.slice(0, 160)} ${n.failureSummary ?? ""}`).join(", ")}`)).toEqual([]);
+  expect(
+    bad.map(
+      (v) =>
+        `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => `${n.target.join(" ")} ${n.html.slice(0, 160)} ${n.failureSummary ?? ""}`).join(", ")}`,
+    ),
+  ).toEqual([]);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -50,6 +55,13 @@ test("search: the tab, the numbers, the period in the URL", async ({ page, baseU
   await expect(page.getByRole("region", { name: "Searches", exact: true }).getByText("self hosted vercel alternative")).toBeVisible();
   await page.getByRole("button", { name: "Show all 12" }).click();
   await expect(page.getByText("better auth self hosted")).toBeVisible();
+  // What moved against the days before: searches, then pages.
+  const moved = page.getByRole("region", { name: /^What moved/ });
+  await expect(moved).toContainText("+8 clicks");
+  await expect(moved).toContainText("−4 clicks");
+  await moved.getByRole("radio", { name: "Pages" }).click();
+  await expect(moved).toContainText("/blog/launch");
+  await expect(moved).toContainText("No longer shows");
   // Found: Google's reasons in plain words; crawlers; AI apart.
   const found = page.getByRole("region", { name: "Found" });
   await expect(found).toContainText("12 of 36 pages checked");

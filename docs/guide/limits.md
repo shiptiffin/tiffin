@@ -706,6 +706,8 @@ yet), and Analytics › Search filtered by country, device or search type.
 - Google leaves out searches only a few people made, so the top searches add up to less
   than the totals. Each month of history keeps at most 100,000 searches and 100,000
   pages per address.
+- What moved compares the 1,000 searches and pages with the most clicks in each period,
+  and shows nothing when Google had no numbers for the days before.
 - Visits from AI apps come from the project's analytics: they cover the whole project,
   not one address, and an app that hides where a visit came from counts as direct.
 - Crawler counts before this release were kept for 30 days only, so a longer period

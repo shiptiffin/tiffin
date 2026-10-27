@@ -14,6 +14,7 @@ import { ProblemNote } from "@/components/problem";
 import { StatusDot } from "@/components/project-domains";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/segmented";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { ViewToggle } from "@/components/usage-charts";
 import { cn } from "@/lib/cn";
@@ -420,7 +421,98 @@ function Searches({
           <TopList id="pages" title="Pages" rows={s.pages ?? []} what="page" mono className="max-lg:border-t lg:border-l border-rule" />
         </div>
       )}
+      {!empty && compare && s.moved && <WhatMoved moved={s.moved} before={per.before} />}
     </>,
+  );
+}
+
+type Moved = NonNullable<NonNullable<SearchReport["searches"]>["moved"]>;
+type Mover = NonNullable<Moved["queriesUp"]>[number];
+
+/** What moved: the searches or pages that gained and lost the most against the days before. */
+function WhatMoved({ moved, before }: { moved: Moved; before: string }) {
+  const [pages, setPages] = useState(false);
+  const up = (pages ? moved.pagesUp : moved.queriesUp) ?? [];
+  const down = (pages ? moved.pagesDown : moved.queriesDown) ?? [];
+  if (!moved.queriesUp?.length && !moved.queriesDown?.length && !moved.pagesUp?.length && !moved.pagesDown?.length) return null;
+  return (
+    <section aria-labelledby="moved" className="border-t border-rule px-4 pt-3 pb-4 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h3 id="moved" className="text-[0.84375rem] font-[550] text-ink">
+          What moved <span className="font-normal text-ink-3">against {before}</span>
+        </h3>
+        <Segmented
+          label="What moved"
+          value={pages ? "pages" : "queries"}
+          options={[
+            { value: "queries", label: "Searches" },
+            { value: "pages", label: "Pages" },
+          ]}
+          onChange={(v) => setPages(v === "pages")}
+        />
+      </div>
+      <div className="mt-2 grid gap-x-10 gap-y-3 lg:grid-cols-2">
+        <MoverList title="Up" rows={up} mono={pages} />
+        <MoverList title="Down" rows={down} mono={pages} />
+      </div>
+    </section>
+  );
+}
+
+function MoverList({ title, rows, mono }: { title: string; rows: Mover[]; mono: boolean }) {
+  const [all, setAll] = useState(false);
+  const list = all ? rows : rows.slice(0, 5);
+  return (
+    <div className="min-w-0">
+      <h4 className="pb-1 text-[0.71875rem] text-ink-3">{title}</h4>
+      {rows.length === 0 ? (
+        <p className="py-2 text-[0.8125rem] text-ink-3">Nothing {title === "Up" ? "gained" : "lost"} ground.</p>
+      ) : (
+        <ul className="divide-y divide-rule">
+          {list.map((x) => {
+            const dc = x.clicks - x.prevClicks;
+            const di = x.impressions - x.prevImpressions;
+            const byClicks = dc !== 0;
+            const d = byClicks ? dc : di;
+            return (
+              <li key={x.key} className="flex items-baseline justify-between gap-4 py-2">
+                <span className="min-w-0">
+                  <span className={cn("block truncate text-[0.84375rem] text-ink", mono && "font-mono text-[0.78rem]")} title={x.key}>
+                    {x.key}
+                  </span>
+                  <span className="block text-[0.75rem] text-ink-3 tnum">
+                    {!x.prevImpressions
+                      ? "New"
+                      : !x.impressions
+                        ? "No longer shows"
+                        : `${int(x.prevImpressions)} → ${int(x.impressions)} impressions`}
+                    {x.prevPosition > 0 && x.position > 0 && ` · position ${dec(x.prevPosition, 1)} → ${dec(x.position, 1)}`}
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-[0.8125rem] font-[550] tnum",
+                    d > 0 ? "text-[color-mix(in_oklab,var(--ok),var(--ink)_30%)]" : "text-danger",
+                  )}
+                >
+                  {d > 0 ? "+" : "−"}
+                  {int(Math.abs(d))} {byClicks ? (Math.abs(d) === 1 ? "click" : "clicks") : Math.abs(d) === 1 ? "impression" : "impressions"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {rows.length > 5 && (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          className="mt-1 inline-flex h-7 items-center text-[0.8125rem] text-ink-3 hover:text-ink"
+        >
+          {all ? "Show fewer" : `Show all ${rows.length}`}
+        </button>
+      )}
+    </div>
   );
 }
 
