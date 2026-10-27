@@ -63,8 +63,9 @@ func TestReport(t *testing.T) {
 	if r.Google.State != GVerified || r.Google.Filling || s == nil {
 		t.Fatalf("verified %+v", r.Google)
 	}
-	// A period ends on Google's last day (the 21st), not today (the 24th).
-	if r.To != "2026-10-21" || r.From != "2026-09-22" || r.PrevTo != "2026-09-21" || r.CrawlTo != "2026-10-24" || s.Through != "2026-10-21" {
+	// 28 days by default, ending on the last day Google finished (three days
+	// back when it doesn't say), not today (the 24th).
+	if r.To != "2026-10-21" || r.From != "2026-09-24" || r.PrevTo != "2026-09-23" || r.CrawlTo != "2026-10-24" || s.Through != "2026-10-21" || s.Complete != "2026-10-21" {
 		t.Fatalf("days %s..%s before %s..%s crawl ..%s", r.From, r.To, r.PrevFrom, r.PrevTo, r.CrawlTo)
 	}
 	if s.Totals.Clicks != 4 || s.Totals.Impressions != 100 || s.Totals.Position != 10.4 || s.Totals.CTR != 0.04 || len(s.Daily) != 2 || s.Previous.Clicks != 0 {
@@ -94,6 +95,17 @@ func TestReport(t *testing.T) {
 	}
 	if _, err := h.m.report(h.ctx, &reportIn{Project: "shop", Host: "shop.shiptiffin.app"}); err == nil {
 		t.Fatal("a hidden host was reported")
+	}
+
+	// Google says the 21st is still filling in: the days shown end on the 20th.
+	fg.incomplete = "2026-10-21"
+	h.now = h.now.Add(gPullEvery)
+	h.pass()
+	if r = report(reportIn{Period: "7d"}); r.To != "2026-10-20" || r.From != "2026-10-14" || r.Searches.Complete != "2026-10-20" || r.Searches.Through != "2026-10-21" {
+		t.Fatalf("incomplete days %s..%s %+v", r.From, r.To, r.Searches)
+	}
+	if r = report(reportIn{From: "2026-10-10", To: "2026-10-24"}); r.To != "2026-10-20" || r.CrawlTo != "2026-10-24" {
+		t.Fatalf("custom days past the complete ones %s..%s crawl ..%s", r.From, r.To, r.CrawlTo)
 	}
 
 	// Later pulls read only the last days again.
@@ -159,8 +171,13 @@ func TestMovers(t *testing.T) {
 	for _, x := range down {
 		d = append(d, x.Key)
 	}
-	// Clicks first (a +4), then impressions (b +200 at the same clicks, new +9).
-	if strings.Join(u, ",") != "a,b,new" || strings.Join(d, ",") != "c,gone" {
+	// Clicks first (a +4), then impressions (b +200 at the same clicks, new
+	// +9). c lost 2 clicks of 6 with the same impressions: chance, so left out.
+	if strings.Join(u, ",") != "a,b,new" || strings.Join(d, ",") != "gone" {
 		t.Fatalf("up %v down %v", u, d)
+	}
+	// Tiny moves are chance: 1 → 2 impressions, 40 → 46.
+	if up, down := movers([]GTop{{Key: "x", Impressions: 2}, {Key: "y", Impressions: 46}}, []GTop{{Key: "x", Impressions: 1}, {Key: "y", Impressions: 40}}); len(up)+len(down) != 0 {
+		t.Fatalf("noise counted: up %v down %v", up, down)
 	}
 }

@@ -1766,13 +1766,16 @@ yet), and Analytics › Search filtered by country, device or search type.
 - With Google connected, search data is read every 12 hours and kept for 16 months (as
   long as Google keeps it); the first read fills them in. URL Inspection checks about 20
   pages per domain a day, so a large site takes a while to fill in.
-- Google's days run on Pacific time and its numbers 2 to 3 days behind; the crawler log
-  and visits count UTC days up to today, so their days differ a little.
+- Google's days run on Pacific time and the days it is still counting (usually the last
+  2 or 3) are left out; the crawler log and visits count UTC days up to today, so their
+  days differ a little.
 - Google leaves out searches only a few people made, so the top searches add up to less
   than the totals. Each month of history keeps at most 100,000 searches and 100,000
   pages per address.
 - What moved compares the 1,000 searches and pages with the most clicks in each period,
-  and shows nothing when Google had no numbers for the days before.
+  and shows nothing when Google had no numbers for the days before. A change counts only
+  when it is at least 3 and twice the square root of the two periods' counts together, so
+  a small site often sees "too few searches" for 7 days; 28 days usually shows more.
 - Visits from AI apps come from the project's analytics: they cover the whole project,
   not one address, and an app that hides where a visit came from counts as direct.
 - Crawler counts before this release were kept for 30 days only, so a longer period
@@ -5499,8 +5502,11 @@ project's other analytics:
 - **Searches**: Google's clicks, impressions, click rate and average position, each
   against the days before, a chart with the project's deploys marked, and the top
   searches and pages, and **what moved**: the searches and pages that gained or lost the
-  most clicks (then impressions) against the days before. Google's numbers run 2 to 3
-  days behind, so a period ends on the last day Google has.
+  most clicks (then impressions) against the days before, counting only changes bigger
+  than chance. Periods are 7 days, 28 days (the default), 3 months (13 weeks) or 12
+  months: whole weeks, so both periods hold the same weekdays. Google is still counting
+  its last 2 to 3 days, so a period ends on the last day it has finished (it says which);
+  comparing unfinished days would make every week look like a fall.
 - **Found**: when the box last told IndexNow, how many pages the sitemap lists (and how
   many Google found in it), whether Google is connected and verified, how many of the
   pages checked are in Google's index, with Google's reason for each one that isn't, in
@@ -5526,7 +5532,7 @@ tiffin search ping shop                        # check now; send what changed
 tiffin search ping shop --host example.com --urls https://example.com/pricing
 tiffin search ping shop --all                  # every page again (at most once an hour)
 tiffin search inspect shop --page https://example.com/pricing   # Google: indexed or not, and why
-tiffin search report shop --period 90d         # searches, found, crawlers for some days
+tiffin search report shop --period 91d         # 7d, 28d (default), 91d or 12mo; or --from/--to
 tiffin search report shop --from 2026-09-01 --to 2026-09-30 --host example.com
 tiffin search indexnow                         # every findable address and its last ping
 tiffin search google                           # the Google connection and its properties

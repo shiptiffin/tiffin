@@ -8,13 +8,14 @@ const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 /**
  * A young site's search report, shaped like the box's: Google's numbers end
  * three days ago, a slow climb from zero, a few searches and pages, a third
- * of the pages indexed, and the crawlers of the last 30 days. state "none"
+ * of the pages indexed, and the crawlers of the last 28 days. With quiet,
+ * nothing moved beyond chance. state "none"
  * gives the report of a project with nothing findable; google
  * "not_connected" one with no Google connection.
  */
-export function searchReport(project: string, opts: { state?: "verified" | "not_connected" | "none"; days?: number } = {}): Report {
+export function searchReport(project: string, opts: { state?: "verified" | "not_connected" | "none"; days?: number; quiet?: boolean } = {}): Report {
   const state = opts.state ?? "verified";
-  const n = opts.days ?? 30;
+  const n = opts.days ?? 28;
   const now = Date.now();
   const to = now - 3 * DAY;
   const from = to - (n - 1) * DAY;
@@ -106,7 +107,8 @@ export function searchReport(project: string, opts: { state?: "verified" | "not_
             previous: sum(prevDaily),
             daily,
             prevDaily,
-            through: iso(to),
+            through: iso(to + 2 * DAY),
+            complete: iso(to),
             queries: [
               ["self hosted vercel alternative", 14, 210, 8.2],
               ["deploy next.js on hetzner", 9, 160, 6.4],
@@ -139,17 +141,19 @@ export function searchReport(project: string, opts: { state?: "verified" | "not_
               impressions: impressions as number,
               position: position as number,
             })),
-            moved: {
-              queriesUp: [
-                mover("self hosted vercel alternative", 14, 6, 210, 120, 8.2, 11.4),
-                mover("deploy next.js on hetzner", 9, 3, 160, 90, 6.4, 9.8),
-                mover("coolify vs dokku", 3, 0, 140, 0, 14.8, 0),
-                mover("indexnow next.js", 0, 0, 35, 12, 9.9, 15.2),
-              ],
-              queriesDown: [mover("heroku alternative", 0, 4, 12, 95, 38.1, 12.6), mover("vercel bill too high", 0, 0, 15, 40, 31.2, 22)],
-              pagesUp: [mover("/", 21, 11, 420, 230, 9.1, 13), mover("/compare/vercel", 8, 2, 260, 80, 7.9, 12.2)],
-              pagesDown: [mover("/blog/launch", 0, 3, 0, 70, 0, 9.4)],
-            },
+            moved: opts.quiet
+              ? { queriesUp: [], queriesDown: [], pagesUp: [], pagesDown: [] }
+              : {
+                  queriesUp: [
+                    mover("self hosted vercel alternative", 14, 6, 210, 120, 8.2, 11.4),
+                    mover("deploy next.js on hetzner", 9, 3, 160, 90, 6.4, 9.8),
+                    mover("coolify vs dokku", 3, 0, 140, 0, 14.8, 0),
+                    mover("indexnow next.js", 0, 0, 35, 12, 9.9, 15.2),
+                  ],
+                  queriesDown: [mover("heroku alternative", 0, 4, 12, 95, 38.1, 12.6), mover("vercel bill too high", 0, 0, 15, 40, 31.2, 22)],
+                  pagesUp: [mover("/", 21, 11, 420, 230, 9.1, 13), mover("/compare/vercel", 8, 2, 260, 80, 7.9, 12.2)],
+                  pagesDown: [mover("/blog/launch", 0, 3, 0, 70, 0, 9.4)],
+                },
           }
         : undefined,
     crawlers: findable

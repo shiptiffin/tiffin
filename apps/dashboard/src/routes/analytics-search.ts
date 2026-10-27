@@ -19,6 +19,8 @@ export type Metric = "visitors" | "pageviews" | "bounce" | "duration";
 export const VITALS = ["LCP", "INP", "CLS", "FCP", "TTFB"] as const;
 export type Vital = (typeof VITALS)[number];
 export const PERIODS = ["today", "yesterday", "24h", "7d", "30d", "90d", "12mo"] as const;
+/** Search's periods are whole weeks (Google's numbers by weekday line up): 28 days and 13 weeks for 30 and 90. */
+const SEARCH_ONLY = ["28d", "91d"];
 export type AnalyticsSearch = {
   period?: string;
   from?: string;
@@ -44,7 +46,10 @@ const day = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test
 /** Only what the page understands; empty values are left out of the URL. */
 export function analyticsSearch(s: Record<string, unknown>): AnalyticsSearch {
   const out: AnalyticsSearch = {
-    period: (PERIODS as readonly unknown[]).includes(s.period) ? (s.period as string) : undefined,
+    period:
+      (PERIODS as readonly unknown[]).includes(s.period) || (s.tab === "search" && SEARCH_ONLY.includes(s.period as string))
+        ? (s.period as string)
+        : undefined,
     from: day(s.from),
     to: day(s.to),
     app: str(s.app),
@@ -60,7 +65,7 @@ export function analyticsSearch(s: Record<string, unknown>): AnalyticsSearch {
   // What the API would refuse: a device it doesn't know, a country that isn't a code.
   if (out.device && !["desktop", "mobile", "tablet"].includes(out.device)) out.device = undefined;
   if (out.country && !/^[A-Z]{2}$/.test(out.country)) out.country = undefined;
-  // Each tab's default period stays out of the URL: 7 days, or 30 for Search (Google's numbers lag).
-  if (out.period === (out.tab === "search" ? "30d" : "7d")) out.period = undefined;
+  // Each tab's default period stays out of the URL: 7 days, or 28 for Search (Google's numbers lag).
+  if (out.period === (out.tab === "search" ? "28d" : "7d")) out.period = undefined;
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined)) as AnalyticsSearch;
 }

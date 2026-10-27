@@ -150,8 +150,11 @@ project's other analytics:
 - **Searches**: Google's clicks, impressions, click rate and average position, each
   against the days before, a chart with the project's deploys marked, and the top
   searches and pages, and **what moved**: the searches and pages that gained or lost the
-  most clicks (then impressions) against the days before. Google's numbers run 2 to 3
-  days behind, so a period ends on the last day Google has.
+  most clicks (then impressions) against the days before, counting only changes bigger
+  than chance. Periods are 7 days, 28 days (the default), 3 months (13 weeks) or 12
+  months: whole weeks, so both periods hold the same weekdays. Google is still counting
+  its last 2 to 3 days, so a period ends on the last day it has finished (it says which);
+  comparing unfinished days would make every week look like a fall.
 - **Found**: when the box last told IndexNow, how many pages the sitemap lists (and how
   many Google found in it), whether Google is connected and verified, how many of the
   pages checked are in Google's index, with Google's reason for each one that isn't, in
@@ -177,7 +180,7 @@ tiffin search ping shop                        # check now; send what changed
 tiffin search ping shop --host example.com --urls https://example.com/pricing
 tiffin search ping shop --all                  # every page again (at most once an hour)
 tiffin search inspect shop --page https://example.com/pricing   # Google: indexed or not, and why
-tiffin search report shop --period 90d         # searches, found, crawlers for some days
+tiffin search report shop --period 91d         # 7d, 28d (default), 91d or 12mo; or --from/--to
 tiffin search report shop --from 2026-09-01 --to 2026-09-30 --host example.com
 tiffin search indexnow                         # every findable address and its last ping
 tiffin search google                           # the Google connection and its properties

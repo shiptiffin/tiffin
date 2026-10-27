@@ -701,13 +701,16 @@ yet), and Analytics › Search filtered by country, device or search type.
 - With Google connected, search data is read every 12 hours and kept for 16 months (as
   long as Google keeps it); the first read fills them in. URL Inspection checks about 20
   pages per domain a day, so a large site takes a while to fill in.
-- Google's days run on Pacific time and its numbers 2 to 3 days behind; the crawler log
-  and visits count UTC days up to today, so their days differ a little.
+- Google's days run on Pacific time and the days it is still counting (usually the last
+  2 or 3) are left out; the crawler log and visits count UTC days up to today, so their
+  days differ a little.
 - Google leaves out searches only a few people made, so the top searches add up to less
   than the totals. Each month of history keeps at most 100,000 searches and 100,000
   pages per address.
 - What moved compares the 1,000 searches and pages with the most clicks in each period,
-  and shows nothing when Google had no numbers for the days before.
+  and shows nothing when Google had no numbers for the days before. A change counts only
+  when it is at least 3 and twice the square root of the two periods' counts together, so
+  a small site often sees "too few searches" for 7 days; 28 days usually shows more.
 - Visits from AI apps come from the project's analytics: they cover the whole project,
   not one address, and an app that hides where a visit came from counts as direct.
 - Crawler counts before this release were kept for 30 days only, so a longer period

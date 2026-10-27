@@ -13367,7 +13367,7 @@ export interface components {
              * @description Requests whose user agent claimed a known bot from an address outside its operator's list
              */
             fakes: number;
-            /** @description The first day of Google's numbers (YYYY-MM-DD). Google's days run on Pacific time and its numbers 2 to 3 days behind, so a period ends on the last day Google has. */
+            /** @description The first day of Google's numbers (YYYY-MM-DD). Google's days run on Pacific time and Google is still filling in its last 2 to 3 days, so a period ends on the last complete day. */
             from: string;
             google: components["schemas"]["SearchReportGoogle"];
             /** @description The one address shown, when asked for */
@@ -13478,8 +13478,10 @@ export interface components {
             position: number;
         };
         Searches: {
+            /** @description The last day Google has finished counting: the days shown end there */
+            complete?: string;
             daily: components["schemas"]["SearchDay"][] | null;
-            /** @description The searches and pages that gained or lost the most against the days before; missing when Google had nothing then */
+            /** @description The searches and pages that gained or lost the most against the days before, only changes bigger than chance (all four lists empty: too few searches to tell); missing when Google had nothing then */
             moved?: components["schemas"]["SearchMoved"];
             /** @description Pages that showed up, as paths (with the host when the report covers several addresses) */
             pages: components["schemas"]["SearchGTop"][] | null;
@@ -13488,7 +13490,7 @@ export interface components {
             previous: components["schemas"]["SearchTotals"];
             /** @description What people searched, most clicks first (50 at most). Google leaves out rare searches, so these add up to less than the totals. */
             queries: components["schemas"]["SearchGTop"][] | null;
-            /** @description The last day Google has numbers for */
+            /** @description The last day Google has numbers for, complete or not */
             through?: string;
             totals: components["schemas"]["SearchTotals"];
         };
@@ -35642,8 +35644,8 @@ export interface operations {
     "search-report": {
         parameters: {
             query?: {
-                /** @description The days to show, ending on the last day Google has numbers for (default 30d) */
-                period?: "7d" | "30d" | "90d" | "12mo";
+                /** @description The days to show, ending on the last day Google has finished counting (default 28d) */
+                period?: "7d" | "28d" | "91d" | "12mo";
                 /** @description Or the first day (YYYY-MM-DD)... */
                 from?: string;
                 /** @description ...and the last (default today) */
