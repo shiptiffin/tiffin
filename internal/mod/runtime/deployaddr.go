@@ -159,6 +159,7 @@ func (r *rt) presentAll(ctx context.Context, project string, ds []*Deploy) {
 		}
 		r.present(d, spec)
 	}
+	r.attachLinkPreviews(ctx, ds)
 }
 
 // deployRef is the deploy an address serves.

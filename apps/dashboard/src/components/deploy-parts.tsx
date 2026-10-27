@@ -1,6 +1,6 @@
 import { queryOptions, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { ArrowUpRight, Copy, FileCode2, FileText, GitBranch, GitCommitHorizontal, LayoutTemplate, MoreHorizontal, Package, RotateCw, Undo2, Upload } from "lucide-react";
+import { ArrowUpRight, Copy, FileCode2, FileText, GitBranch, GitCommitHorizontal, LayoutTemplate, MoreHorizontal, Package, RotateCw, TriangleAlert, Undo2, Upload } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { request } from "@/api/client";
 import { deploysApi, mod3, type Deploy } from "@/api/modules";
@@ -100,7 +100,7 @@ export const allDeploysQuery = (project: string, app: string) =>
     queryKey: ["deploys", project, app, "all"],
     queryFn: () =>
       request<components["schemas"]["RuntimeDeployList"]>("GET", `/v1/projects/${encodeURIComponent(project)}/apps/${encodeURIComponent(app)}/deploys?all=true&limit=200`).then(
-        (r) => r.deploys ?? [],
+        (r): Deploy[] => r.deploys ?? [],
       ),
     refetchInterval: (qq) => ((qq.state.data ?? []).some((d) => inFlight(d.status)) ? 1500 : 10_000),
   });
@@ -373,6 +373,7 @@ export function DeployRow({
           )}
           {current && <span className="shrink-0 rounded-[4px] border border-rule-2 px-1 text-[0.6875rem] leading-4 font-[550] text-ink-2">Current</span>}
         </Link>
+        {d.linkPreview?.worse && <WorsePreview d={d} />}
         <p className="truncate text-xs text-ink-3">
           {env}
           {visit ? (
@@ -485,6 +486,24 @@ export function DeployMenu({ project, d, writer, current, onMakeCurrent, v }: { 
 }
 
 /** Column names over the rows, on wide screens only. */
+/** A deploy that made its link preview worse than the one before: a small mark, its changes in the tooltip. */
+function WorsePreview({ d }: { d: Deploy }) {
+  const what = `Link preview got worse: ${(d.linkPreview?.changes ?? []).join("; ")}`;
+  return (
+    <Link
+      to="/projects/$project/apps/$app/deploys/$id"
+      params={{ project: d.project, app: d.app, id: d.id }}
+      search={{ tab: "preview" }}
+      title={what}
+      aria-label={what}
+      className="relative z-[1] mt-0.5 inline-flex items-center gap-1 text-xs text-warn-ink hover:text-ink"
+    >
+      <TriangleAlert className="size-3" aria-hidden />
+      Link preview worse
+    </Link>
+  );
+}
+
 export function DeployHead() {
   return (
     <div className="grid grid-cols-[8rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,10rem)_2rem] gap-x-4 pr-1 pb-2 pl-2 text-xs text-ink-3 max-md:hidden" aria-hidden>

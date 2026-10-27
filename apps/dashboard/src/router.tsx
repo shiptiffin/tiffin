@@ -707,7 +707,7 @@ const appRoute = createRoute({
 const deployRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/apps/$app/deploys/$id",
-  validateSearch: (s: Record<string, unknown>): { tab?: "runtime" } => (s.tab === "runtime" ? { tab: "runtime" } : {}),
+  validateSearch: (s: Record<string, unknown>): { tab?: "runtime" | "preview" } => (s.tab === "runtime" || s.tab === "preview" ? { tab: s.tab } : {}),
   loader: () => void DeployPage.preload(),
   component: function DeployView() {
     const { project: p, app: a, id } = deployRoute.useParams();

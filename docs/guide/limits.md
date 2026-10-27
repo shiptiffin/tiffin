@@ -129,6 +129,19 @@ set `runtime: "node"` for them:
   over. Connect a DNS provider for a wildcard certificate instead.
 - A cleaned-up version's address answers its "cleaned up" page while the box keeps its
   record (the last 50 per app), then "nothing here".
+- **Link previews** read only the home page: other pages may share differently. The box
+  reads the deploy on its own network, so headers added in front of the app (vercel.json
+  `headers`, a Cloudflare proxy) aren't seen. robots.txt and sitemaps are checked per
+  domain under [Search engines](#search-engines), not here.
+- X, Facebook and LinkedIn keep their own copy of a page's preview for a while. The report
+  shows what the page says now. To make Facebook or LinkedIn read the page again, use
+  Facebook's Sharing Debugger or LinkedIn's Post Inspector.
+- Pages that build their tags in the browser (a single-page app without server rendering)
+  show what crawlers see: no tags.
+- A deploy is checked when it goes live. Only the live deploy can be checked again, and
+  not while it's asleep.
+- The box keeps the report and an 800 px copy of the share image as long as it keeps the
+  deploy.
 - **Changes made outside your config** (see [Concepts](concepts.md#changes-made-outside-your-config)):
   the box can't see what your file has seen, only what it holds now. So:
   - After `tiffin pull`, deleting something that was added outside the file (removing the

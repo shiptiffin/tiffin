@@ -364,6 +364,9 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		_ = r.syncCrons(ctx, d.Project, d.App, log)
 		r.refreshIconLater(d.Project, d.App, d.ID)
 	}
+	if spec.Role != manifest.RoleWorker {
+		r.checkLinkPreviewLater(d, false)
+	}
 	r.gc(ctx, d.Project, d.App, d.Preview)
 	return nil
 }
@@ -1427,6 +1430,9 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 	if d.Preview == "" {
 		_ = r.syncCrons(ctx, project, app, w)
 		r.refreshIconLater(project, app, d.ID)
+		if spec.Role != manifest.RoleWorker {
+			r.checkLinkPreviewLater(d, true)
+		}
 		// Its address is production's now: an old-version copy of it goes.
 		r.syncVersionEnvs(ctx, project, app)
 	}

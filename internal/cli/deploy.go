@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/shiptiffin/tiffin/internal/api"
+	"github.com/shiptiffin/tiffin/internal/linkpreview"
 	"github.com/shiptiffin/tiffin/internal/mod/runtime/srcpack"
 	"github.com/shiptiffin/tiffin/internal/version"
 	"github.com/spf13/cobra"
@@ -55,6 +56,9 @@ type rtDeploy struct {
 	TotalSecs  float64  `json:"durationSeconds,omitempty"`
 	CreatedAt  string   `json:"createdAt,omitempty"`
 	SourceSize int64    `json:"sourceBytes,omitempty"`
+	// LinkPreview is what a link to the live app shows, in brief.
+	LinkPreview *linkpreview.LinkSummary `json:"linkPreview,omitempty"`
+	compared    *linkpreview.LinkBaseline
 }
 
 func (d *rtDeploy) terminal() bool {
@@ -249,6 +253,7 @@ func (a *app) deployCmd() *cobra.Command {
 				results[i] = fd
 				if u := orDefault(fd.AppURL, fd.URL); fd.Status == "live" && u != "" {
 					checks[fd.ID] = a.checkURL(ctx, c, u) // the app's address: its own may need a sign-in
+					a.linkPreview(ctx, c, fd)
 				}
 			}
 			a.printDeploys(results, checks)
@@ -458,6 +463,75 @@ func readSSE(r io.Reader, fn func(event string, data []byte) bool) {
 }
 
 // checkURL fetches a freshly deployed URL over HTTPS (trusting the box CA).
+// linkPreview reads what a link to a live deploy shows: the box checks it
+// right after the deploy goes live, so this waits a little for that.
+func (a *app) linkPreview(ctx context.Context, c *client, d *rtDeploy) {
+	path := "/v1/projects/" + url.PathEscape(d.Project) + "/apps/" + url.PathEscape(d.App) + "/deploys/" + d.ID + "/link-preview"
+	code, body, err := c.do(ctx, http.MethodGet, path, url.Values{"wait": {"20"}}, nil)
+	if err != nil || code != http.StatusOK {
+		return // an older box, or nothing to read: the deploy itself is fine
+	}
+	var rep linkpreview.LinkReport
+	if json.Unmarshal(body, &rep) == nil && rep.Status != "" {
+		d.LinkPreview, d.compared = rep.Summary(), rep.Compared
+	}
+}
+
+// printLinkPreview is the deploy's link preview in a few lines.
+func (a *app) printLinkPreview(d *rtDeploy) {
+	lp := d.LinkPreview
+	if lp == nil {
+		return
+	}
+	label := a.paint("link preview:", dim)
+	if lp.Status == linkpreview.StatusUnreadable {
+		fmt.Fprintf(a.io.Out, "  %s %s %s\n", label, a.paint("!", amber), strings.Join(lp.Problems, "; "))
+		return
+	}
+	var line []string
+	if lp.Title != "" {
+		line = append(line, strconv.Quote(lp.Title))
+	} else {
+		line = append(line, "no title")
+	}
+	if i := strings.LastIndex(lp.Image, " ("); i > 0 {
+		line = append(line, "image "+strings.Trim(lp.Image[i+2:], ")"))
+	} else if lp.Image != "" {
+		line = append(line, "image")
+	} else {
+		line = append(line, "no image")
+	}
+	mark := a.paint("✓", green)
+	if n := len(lp.Problems); n > 0 {
+		mark = a.paint(fmt.Sprintf("%d to fix", n), amber)
+		if lp.Status == linkpreview.StatusBad {
+			mark = a.paint(fmt.Sprintf("%d to fix", n), red)
+		}
+	}
+	fmt.Fprintf(a.io.Out, "  %s %s · %s\n", label, strings.Join(line, " · "), mark)
+	for _, p := range lp.Problems {
+		fmt.Fprintf(a.io.Out, "    - %s\n", p)
+	}
+	if len(lp.Changes) > 0 {
+		since := "since the version before"
+		if c := d.compared; c != nil && c.Production {
+			since = "from production"
+			if c.Version > 0 {
+				since = fmt.Sprintf("from production (v%d)", c.Version)
+			}
+		} else if c != nil && c.Version > 0 {
+			since = fmt.Sprintf("since v%d", c.Version)
+		}
+		fmt.Fprintf(a.io.Out, "    %s\n", a.paint("changed "+since+":", dim))
+		for _, ch := range lp.Changes {
+			fmt.Fprintf(a.io.Out, "    - %s\n", ch)
+		}
+	}
+	if len(lp.Problems) > 0 || len(lp.Changes) > 0 {
+		fmt.Fprintf(a.io.Out, "    %s tiffin deploys link-preview %s %s %s\n", a.paint("details:", dim), d.Project, d.App, d.ID)
+	}
+}
+
 func (a *app) checkURL(ctx context.Context, c *client, u string) string {
 	if c.handler != nil {
 		return ""
@@ -582,6 +656,7 @@ func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
 			if d.Preview == "" && d.URL != "" && d.URL != d.AppURL {
 				fmt.Fprintf(a.io.Out, "  %s %s\n", a.paint("this version, kept at its own address:", dim), d.URL)
 			}
+			a.printLinkPreview(d)
 		case "queued":
 			fmt.Fprintf(a.io.Out, "%s queued as deploy %s; follow it with: tiffin deploys build-log %s %s %s --follow\n", d.App, d.ID, d.Project, d.App, d.ID)
 		default:

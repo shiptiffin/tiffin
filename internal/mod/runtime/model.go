@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shiptiffin/tiffin/internal/linkpreview"
 	"github.com/shiptiffin/tiffin/internal/mod/runtime/vercelcfg"
 	"github.com/shiptiffin/tiffin/internal/state"
 )
@@ -99,6 +100,8 @@ type Deploy struct {
 	// PublicEnv identifies the browser-visible env the build had.
 	PublicEnv   string  `json:"publicEnv,omitempty" doc:"Hash of the env the build wrote into browser code (NEXT_PUBLIC_*, VITE_*, PUBLIC_*). When it changes, the box rebuilds the app from this deploy's source."`
 	ReleaseSecs float64 `json:"releaseSeconds,omitempty" doc:"Time the app's release command took"`
+	// LinkPreview is filled in when the deploy is read, never stored with it.
+	LinkPreview *linkpreview.LinkSummary `json:"linkPreview,omitempty" doc:"Web apps, once live: what a shared link to the home page shows, in brief (title, share image), each problem the box found and what changed since the version before. deploys link-preview has the whole report."`
 }
 
 // Terminal reports whether the deploy finished its pipeline.
@@ -210,7 +213,9 @@ type store struct {
 var errNotFound = errors.New("not found")
 
 func (s store) putDeploy(ctx context.Context, d *Deploy) error {
-	b, err := json.Marshal(d)
+	c := *d
+	c.LinkPreview = nil // read from its own record
+	b, err := json.Marshal(&c)
 	if err != nil {
 		return err
 	}
@@ -252,6 +257,7 @@ func (s store) listDeploys(ctx context.Context, project, app, preview string) ([
 }
 
 func (s store) deleteDeploy(ctx context.Context, d *Deploy) error {
+	s.deleteLinkPreview(ctx, d.Project, d.App, d.ID)
 	return s.db.KVDelete(ctx, nsDeploys(d.Project, d.App), d.ID)
 }
 

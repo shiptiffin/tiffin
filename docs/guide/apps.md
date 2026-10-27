@@ -205,6 +205,54 @@ own address. Workers have none.
   hosted apps domain has one), the addresses are covered already. Without one, each
   address gets its own certificate on its first visit, as previews' do.
 
+### Link previews
+
+When a link to your site is pasted into X, Slack, LinkedIn, iMessage or a search result,
+those services read the page's title, description and share image. Each time a web app's
+deploy goes live (production or a preview), the box reads its home page the way their
+crawlers do. Then it keeps what a shared link shows, what's missing, and what changed.
+
+- **Where:** the deploy page's **Link preview** tab draws the link as Google, X, LinkedIn
+  and Slack show it. Next to the drawing is a checklist of what to fix, then what changed
+  since the version before, then the tags as written. The deploy's facts and the app's
+  Production row say "All good" or how many things to fix. The project card on the home
+  page shows the live share image.
+- **For agents and scripts:** `tiffin deploy` prints a line once the app is live, such as
+  `link preview: "Dibs – sign-up sheets" · image 1200×630 · ✓`, or each problem with its
+  fix, and what changed. `deploys get` (MCP `deploy_get`) carries the same in brief as
+  `linkPreview` (`status`, `problems`, `changes`, `worse`). `tiffin deploys link-preview
+  <project> <app> <deploy>` (MCP `deploy_link_preview`) has the whole report; pass
+  `--wait 20` right after a deploy.
+- **What is checked.** Red means a share looks broken: no title, no image, or an image
+  nobody can load. Yellow is a suggestion, such as a title that will be cut off. A tick can
+  still carry a note, such as a short description.
+  - the share title (`og:title`, 10 to 60 characters) and the page's `<title>` (search
+    results cut it off after about 60)
+  - the share description (`og:description`) and the meta description (search results cut
+    it off after about 160)
+  - the site name (`og:site_name`), and which title, description and image X uses: its
+    own `twitter:` tags, or the `og:` ones it falls back to
+  - the share image (`og:image`, else `twitter:image`): fetched and measured. It must be
+    a full https address that anyone can open, PNG, JPEG, WebP or GIF, at most 5 MB,
+    about 1.91:1 and at least 600×315 for a large card (1200×630 is right everywhere).
+    It must not point at `localhost` or at another copy of the app, such as a preview
+    or an old version.
+  - `twitter:card` (`summary_large_image` shows the image full width on X)
+  - the canonical address
+  - `noindex` (meta or `X-Robots-Tag`; production only)
+  - the icon
+- **Previews** are compared with production's live version, so a pull request shows how its
+  link would change before you merge it.
+- **Check again:** the tab's **Check again** button, or `tiffin deploys link-preview check
+  <project> <app> <deploy>`, reads the live deploy again (after you replaced an image the app serves from its bucket,
+  say). A deploy that went live before the box checked deploys is checked the first time
+  someone opens its tab.
+- **What the box sends:** the request names itself (`Tiffin-LinkPreview`) and the unfurlers
+  it stands in for (Twitterbot, facebookexternalhit, Slackbot). That way frameworks that
+  stream metadata to browsers, like Next.js, put it in `<head>` as they do for those
+  crawlers. Only images on other public sites are fetched from outside the box. See
+  [the limits](limits.md#deploys-and-changes).
+
 ## Build settings
 
 Detection picks how an app builds. When it guesses wrong, override it, in the app's

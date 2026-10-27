@@ -2540,6 +2540,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/apps/{app}/deploys/{id}/link-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * See how a deploy's link shares
+         * @description What a link to the deploy's home page shows on X, Facebook, LinkedIn, Slack and in search results, read the way their crawlers do: title, description, share image (fetched and measured), twitter:card, canonical, robots and icon, each checked (ok, warn or bad, with what to fix), the tags as written, and what changed since the version before (a preview: against production). The box checks every web deploy when it goes live; deploys get gives the same in brief (linkPreview). Pass wait (seconds) right after a deploy to get the report once its check is done.
+         */
+        get: operations["deploy-link-preview"];
+        put?: never;
+        /**
+         * Check a deploy's link preview again
+         * @description Reads the deploy's home page again now and keeps the new report (after you changed a share image the app serves from storage, say). Only the deploy that serves its environment, while it's awake.
+         */
+        post: operations["deploy-link-preview-check"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/apps/{app}/deploys/{id}/link-preview/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a deploy's share image
+         * @description The box's small copy of the deploy's share image (800 px wide), for the dashboard. 404 when it kept none.
+         */
+        get: operations["deploy-link-preview-image"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/apps/{app}/deploys/{id}/rollback": {
         parameters: {
             query?: never;
@@ -4115,6 +4159,26 @@ export interface paths {
          * @description Forgets a saved query. The database is not touched.
          */
         delete: operations["db-delete-query"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a project's share image
+         * @description The share image of the live version of the app at the project's main address (the box's small copy), for the dashboard's project cards. 404 when it has none.
+         */
+        get: operations["project-preview-image"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -9667,6 +9731,62 @@ export interface components {
             /** @description Its id in the API, e.g. cloudflare. */
             name: string;
         };
+        LinkBaseline: {
+            deploy: string;
+            preview?: string;
+            /** @description True when a preview is compared with production's live version */
+            production?: boolean;
+            /**
+             * Format: int64
+             * @description Its production version
+             */
+            version?: number;
+        };
+        LinkChange: {
+            /** @description What changed, for people (Title, Share image…) */
+            field: string;
+            from?: string;
+            to?: string;
+            /** @description True when the change made the link preview worse (something went missing or a check got worse) */
+            worse?: boolean;
+        };
+        LinkCheck: {
+            /** @description What the box found */
+            detail: string;
+            /** @description What to change, when it isn't ok */
+            fix?: string;
+            /** @enum {string} */
+            id: "title" | "page-title" | "description" | "meta-description" | "site-name" | "image" | "image-size" | "twitter-card" | "x-title" | "x-description" | "x-image" | "canonical" | "robots" | "icon";
+            /** @description What was checked, for people */
+            label: string;
+            /** @enum {string} */
+            status: "ok" | "warn" | "bad";
+        };
+        LinkSummary: {
+            /**
+             * Format: int64
+             * @description How many checks are bad
+             */
+            bad?: number;
+            /** @description What changed against the version before (production) or production (a preview) */
+            changes?: string[] | null;
+            /** Format: date-time */
+            checkedAt: string;
+            /** @description The share image's address and size, e.g. https://x.com/og.png (1200×630) */
+            image?: string;
+            /** @description Each check that isn't ok: what it found and what to change */
+            problems?: string[] | null;
+            /** @enum {string} */
+            status: "ok" | "warn" | "bad" | "unreadable";
+            title?: string;
+            /**
+             * Format: int64
+             * @description How many checks are warnings
+             */
+            warn?: number;
+            /** @description The deploy made the link preview worse than the one before */
+            worse?: boolean;
+        };
         LoginLink: {
             code: string;
             /** Format: date-time */
@@ -10536,6 +10656,11 @@ export interface components {
             items: components["schemas"]["QueueRun"][];
             /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
             nextCursor?: string;
+        };
+        PageTag: {
+            /** @description title, a meta tag's name or property (og:image), or link rel=… (link canonical) */
+            name: string;
+            value: string;
         };
         Passkey: {
             /** Format: date-time */
@@ -12508,6 +12633,8 @@ export interface components {
              * @enum {string}
              */
             launch?: "sveltekit" | "nuxt" | "react-router" | "";
+            /** @description Web apps, once live: what a shared link to the home page shows, in brief (title, share image), each problem the box found and what changed since the version before. deploys link-preview has the whole report. */
+            linkPreview?: components["schemas"]["LinkSummary"];
             /**
              * Format: date-time
              * @description When it went live: deployed, or rolled back to. Restarts and rescales don't move it.
@@ -12932,6 +13059,59 @@ export interface components {
             running: boolean;
             /** @description Container state (running, exited, restarting...) */
             state: string;
+        };
+        RuntimeLinkPreview: {
+            /** @description Whether the deploy serves its environment and is awake, so it can be checked again now */
+            canCheck: boolean;
+            /** @description The page's canonical address, as written */
+            canonical?: string;
+            /** @description What changed against compared; empty when nothing did */
+            changes?: components["schemas"]["LinkChange"][] | null;
+            /**
+             * Format: date-time
+             * @description When the box read the page
+             */
+            checkedAt: string;
+            /** @description What was checked, worst first within the list's order */
+            checks: components["schemas"]["LinkCheck"][] | null;
+            /** @description The earlier report the changes are against: the version before for production, production's live version for a preview */
+            compared?: components["schemas"]["LinkBaseline"];
+            /** @description The deploy that was checked */
+            deploy: string;
+            /** @description The description a shared link shows: og:description, else twitter:description, else the meta description */
+            description?: string;
+            /** @description Where the page's icon is (its <link rel=icon>, else /favicon.ico), when it answers */
+            icon?: string;
+            /** @description The share image (og:image, else twitter:image), when the page names one */
+            image?: components["schemas"]["ShareImage"];
+            /** @description The meta description, which search results show */
+            metaDescription?: string;
+            /** @description The page's <title>, which search results show */
+            pageTitle?: string;
+            /** @description Why the page couldn't be read (status unreadable) */
+            reason?: string;
+            /** @description og:site_name */
+            siteName?: string;
+            /**
+             * @description The worst of the checks; unreadable when the page did not answer or isn't a web page
+             * @enum {string}
+             */
+            status: "ok" | "warn" | "bad" | "unreadable";
+            /** @description The page's title, meta and link tags that bear on sharing, as written */
+            tags?: components["schemas"]["PageTag"][] | null;
+            themeColor?: string;
+            /** @description A small copy of the share image the box kept (same session); the v parameter changes with the image */
+            thumbUrl?: string;
+            /** @description The title a shared link shows: og:title, else twitter:title, else <title> */
+            title?: string;
+            /** @description twitter:card (summary_large_image shows the image full width on X) */
+            twitterCard?: string;
+            /** @description The page that was read (the home page, at the address visitors use) */
+            url: string;
+            /** @description The description X shows: twitter:description, else the description above */
+            xDescription?: string;
+            /** @description The title X shows: twitter:title, else the title above */
+            xTitle?: string;
         };
         RuntimeLogLine: {
             deploy: string;
@@ -13754,6 +13934,32 @@ export interface components {
             auth?: components["schemas"]["ProtectLimit"];
             /** Format: int64 */
             difficulty?: number;
+        };
+        ShareImage: {
+            /** @description og:image:alt or twitter:image:alt */
+            alt?: string;
+            /** Format: int64 */
+            bytes?: number;
+            /** @description Why the image couldn't be read */
+            error?: string;
+            /** @description Identifies the image's bytes: it changes only when they do */
+            hash?: string;
+            /** Format: int64 */
+            height?: number;
+            mime?: string;
+            /**
+             * Format: int64
+             * @description What the image's address answered (200 when it was fetched)
+             */
+            status?: number;
+            /** @description Whether the box kept a small copy to show */
+            thumb?: boolean;
+            /** @description The image's address, resolved against the page */
+            url: string;
+            /** Format: int64 */
+            width?: number;
+            /** @description The address as the page wrote it, when it differs (a relative path) */
+            written?: string;
         };
         "Snapshot-restoreRequest": {
             /** @description The confirm value from the preview (status 428) */
@@ -26064,6 +26270,265 @@ export interface operations {
             };
         };
     };
+    "deploy-link-preview": {
+        parameters: {
+            query?: {
+                /** @description Seconds to wait for a check that hasn't finished (a deploy that just went live) */
+                wait?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description App name */
+                app: string;
+                /** @description Deploy ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLinkPreview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "deploy-link-preview-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description App name */
+                app: string;
+                /** @description Deploy ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeLinkPreview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "deploy-link-preview-image": {
+        parameters: {
+            query?: {
+                /** @description The image's hash, to cache it for good */
+                v?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description App name */
+                app: string;
+                /** @description Deploy ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "deploy-rollback": {
         parameters: {
             query?: never;
@@ -33512,6 +33977,84 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-preview-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
             };
             /** @description Bad Request */
             400: {
