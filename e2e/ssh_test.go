@@ -228,7 +228,7 @@ sudo systemctl daemon-reload; sudo mount /mnt/HC_Volume_123`)
 		raw, _ := json.Marshal(doc)
 		b.apply("shop", string(raw))
 		b.waitReady("service/postgres")
-		d := b.ok("deploys", "template", "shop", tp.App, "--template", tp.ID)
+		d := b.ok("deploys", "template", "shop", tp.App, "--template", tp.ID, "--no-wait")
 		live := waitDeploy(t, b, "shop", tp.App, fmt.Sprint(d["id"]), 10*time.Minute)
 		app = fmt.Sprint(live["appUrl"]) // the app's address; url is the deploy's own (signed-in only)
 	}

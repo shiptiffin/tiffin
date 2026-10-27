@@ -217,7 +217,8 @@ crawlers do. Then it keeps what a shared link shows, what's missing, and what ch
   since the version before, then the tags as written. The deploy's facts and the app's
   Production row say "All good" or how many things to fix. The project card on the home
   page shows the live share image.
-- **For agents and scripts:** `tiffin deploy` prints a line once the app is live, such as
+- **For agents and scripts:** `tiffin deploy`, and `tiffin deploys github`, `redeploy`, `git` and
+  `template`, wait until the deploy is live (`--no-wait` returns at once) and then print a line, such as
   `link preview: "Dibs – sign-up sheets" · image 1200×630 · ✓`, or each problem with its
   fix, and what changed. `deploys get` (MCP `deploy_get`) carries the same in brief as
   `linkPreview` (`status`, `problems`, `changes`, `worse`). `tiffin deploys link-preview

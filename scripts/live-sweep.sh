@@ -168,7 +168,7 @@ start_deploy() {
   if [ "$1" = dockerfile ]; then
     t deploy "$4" --no-wait 2>&1 | jq -r '(.deploys // [.])[0].id // .id // empty' 2>/dev/null
   else
-    t deploys template "$2" "$3" --template "$1" 2>&1 | jq -r '.id // empty' 2>/dev/null
+    t deploys template "$2" "$3" --template "$1" --no-wait 2>&1 | jq -r '.id // empty' 2>/dev/null
   fi
 }
 

@@ -63,7 +63,7 @@ func TestFastAPI(t *testing.T) {
 	p = time.Now()
 	deployTemplate := func() map[string]any {
 		t.Helper()
-		d := b.ok("deploys", "template", "pynotes", "api", "--template", "fastapi")
+		d := b.ok("deploys", "template", "pynotes", "api", "--template", "fastapi", "--no-wait")
 		return waitDeploy(t, b, "pynotes", "api", d["id"].(string), 15*time.Minute)
 	}
 	d1 := deployTemplate()

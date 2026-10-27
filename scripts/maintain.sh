@@ -141,7 +141,7 @@ EOF
         | .status | to_entries[] | select(.key as $k | $apps | index($k)) | select(.value.release == "live")
         | .key | sub("app/";"")'); do
       printf '%s/%s: ' "$p" "$a"
-      id=$(tf deploys redeploy "$p" "$a" --json 2>/dev/null | jq -r '.id // empty')
+      id=$(tf deploys redeploy "$p" "$a" --no-wait --json 2>/dev/null | jq -r '.id // empty')
       if [ -z "$id" ]; then echo "cannot rebuild (prebuilt image or no source kept)"; skipped+=("$p/$a (no source to rebuild: redeploy it from its source)"); continue; fi
       for _ in $(seq 8); do # the API waits at most 300s per call: up to 40 minutes
         st=$(tf deploys get "$p" "$a" "$id" --wait 300 --json 2>/dev/null | jq -r '.status // "unknown"')

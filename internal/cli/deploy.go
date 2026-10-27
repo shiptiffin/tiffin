@@ -246,15 +246,11 @@ func (a *app) deployCmd() *cobra.Command {
 			}
 			checks := map[string]string{}
 			for i, d := range results {
-				fd, err := a.followDeploy(ctx, c, d, len(results) > 1)
+				fd, check, err := a.finishDeploy(ctx, c, d, len(results) > 1)
 				if err != nil {
 					return err
 				}
-				results[i] = fd
-				if u := orDefault(fd.AppURL, fd.URL); fd.Status == "live" && u != "" {
-					checks[fd.ID] = a.checkURL(ctx, c, u) // the app's address: its own may need a sign-in
-					a.linkPreview(ctx, c, fd)
-				}
+				results[i], checks[fd.ID] = fd, check
 			}
 			a.printDeploys(results, checks)
 			for _, d := range results {
@@ -463,6 +459,21 @@ func readSSE(r io.Reader, fn func(event string, data []byte) bool) {
 }
 
 // checkURL fetches a freshly deployed URL over HTTPS (trusting the box CA).
+// finishDeploy follows a queued deploy until it is live or failed. Once it
+// is live it opens the app's address and reads its link preview.
+func (a *app) finishDeploy(ctx context.Context, c *client, d *rtDeploy, prefix bool) (*rtDeploy, string, error) {
+	fd, err := a.followDeploy(ctx, c, d, prefix)
+	if err != nil {
+		return nil, "", err
+	}
+	check := ""
+	if u := orDefault(fd.AppURL, fd.URL); fd.Status == "live" && u != "" {
+		check = a.checkURL(ctx, c, u) // the app's address: its own may need a sign-in
+		a.linkPreview(ctx, c, fd)
+	}
+	return fd, check, nil
+}
+
 // linkPreview reads what a link to a live deploy shows: the box checks it
 // right after the deploy goes live, so this waits a little for that.
 func (a *app) linkPreview(ctx context.Context, c *client, d *rtDeploy) {

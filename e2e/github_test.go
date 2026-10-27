@@ -103,13 +103,13 @@ func TestGitHub(t *testing.T) {
 	if pm := b.ok("projects", "manifest", "ghshop"); !strings.Contains(pm["config"].(string), `git: { repo: "octo/shop", path: "web" }`) {
 		t.Fatalf("the git block round-trips through tiffin pull: %s", pm["config"])
 	}
-	d := b.ok("deploys", "github", "ghshop", "site")
+	d := b.ok("deploys", "github", "ghshop", "site", "--no-wait")
 	if d["commit"] != first || d["trigger"] != "redeploy" {
 		t.Fatalf("deploys github: %v", d)
 	}
 	waitDeploy(t, b, "ghshop", "site", d["id"].(string), 5*time.Minute)
 	// A container app from the same repository: cloned, built with Railpack, health-checked.
-	da := b.ok("deploys", "github", "ghshop", "api")
+	da := b.ok("deploys", "github", "ghshop", "api", "--no-wait")
 	built := waitDeploy(t, b, "ghshop", "api", da["id"].(string), 15*time.Minute)
 	t.Logf("api (Bun, Railpack) first deploy: build %vs, total %vs", orZero(built["buildSeconds"]), orZero(built["durationSeconds"]))
 	c := b.https()
