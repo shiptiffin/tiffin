@@ -91,7 +91,7 @@
         "react-email": "6.11.1",
       },
       "devDependencies": {
-        "@react-email/ui": "6.11.1",
+        "@react-email/ui": "6.11.4",
         "@types/react": "^19.2.0",
         "@types/react-dom": "^19.2.0",
         "css-tree": "3.2.1",
@@ -574,7 +574,7 @@
 
     "@react-email/render": ["@react-email/render@2.1.0", "", { "dependencies": { "entities": "^4.5.0", "html-to-text": "^9.0.5", "html5parser": "^3.0.0", "prettier": "^3.5.3" }, "peerDependencies": { "react": "^18.0 || ^19.0 || ^19.0.0-rc", "react-dom": "^18.0 || ^19.0 || ^19.0.0-rc" } }, "sha512-F+zE3O6d6sW6Aj2UjvZAA17R7tJKM7kcq2mgV6k4HCT8jeLLFaVP2txMtH1lgqYFRMZ0Gxsd37q2PRyiXLXXxA=="],
 
-    "@react-email/ui": ["@react-email/ui@6.11.1", "", { "dependencies": { "esbuild": "0.28.2", "jiti": "2.6.1", "next": "16.3.3" } }, "sha512-Toy+g7u+9USdFV3YKIUEK66c356+/LDumDnpz7eVdjgCC3TCDb/v6WcfTSoU+RSHRkpUQjl7B9MOtQ/dgj5yYQ=="],
+    "@react-email/ui": ["@react-email/ui@6.11.4", "", { "dependencies": { "esbuild": "0.28.2", "jiti": "2.6.1", "next": "16.4.1" } }, "sha512-jsV+1K4P9Ka7Vzzs0UlBaIaMHsQH8E2ir9qcZXQLKGrrxnA74PkdHGfZMbC0CWpwoiS0YIYEjeNvMbGFGn3Xzw=="],
 
     "@redocly/ajv": ["@redocly/ajv@8.11.2", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2", "uri-js-replace": "^1.0.1" } }, "sha512-io1JpnwtIcvojV7QKDUSIuMN/ikdOUd1ReEnUnMKGfDVridQZ31J0MmIuqwuRjWDZfmvr+Q0MqCcfHM2gTivOg=="],
 

@@ -11,6 +11,6 @@
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "@types/bun": "1.4.2"
+    "@types/bun": "1.4.4"
   }
 }
