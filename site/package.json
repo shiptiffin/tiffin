@@ -10,12 +10,12 @@
   },
   "dependencies": {
     "@shiptiffin/sdk": "file:./vendor/shiptiffin-sdk-0.2.0.tgz",
-    "marked": "18.1.0",
+    "marked": "18.1.2",
     "next": "16.4.1",
     "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-email": "6.11.1",
+    "react-email": "6.11.4",
     "shiki": "4.5.0"
   },
   "devDependencies": {

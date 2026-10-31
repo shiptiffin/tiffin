@@ -10,7 +10,7 @@
   "dependencies": {
     "nuxt": "4.6.2",
     "postgres": "3.4.9",
-    "vue": "3.5.43",
+    "vue": "3.5.44",
     "vue-router": "5.4.0"
   }
 }
