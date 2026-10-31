@@ -7,9 +7,9 @@
     "start": "bun index.ts"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "7.10.0",
-    "@prisma/client": "7.10.0",
-    "drizzle-orm": "0.45.3",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "drizzle-orm": "0.45.4",
     "pg": "8.23.1",
     "postgres": "3.4.9"
   },
