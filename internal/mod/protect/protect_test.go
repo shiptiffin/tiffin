@@ -93,6 +93,7 @@ func TestRenderFirewall(t *testing.T) {
 		"udp dport { 68, 546 } accept",
 		"udp dport 443 accept",
 		"ct count over 256",
+		"ip hdrlength > 5 meta l4proto tcp counter drop", // CVE-2026-98432
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("ruleset lacks %q", want)
