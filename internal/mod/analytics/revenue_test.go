@@ -843,7 +843,6 @@ func TestReferenceMustBeAnAccount(t *testing.T) {
 	}
 }
 
-
 // lineItem is a Checkout line item for product (description = its name).
 func lineItem(product, name string, amount int64) map[string]any {
 	return map[string]any{"object": "item", "description": name, "amount_total": amount, "price": map[string]any{"product": product}}
