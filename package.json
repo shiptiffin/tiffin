@@ -12,6 +12,6 @@
     "typescript": "^5.9.0"
   },
   "overrides": {
-    "next": "16.4.1"
+    "next": "16.4.3"
   }
 }
