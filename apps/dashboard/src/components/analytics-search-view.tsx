@@ -14,6 +14,7 @@ import { ProblemNote } from "@/components/problem";
 import { StatusDot } from "@/components/project-domains";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/segmented";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { ViewToggle } from "@/components/usage-charts";
 import { cn } from "@/lib/cn";
@@ -35,7 +36,13 @@ import type { AnalyticsSearch } from "@/routes/analytics-search";
  */
 
 /** The periods that make sense for search: no hours, Google is days behind. */
-export const SEARCH_PERIODS: Per[] = periods.filter((p) => ["7d", "30d", "90d", "12mo"].includes(p.v));
+/** Whole weeks (and a year), as Google's own reports have them: both periods hold the same weekdays. */
+export const SEARCH_PERIODS: Per[] = [
+  periods.find((p) => p.v === "7d")!,
+  { v: "28d", label: "Last 28 days", before: "the 28 days before", ms: 28 * DAY },
+  { v: "91d", label: "Last 3 months", before: "the 3 months before", ms: 91 * DAY },
+  periods.find((p) => p.v === "12mo")!,
+];
 
 type Metric = "clicks" | "impressions" | "ctr" | "position";
 type Day = SearchReport extends { searches?: infer S } ? (S extends { daily: (infer D)[] | null } ? D : never) : never;
@@ -78,7 +85,7 @@ export function SearchView({
   go: (patch: Partial<AnalyticsSearch>, replace?: boolean) => void;
 }) {
   const custom = !!search.from;
-  const preset = SEARCH_PERIODS.find((x) => x.v === (search.period ?? "30d")) ?? SEARCH_PERIODS[1];
+  const preset = SEARCH_PERIODS.find((x) => x.v === (search.period ?? "28d")) ?? SEARCH_PERIODS[1];
   const per: Per = custom ? customPer(search.from!, search.to) : preset;
   const compare = search.compare !== "off";
   const r = useQuery({
@@ -135,11 +142,12 @@ export function SearchView({
             compare={compare}
             markers={markers}
             onLonger={per.v !== "12mo" ? () => go({ period: "12mo", from: undefined, to: undefined }) : undefined}
+            onMonth={() => go({ period: undefined, from: undefined, to: undefined })}
           />
           <div className="mt-6 grid items-start gap-6 lg:grid-cols-2">
             <Found project={project} d={d} />
             <Crawlers d={d} />
-            <AI project={project} d={d} query={custom ? { from: search.from, to: search.to } : { period: preset.v as AnalyticsQuery["period"] }} />
+            <AI project={project} d={d} query={{ from: d.crawlFrom, to: d.crawlTo }} />
           </div>
         </div>
       )}
@@ -218,6 +226,7 @@ function Searches({
   compare,
   markers,
   onLonger,
+  onMonth,
 }: {
   project: string;
   d: SearchReport;
@@ -225,6 +234,8 @@ function Searches({
   compare: boolean;
   markers: Array<{ t: number; label: string }>;
   onLonger?: () => void;
+  /** Back to the default 28 days. */
+  onMonth: () => void;
 }) {
   const [metric, setMetric] = useState<Metric>("clicks");
   const [table, setTable] = useState(false);
@@ -359,13 +370,16 @@ function Searches({
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
             <Legend
               items={[
-                { label: `${dayWords(d.from)} – ${dayWords(s.through && s.through < d.to ? s.through : d.to)}`, color: "var(--data)", line: true },
+                { label: `${dayWords(d.from)} – ${dayWords(d.to)}`, color: "var(--data)", line: true },
                 ...(compare ? [{ label: per.before.replace(/^./, (c) => c.toUpperCase()), color: "var(--ink-4)", line: true, dashed: true }] : []),
                 ...(markers.length ? [{ label: "Deploy", color: "var(--ink-4)", line: true }] : []),
               ]}
             />
             {metric === "position" && <span className="text-[0.75rem] text-ink-3">Lower is better: 1 is the top of the page.</span>}
             {g.filling && <span className="text-[0.75rem] text-ink-3">Still reading Google’s earlier months.</span>}
+            {s.through && s.complete && s.through > s.complete && (
+              <span className="text-[0.75rem] text-ink-3">Google is still counting the days after {dayWords(s.complete)}, so they’re left out.</span>
+            )}
           </div>
           <ViewToggle tables={table} onToggle={() => setTable((x) => !x)} />
         </div>
@@ -420,7 +434,115 @@ function Searches({
           <TopList id="pages" title="Pages" rows={s.pages ?? []} what="page" mono className="max-lg:border-t lg:border-l border-rule" />
         </div>
       )}
+      {!empty && compare && s.moved && <WhatMoved moved={s.moved} before={per.before} onLonger={per.v === "7d" ? onMonth : undefined} />}
     </>,
+  );
+}
+
+type Moved = NonNullable<NonNullable<SearchReport["searches"]>["moved"]>;
+type Mover = NonNullable<Moved["queriesUp"]>[number];
+
+/** What moved: the searches or pages that gained and lost the most against the days before. */
+function WhatMoved({ moved, before, onLonger }: { moved: Moved; before: string; onLonger?: () => void }) {
+  const [pages, setPages] = useState(false);
+  const up = (pages ? moved.pagesUp : moved.queriesUp) ?? [];
+  const down = (pages ? moved.pagesDown : moved.queriesDown) ?? [];
+  // Only changes bigger than chance come back: none at all means too few searches to tell.
+  if (!moved.queriesUp?.length && !moved.queriesDown?.length && !moved.pagesUp?.length && !moved.pagesDown?.length)
+    return (
+      <section
+        aria-labelledby="moved"
+        className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-rule px-4 py-3.5 sm:px-5"
+      >
+        <h3 id="moved" className="text-[0.84375rem] text-ink-3">
+          <span className="font-[550] text-ink">What moved</span> · Too few searches {onLonger ? "in 7 days" : "in these days"} to tell anything moved
+          beyond chance.
+        </h3>
+        {onLonger && (
+          <Button size="sm" onClick={onLonger}>
+            Compare 28 days
+          </Button>
+        )}
+      </section>
+    );
+  return (
+    <section aria-labelledby="moved" className="border-t border-rule px-4 pt-3 pb-4 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h3 id="moved" className="text-[0.84375rem] font-[550] text-ink">
+          What moved <span className="font-normal text-ink-3">against {before}</span>
+        </h3>
+        <Segmented
+          label="What moved"
+          value={pages ? "pages" : "queries"}
+          options={[
+            { value: "queries", label: "Searches" },
+            { value: "pages", label: "Pages" },
+          ]}
+          onChange={(v) => setPages(v === "pages")}
+        />
+      </div>
+      <div className="mt-2 grid gap-x-10 gap-y-3 lg:grid-cols-2">
+        <MoverList title="Up" rows={up} mono={pages} />
+        <MoverList title="Down" rows={down} mono={pages} />
+      </div>
+    </section>
+  );
+}
+
+function MoverList({ title, rows, mono }: { title: string; rows: Mover[]; mono: boolean }) {
+  const [all, setAll] = useState(false);
+  const list = all ? rows : rows.slice(0, 5);
+  return (
+    <div className="min-w-0">
+      <h4 className="pb-1 text-[0.71875rem] text-ink-3">{title}</h4>
+      {rows.length === 0 ? (
+        <p className="py-2 text-[0.8125rem] text-ink-3">Nothing {title === "Up" ? "gained" : "lost"} ground.</p>
+      ) : (
+        <ul className="divide-y divide-rule">
+          {list.map((x) => {
+            const dc = x.clicks - x.prevClicks;
+            const di = x.impressions - x.prevImpressions;
+            const byClicks = dc !== 0;
+            const d = byClicks ? dc : di;
+            return (
+              <li key={x.key} className="flex items-baseline justify-between gap-4 py-2">
+                <span className="min-w-0">
+                  <span className={cn("block truncate text-[0.84375rem] text-ink", mono && "font-mono text-[0.78rem]")} title={x.key}>
+                    {x.key}
+                  </span>
+                  <span className="block text-[0.75rem] text-ink-3 tnum">
+                    {!x.prevImpressions
+                      ? "New"
+                      : !x.impressions
+                        ? "No longer shows"
+                        : `${int(x.prevImpressions)} → ${int(x.impressions)} impressions`}
+                    {x.prevPosition > 0 && x.position > 0 && ` · position ${dec(x.prevPosition, 1)} → ${dec(x.position, 1)}`}
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-[0.8125rem] font-[550] tnum",
+                    d > 0 ? "text-[color-mix(in_oklab,var(--ok),var(--ink)_30%)]" : "text-danger",
+                  )}
+                >
+                  {d > 0 ? "+" : "−"}
+                  {int(Math.abs(d))} {byClicks ? (Math.abs(d) === 1 ? "click" : "clicks") : Math.abs(d) === 1 ? "impression" : "impressions"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {rows.length > 5 && (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          className="mt-1 inline-flex h-7 items-center text-[0.8125rem] text-ink-3 hover:text-ink"
+        >
+          {all ? "Show fewer" : `Show all ${rows.length}`}
+        </button>
+      )}
+    </div>
   );
 }
 

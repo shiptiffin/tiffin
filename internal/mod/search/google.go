@@ -284,11 +284,14 @@ type gRow struct {
 
 // query runs a Search Analytics query (web search, final and fresh data).
 func (g *gclient) query(ctx context.Context, siteURL string, from, to time.Time, dims []string, filter map[string]any, limit int) ([]gRow, error) {
-	return g.queryAt(ctx, siteURL, from, to, dims, filter, limit, 0)
+	rows, _, err := g.queryAt(ctx, siteURL, from, to, dims, filter, limit, 0)
+	return rows, err
 }
 
-// queryAt is query from row start on (Google pages its answers).
-func (g *gclient) queryAt(ctx context.Context, siteURL string, from, to time.Time, dims []string, filter map[string]any, limit, start int) ([]gRow, error) {
+// queryAt is query from row start on (Google pages its answers). It also
+// returns the first day Google is still filling in (its numbers for that
+// day and later will grow), when Google says.
+func (g *gclient) queryAt(ctx context.Context, siteURL string, from, to time.Time, dims []string, filter map[string]any, limit, start int) ([]gRow, string, error) {
 	body := map[string]any{
 		"startDate": from.Format(time.DateOnly), "endDate": to.Format(time.DateOnly),
 		"dimensions": dims, "rowLimit": limit, "dataState": "all", "type": "web",
@@ -300,10 +303,13 @@ func (g *gclient) queryAt(ctx context.Context, siteURL string, from, to time.Tim
 		body["dimensionFilterGroups"] = []any{map[string]any{"filters": []any{filter}}}
 	}
 	var out struct {
-		Rows []gRow `json:"rows"`
+		Rows     []gRow `json:"rows"`
+		Metadata struct {
+			FirstIncompleteDate string `json:"firstIncompleteDate"`
+		} `json:"metadata"`
 	}
 	err := g.call(ctx, http.MethodPost, webmastersAPI+"/sites/"+url.PathEscape(siteURL)+"/searchAnalytics/query", body, &out)
-	return out.Rows, err
+	return out.Rows, out.Metadata.FirstIncompleteDate, err
 }
 
 // GInspection is what Google's URL Inspection says about one page.

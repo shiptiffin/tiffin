@@ -137,6 +137,9 @@ type gdata struct {
 	HistFrom string    `json:"histFrom,omitempty"`
 	HistDone bool      `json:"histDone,omitempty"`
 	HistAt   time.Time `json:"histAt,omitzero"`
+	// Incomplete: the first day Google was still filling in at the last
+	// read; comparisons stop the day before.
+	Incomplete string `json:"incomplete,omitempty"`
 }
 
 type gInspectSeen struct {
@@ -596,7 +599,7 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 	d := &gdata{At: now}
 	if old != nil {
 		d.Inspected, d.InspectDay, d.InspectUsed, d.Sitemap = old.Inspected, old.InspectDay, old.InspectUsed, old.Sitemap
-		d.HistFrom, d.HistDone, d.HistAt = old.HistFrom, old.HistDone, old.HistAt
+		d.HistFrom, d.HistDone, d.HistAt, d.Incomplete = old.HistFrom, old.HistDone, old.HistAt, old.Incomplete
 	}
 	if sitemap != "" {
 		if sm, err := g.sitemapStatus(ctx, prop, sitemap); err == nil {
@@ -672,10 +675,12 @@ func (m *Module) pullHistory(ctx context.Context, g *gclient, prop, host string,
 	d.HistAt = now
 	day := func(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 	from := now.AddDate(0, 0, 1-gRecentDays)
-	if err := m.pullRange(ctx, g, prop, host, from, now); err != nil {
+	inc, err := m.pullRange(ctx, g, prop, host, from, now)
+	if err != nil {
 		m.p.Log.Warn("search: google history", "host", host, "err", err)
 		return
 	}
+	d.Incomplete = inc
 	if d.HistFrom == "" || d.HistFrom > day(from) {
 		d.HistFrom = day(from)
 	}
@@ -695,7 +700,7 @@ func (m *Module) pullHistory(ctx context.Context, g *gclient, prop, host string,
 		if start.Before(floor) {
 			start = floor
 		}
-		if err := m.pullRange(ctx, g, prop, host, start, end); err != nil {
+		if _, err := m.pullRange(ctx, g, prop, host, start, end); err != nil {
 			m.p.Log.Warn("search: google history", "host", host, "err", err)
 			return
 		}
@@ -704,26 +709,35 @@ func (m *Module) pullHistory(ctx context.Context, g *gclient, prop, host string,
 }
 
 // pullRange reads one host's days, queries and pages from..to and replaces
-// what the store holds for those days.
-func (m *Module) pullRange(ctx context.Context, g *gclient, prop, host string, from, to time.Time) error {
+// what the store holds for those days. It returns the first day Google is
+// still filling in, when Google says.
+func (m *Module) pullRange(ctx context.Context, g *gclient, prop, host string, from, to time.Time) (string, error) {
 	filter := hostFilter(host)
 	var sets [3][]gscRow
+	var incomplete string
 	for i, dims := range [][]string{{"date"}, {"date", "query"}, {"date", "page"}} {
-		rows, err := gscRows(ctx, g, prop, from, to, dims, filter)
+		rows, inc, err := gscRows(ctx, g, prop, from, to, dims, filter)
 		if err != nil {
-			return err
+			return "", err
 		}
 		sets[i] = rows
+		if i == 0 {
+			incomplete = inc
+		}
 	}
-	return m.hist.putGSC(ctx, host, from.UTC().Format(time.DateOnly), to.UTC().Format(time.DateOnly), sets[0], sets[1], sets[2])
+	return incomplete, m.hist.putGSC(ctx, host, from.UTC().Format(time.DateOnly), to.UTC().Format(time.DateOnly), sets[0], sets[1], sets[2])
 }
 
-func gscRows(ctx context.Context, g *gclient, prop string, from, to time.Time, dims []string, filter map[string]any) ([]gscRow, error) {
+func gscRows(ctx context.Context, g *gclient, prop string, from, to time.Time, dims []string, filter map[string]any) ([]gscRow, string, error) {
 	var out []gscRow
+	var incomplete string
 	for page := range gHistPages {
-		rows, err := g.queryAt(ctx, prop, from, to, dims, filter, gHistRows, page*gHistRows)
+		rows, inc, err := g.queryAt(ctx, prop, from, to, dims, filter, gHistRows, page*gHistRows)
 		if err != nil {
-			return nil, err
+			return nil, "", err
+		}
+		if page == 0 {
+			incomplete = inc
 		}
 		for _, r := range rows {
 			if len(r.Keys) < len(dims) {
@@ -739,7 +753,7 @@ func gscRows(ctx context.Context, g *gclient, prop string, from, to time.Time, d
 			break
 		}
 	}
-	return out, nil
+	return out, incomplete, nil
 }
 
 // inspectSome asks URL Inspection about up to gInspectDaily pages a day:

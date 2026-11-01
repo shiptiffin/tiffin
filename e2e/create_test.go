@@ -129,7 +129,7 @@ func TestCreate(t *testing.T) {
 	c := b.https()
 	for _, tg := range targets {
 		p = time.Now()
-		d := b.ok("deploys", "template", tg.project, tg.app, "--template", tg.id)
+		d := b.ok("deploys", "template", tg.project, tg.app, "--template", tg.id, "--no-wait")
 		id, _ := d["id"].(string)
 		// A fast build (warm cache) may already be building when the call returns.
 		if (d["status"] != "queued" && d["status"] != "building") || d["template"] != tg.id || id == "" {
@@ -224,7 +224,7 @@ func TestCreate(t *testing.T) {
 			t.Fatalf("editing the fetched manifest must plan exactly the new app: %v", plan)
 		}
 		b.apply("edited", string(raw2))
-		d := b.ok("deploys", "git", "starter", "spoon", "--git-url", gitRepo)
+		d := b.ok("deploys", "git", "starter", "spoon", "--git-url", gitRepo, "--no-wait")
 		id, _ := d["id"].(string)
 		if d["repo"] != gitRepo || d["source"] != "git" {
 			t.Fatalf("deploy git: %v", d)

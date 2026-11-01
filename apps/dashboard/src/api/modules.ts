@@ -123,6 +123,14 @@ export type Limit = S["ProtectLimit"];
 export type AppRuntime = S["RuntimeAppRuntime"];
 export type EnvStatus = S["RuntimeEnvStatus"];
 export type Deploy = S["RuntimeDeploy"];
+
+// Link preview: what a shared link to a deploy's home page shows (internal/linkpreview).
+export type LinkPreviewStatus = S["LinkSummary"]["status"];
+export type LinkPreviewSummary = S["LinkSummary"];
+export type LinkPreviewCheck = S["LinkCheck"];
+export type LinkPreviewImage = S["ShareImage"];
+export type LinkPreviewChange = S["LinkChange"];
+export type LinkPreview = S["RuntimeLinkPreview"];
 export type LogLine = S["RuntimeLogLine"];
 export type AuthOverview = S["AuthOverview"];
 export type AuthUser = S["AuthUser"];
@@ -372,13 +380,18 @@ export const mod3 = {
   // runtime
   runtime: (p: string, app: string) => request<AppRuntime>("GET", `${P(p)}/apps/${e(app)}/runtime`),
   deploys: (p: string, app: string, preview?: string) =>
-    request<S["RuntimeDeployList"]>("GET", `${P(p)}/apps/${e(app)}/deploys${qs({ preview, limit: 50 })}`).then((r) => r.deploys ?? []),
+    request<S["RuntimeDeployList"]>("GET", `${P(p)}/apps/${e(app)}/deploys${qs({ preview, limit: 50 })}`).then((r): Deploy[] => r.deploys ?? []),
   deploy: (p: string, app: string, id: string) => request<Deploy>("GET", `${P(p)}/apps/${e(app)}/deploys/${e(id)}`),
   buildLog: (p: string, app: string, id: string, offset = 0) =>
     request<S["RuntimeBuildLog"]>("GET", `${P(p)}/apps/${e(app)}/deploys/${e(id)}/build-log${qs({ offset })}`),
   buildLogStream: (p: string, app: string, id: string, offset: number) =>
     `${P(p)}/apps/${e(app)}/deploys/${e(id)}/build-log${qs({ offset, follow: true })}`,
   rollback: (p: string, app: string, id: string) => request<Deploy>("POST", `${P(p)}/apps/${e(app)}/deploys/${e(id)}/rollback`, {}),
+  /** What a shared link to the deploy shows; wait (seconds) for a check still running. */
+  linkPreview: (p: string, app: string, id: string, wait = 0) =>
+    request<LinkPreview>("GET", `${P(p)}/apps/${e(app)}/deploys/${e(id)}/link-preview${qs({ wait: wait || undefined })}`),
+  /** Reads the deploy's home page again, now. */
+  checkLinkPreview: (p: string, app: string, id: string) => request<LinkPreview>("POST", `${P(p)}/apps/${e(app)}/deploys/${e(id)}/link-preview`, {}),
   restart: (p: string, app: string, preview?: string) => request<unknown>("POST", `${P(p)}/apps/${e(app)}/restart${qs({ preview })}`, {}),
   previews: (p: string, app: string) => arr(request<EnvStatus[] | null>("GET", `${P(p)}/apps/${e(app)}/previews`)),
   deletePreview: (p: string, app: string, name: string) => request<void>("DELETE", `${P(p)}/apps/${e(app)}/previews/${e(name)}`),
@@ -466,7 +479,7 @@ export const deploysApi = {
   /** Every app's deploys in one list, newest first, filtered on the box; `next` is the cursor of the next (older) page. */
   projectDeploys: (p: string, f: DeployFilter = {}) =>
     request<ProjectDeployList>("GET", `${P(p)}/deploys${qs({ ...f, env: f.env === "all" ? undefined : f.env, limit: f.limit ?? 50 })}`).then((r) => ({
-      deploys: r.deploys ?? [],
+      deploys: (r.deploys ?? []) as Deploy[],
       next: r.nextCursor,
     })),
   /** A one-use link (a minute) that opens a deploy's own address for an hour, for people signed in here. */

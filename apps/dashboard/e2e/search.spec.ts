@@ -18,8 +18,10 @@ async function stub(page: Page, state: "verified" | "not_connected" | "none" = "
   await page.route("**/v1/projects/hello/search/report*", (r) => {
     const u = new URL(r.request().url());
     asked.push(u.search);
-    const days = { "7d": 7, "90d": 90, "12mo": 365 }[u.searchParams.get("period") ?? ""] ?? 30;
-    return r.fulfill({ json: searchReport("hello", { state, days }) });
+    const period = u.searchParams.get("period") ?? "";
+    const days = { "7d": 7, "91d": 91, "12mo": 365 }[period] ?? 28;
+    // Seven days of a small site: nothing moves beyond chance.
+    return r.fulfill({ json: searchReport("hello", { state, days, quiet: period === "7d" }) });
   });
   await page.route("**/v1/search/indexnow", (r) => r.fulfill({ json: indexNow() }));
   return asked;
@@ -29,7 +31,12 @@ async function noSeriousA11y(page: Page, what: string) {
   await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  expect(bad.map((v) => `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => `${n.target.join(" ")} ${n.html.slice(0, 160)} ${n.failureSummary ?? ""}`).join(", ")}`)).toEqual([]);
+  expect(
+    bad.map(
+      (v) =>
+        `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => `${n.target.join(" ")} ${n.html.slice(0, 160)} ${n.failureSummary ?? ""}`).join(", ")}`,
+    ),
+  ).toEqual([]);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -42,14 +49,22 @@ test("search: the tab, the numbers, the period in the URL", async ({ page, baseU
   await page.goto("/projects/hello/analytics");
   await page.getByRole("navigation", { name: "Analytics" }).getByRole("button", { name: "Search" }).click();
   await expect(page).toHaveURL(/tab=search/);
-  // 30 days by default, ending on Google's last day.
-  await expect(page.getByRole("button", { name: "Days: Last 30 days, compared with the 30 days before. Change" })).toBeVisible();
+  // 28 days by default, ending on Google's last complete day.
+  await expect(page.getByRole("button", { name: "Days: Last 28 days, compared with the 28 days before. Change" })).toBeVisible();
+  await expect(page.getByText(/^Google is still counting the days after/)).toBeVisible();
   await expect(page.getByRole("radio", { name: /^Clicks [\d,]+/ })).toBeVisible();
   await page.getByRole("radio", { name: /^Average position/ }).click();
   await expect(page.getByText("Lower is better: 1 is the top of the page.")).toBeVisible();
   await expect(page.getByRole("region", { name: "Searches", exact: true }).getByText("self hosted vercel alternative")).toBeVisible();
   await page.getByRole("button", { name: "Show all 12" }).click();
   await expect(page.getByText("better auth self hosted")).toBeVisible();
+  // What moved against the days before: searches, then pages.
+  const moved = page.getByRole("region", { name: /^What moved/ });
+  await expect(moved).toContainText("+8 clicks");
+  await expect(moved).toContainText("−4 clicks");
+  await moved.getByRole("radio", { name: "Pages" }).click();
+  await expect(moved).toContainText("/blog/launch");
+  await expect(moved).toContainText("No longer shows");
   // Found: Google's reasons in plain words; crawlers; AI apart.
   const found = page.getByRole("region", { name: "Found" });
   await expect(found).toContainText("12 of 36 pages checked");
@@ -57,15 +72,20 @@ test("search: the tab, the numbers, the period in the URL", async ({ page, baseU
   await expect(page.getByRole("region", { name: "Search engine crawlers" })).toContainText("Googlebot");
   await expect(page.getByRole("region", { name: "Search engine crawlers" })).not.toContainText("ClaudeBot");
   await expect(page.getByRole("region", { name: "AI bots" })).toContainText("ClaudeBot");
-  // The period lands in the URL; 30 days, the default, stays out of it.
+  // The period lands in the URL; 28 days, the default, stays out of it.
   await page.getByRole("button", { name: /^Days:/ }).click();
-  await page.getByRole("menuitemradio", { name: "Last 90 days" }).click();
-  await expect(page).toHaveURL(/period=90d/);
-  expect(asked.at(-1)).toContain("period=90d");
+  await page.getByRole("menuitemradio", { name: "Last 3 months" }).click();
+  await expect(page).toHaveURL(/period=91d/);
+  expect(asked.at(-1)).toContain("period=91d");
   await page.getByRole("button", { name: /^Days:/ }).click();
   await expect(page.getByRole("menuitemradio", { name: "Today" })).toHaveCount(0);
-  await page.getByRole("menuitemradio", { name: "Last 30 days" }).click();
+  await page.getByRole("menuitemradio", { name: "Last 7 days" }).click();
+  // Too few searches in a week to tell what moved: the way back to 28 days.
+  await expect(page.getByRole("region", { name: /^What moved/ })).toContainText("Too few searches in 7 days");
+  await page.getByRole("button", { name: "Compare 28 days" }).click();
   await expect(page).not.toHaveURL(/period=/);
+  // The Pages choice stays across periods.
+  await expect(page.getByRole("region", { name: /^What moved/ })).toContainText("/blog/launch");
   expect(problems).toEqual([]);
 });
 

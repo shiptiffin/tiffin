@@ -369,6 +369,12 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 			cmd.Flags().StringVar(&bodyFile, "body-file", "", "read the request body from a JSON file (- for stdin)")
 		}
 	}
+	var noWait bool
+	if startsDeploy[o.OperationID] {
+		cmd.Flags().BoolVar(&noWait, "no-wait", false, "return once the deploy is queued instead of waiting until it is live")
+		cmd.Long += "\n\nThe CLI streams the build and waits until the deploy is live or failed, then prints its address and " +
+			"link preview, as tiffin deploy does; --no-wait returns once it is queued."
+	}
 	sw, hasSwitch := switchFlags[o.OperationID]
 	var switched bool
 	if hasSwitch {
@@ -437,9 +443,44 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 		if _, inQuery := query[trailing]; inQuery && len(args) > len(pathParams) {
 			q.Set(trailing, args[len(pathParams)])
 		}
+		if startsDeploy[o.OperationID] && !noWait {
+			return a.callDeploy(cmd.Context(), o.Method, path, q, body)
+		}
 		return a.call(cmd.Context(), o.Method, path, q, body)
 	}
 	return cmd
+}
+
+// startsDeploy are the operations that queue a deploy. The CLI follows the
+// deploy to the end, as tiffin deploy does, unless --no-wait.
+var startsDeploy = map[string]bool{"deploy-github": true, "deploy-redeploy": true, "deploy-git": true, "deploy-template": true}
+
+// callDeploy starts a deploy and follows it until it is live or failed.
+func (a *app) callDeploy(ctx context.Context, method, path string, q url.Values, body any) error {
+	c, err := a.client(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.close()
+	status, raw, err := c.do(ctx, method, path, q, body)
+	if err != nil {
+		return &exitError{ExitError, err.Error()}
+	}
+	var d rtDeploy
+	if status/100 != 2 || json.Unmarshal(raw, &d) != nil || d.ID == "" {
+		a.emit(status, raw)
+		a.code = exitFor(status, raw)
+		return nil
+	}
+	fd, check, err := a.finishDeploy(ctx, c, &d, false)
+	if err != nil {
+		return err
+	}
+	a.printDeploys([]*rtDeploy{fd}, map[string]string{fd.ID: check})
+	if fd.Status != "live" {
+		a.code = ExitError
+	}
+	return nil
 }
 
 func (a *app) readBody(raw, file string, into map[string]any) error {

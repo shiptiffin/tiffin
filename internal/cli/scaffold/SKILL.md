@@ -27,7 +27,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    it hit one. `tiffin projects usage <project>` shows each limit; fix the cause (an index, a
    smaller pool: pass `DATABASE_POOL_MAX` as the Postgres client's pool max, keys with an expiry) or raise it (`services.postgres.statementTimeoutSeconds`,
    `SET LOCAL statement_timeout` for one known long job, `maxMemoryMB`, `resources`).
-4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. An app
+4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. It (and `deploys github`,
+   `deploys redeploy`) waits until live and prints the link preview (title, share image, what to fix, what changed); `deploys get` has it as `linkPreview`,
+   `tiffin deploys link-preview` in full: fix its problems before calling the deploy done. An app
    without `routes` is served at `<project>.<domain>` (the main app) or `<project>-<app>.<domain>`,
    previews at `<preview>--<that name>`. Code on
    GitHub? If `tiffin github status` says connected: `tiffin github repos` / `tiffin github repo
@@ -154,7 +156,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    with `tiffin search status <project>`: it says why an address isn't findable, what
    robots.txt, the home page and the sitemap show, which bots came and, with Google connected,
    the searches and pages Google hasn't indexed; `tiffin search inspect <project> --page <url>`
-   asks Google about one page; `tiffin search report <project> --period 90d` gives Google's clicks,
+   asks Google about one page; `tiffin search report <project> --period 28d` gives Google's clicks,
    impressions, position, top searches and pages for any days with the days before (for "why did
    traffic drop?"), plus the crawlers. Connecting Google is the human's: a service account key, in the
    dashboard's Settings › Search engines (details: docs/guide/search.md). Never ask for the key in chat.

@@ -129,6 +129,19 @@ set `runtime: "node"` for them:
   over. Connect a DNS provider for a wildcard certificate instead.
 - A cleaned-up version's address answers its "cleaned up" page while the box keeps its
   record (the last 50 per app), then "nothing here".
+- **Link previews** read only the home page: other pages may share differently. The box
+  reads the deploy on its own network, so headers added in front of the app (vercel.json
+  `headers`, a Cloudflare proxy) aren't seen. robots.txt and sitemaps are checked per
+  domain under [Search engines](#search-engines), not here.
+- X, Facebook and LinkedIn keep their own copy of a page's preview for a while. The report
+  shows what the page says now. To make Facebook or LinkedIn read the page again, use
+  Facebook's Sharing Debugger or LinkedIn's Post Inspector.
+- Pages that build their tags in the browser (a single-page app without server rendering)
+  show what crawlers see: no tags.
+- A deploy is checked when it goes live. Only the live deploy can be checked again, and
+  not while it's asleep.
+- The box keeps the report and an 800 px copy of the share image as long as it keeps the
+  deploy.
 - **Changes made outside your config** (see [Concepts](concepts.md#changes-made-outside-your-config)):
   the box can't see what your file has seen, only what it holds now. So:
   - After `tiffin pull`, deleting something that was added outside the file (removing the
@@ -701,11 +714,16 @@ yet), and Analytics › Search filtered by country, device or search type.
 - With Google connected, search data is read every 12 hours and kept for 16 months (as
   long as Google keeps it); the first read fills them in. URL Inspection checks about 20
   pages per domain a day, so a large site takes a while to fill in.
-- Google's days run on Pacific time and its numbers 2 to 3 days behind; the crawler log
-  and visits count UTC days up to today, so their days differ a little.
+- Google's days run on Pacific time and the days it is still counting (usually the last
+  2 or 3) are left out; the crawler log and visits count UTC days up to today, so their
+  days differ a little.
 - Google leaves out searches only a few people made, so the top searches add up to less
   than the totals. Each month of history keeps at most 100,000 searches and 100,000
   pages per address.
+- What moved compares the 1,000 searches and pages with the most clicks in each period,
+  and shows nothing when Google had no numbers for the days before. A change counts only
+  when it is at least 3 and twice the square root of the two periods' counts together, so
+  a small site often sees "too few searches" for 7 days; 28 days usually shows more.
 - Visits from AI apps come from the project's analytics: they cover the whole project,
   not one address, and an app that hides where a visit came from counts as direct.
 - Crawler counts before this release were kept for 30 days only, so a longer period

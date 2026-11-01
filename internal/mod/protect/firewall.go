@@ -75,6 +75,14 @@ table inet %[4]s {
 	set conn4 { type ipv4_addr; flags dynamic; size 65536; }
 	set conn6 { type ipv6_addr; flags dynamic; size 65536; }
 
+	# IPv4 TCP carrying IP options, on every interface (containers too): nothing
+	# legitimate sends them, and they reach CVE-2026-98432 (a use-after-free in
+	# the kernel's TCP handshake) before any later rule could see the packet.
+	chain prerouting {
+		type filter hook prerouting priority raw;
+		meta nfproto ipv4 ip hdrlength > 5 meta l4proto tcp counter drop comment "IPv4 options"
+	}
+
 	chain input {
 		type filter hook input priority filter; policy drop;
 
@@ -218,7 +226,8 @@ func provisionFirewall(ctx context.Context, s *platform.System) error {
 	}
 	if _, err := s.WriteFile("/etc/sysctl.d/91-tiffin-protect.conf", []byte(
 		"net.ipv4.tcp_syncookies=1\nnet.ipv4.tcp_max_syn_backlog=4096\nnet.ipv4.icmp_echo_ignore_broadcasts=1\n"+
-			"net.core.rmem_max=7500000\nnet.core.wmem_max=7500000\n"), 0o644); err != nil { // UDP buffers QUIC asks for
+			"net.core.rmem_max=7500000\nnet.core.wmem_max=7500000\n"+ // UDP buffers QUIC asks for
+			"-net.mptcp.enabled=0\n"), 0o644); err != nil { // nothing uses MPTCP; it was the CVE-2026-98432 exploit path
 		return err
 	}
 	if _, err := s.Run(ctx, "sysctl", "--load=/etc/sysctl.d/91-tiffin-protect.conf"); err != nil {
