@@ -8,6 +8,6 @@
     "sync-sdk": "bun build ./sdk-entry.ts --target=bun --format=esm --outfile=tiffin-sdk.gen.js --banner=\"// Generated from @shiptiffin/sdk/queue and @shiptiffin/sdk/workflow by \\`bun run sync-sdk\\`; do not edit. Once @shiptiffin/sdk is on npm, import from @shiptiffin/sdk/queue and @shiptiffin/sdk/workflow instead.\""
   },
   "devDependencies": {
-    "@types/bun": "1.4.2"
+    "@types/bun": "1.4.4"
   }
 }
