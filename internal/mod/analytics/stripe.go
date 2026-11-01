@@ -282,7 +282,7 @@ type stSubscription struct {
 	// Discounts are ids, or objects when expanded; LatestInvoice likewise.
 	Discounts     []stDiscountRef      `json:"discounts"`
 	LatestInvoice ref[stInvoiceTotals] `json:"latest_invoice"`
-	Items     struct {
+	Items         struct {
 		Data []struct {
 			Quantity int64 `json:"quantity"`
 			Price    struct {
