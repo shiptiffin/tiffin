@@ -12,10 +12,10 @@
     "build": "bun run scripts/build.ts"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.7.7",
-    "@better-auth/passkey": "1.7.7",
+    "@better-auth/api-key": "1.7.14",
+    "@better-auth/passkey": "1.7.14",
     "altcha-lib": "^2.6.0",
-    "better-auth": "1.7.7",
+    "better-auth": "1.7.14",
     "kysely": "^0.29.0",
     "nodemailer": "^10.0.15",
     "pg": "^8.23.1",
