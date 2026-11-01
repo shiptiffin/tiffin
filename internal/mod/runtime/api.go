@@ -110,6 +110,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	m.registerDeployLink(a)
 	m.registerRedeploy(a, appPath)
 	m.registerIcon(a, p)
+	m.registerLinkPreview(a, appPath)
 
 	create := api.Op("deploy-create", http.MethodPost, appPath+"/deploys", "deploys create", api.RiskWrite, "Deploy an app",
 		"Builds and releases a new version of an app with zero downtime: the source is built on the box (Railpack + BuildKit; "+

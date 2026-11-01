@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/shiptiffin/tiffin/internal/linkpreview"
 )
 
 func ttyApp(out *bytes.Buffer) *app {
@@ -107,6 +109,29 @@ func TestRenderDNSCleanup(t *testing.T) {
 	for _, want := range []string{"✓ applied chg_1", "✓ Deleted the DNS records the box created:", "A  shop  198.51.100.7", "! The DNS provider failed: fake refused", "undo with tiffin undo chg_1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("applied: missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// A live deploy says what a link to it shows, what to fix and what changed.
+func TestDeployLinkPreview(t *testing.T) {
+	var out bytes.Buffer
+	a := ttyApp(&out)
+	a.printDeploys([]*rtDeploy{{ID: "dep_1", Project: "dibs", App: "web", Status: "live", AppURL: "https://dibs.page",
+		LinkPreview: &linkpreview.LinkSummary{Status: "ok", Title: "Dibs – sign-up sheets", Image: "https://dibs.page/og.png (1200×630)"}}}, nil)
+	if got := out.String(); !strings.Contains(got, `link preview: "Dibs – sign-up sheets" · image 1200×630 · ✓`) || strings.Contains(got, "details:") {
+		t.Errorf("ok:\n%s", got)
+	}
+	out.Reset()
+	a.printDeploys([]*rtDeploy{{ID: "dep_2", Project: "dibs", App: "web", Status: "live", AppURL: "https://dibs.page",
+		LinkPreview: &linkpreview.LinkSummary{Status: "bad", Title: "Dibs", Problems: []string{"Share image: The page names no og:image."},
+			Changes: []string{"Share image removed (was https://dibs.page/og.png)"}, Worse: true},
+		compared: &linkpreview.LinkBaseline{Deploy: "dep_1", Version: 12}}}, nil)
+	got := out.String()
+	for _, want := range []string{`"Dibs" · no image · 1 to fix`, "- Share image: The page names no og:image.", "changed since v12:",
+		"- Share image removed (was https://dibs.page/og.png)", "details: tiffin deploys link-preview dibs web dep_2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
 }

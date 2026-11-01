@@ -73,7 +73,7 @@ const PARTS = [
   ["Analytics", "No cookies", "Visits, sources and your own events, counted on the box."],
   ["Error tracking", "Sentry-compatible", "Point any Sentry SDK at the box. Logs, traces and alerts sit beside it."],
   ["Backups", "Restore to any moment", "Everything is backed up every 6 hours. Postgres goes back to any second of the last 7 days."],
-  ["Domains", "HTTPS included", "Your own domain, with certificates issued and renewed for you."],
+  ["Domains and search", "Google and AI search", "Your own domain with HTTPS. Each deploy tells search engines about new pages, and the dashboard shows your Google searches, rankings and visits from AI apps."],
 ] as const;
 
 /* What a project's limit holds back, besides its apps. From docs/guide/concepts.md. */
@@ -232,7 +232,7 @@ const LD = [
 /* The hero's second act, shown as you scroll (hero-tin.css). */
 const ACT = [
   ["Open it up.", "One server in your own Hetzner account, already packed with what every app needs."],
-  ["Everything an app needs.", "Postgres, KV, files, sign-in, email, jobs, analytics and domains, set up for each project when you ask."],
+  ["Everything an app needs.", "Postgres, KV, files, sign-in, email, jobs, analytics, search and domains, set up for each project when you ask."],
   ["Every project gets a limit.", "A project that gets busy is held at its limit. The others keep running, and nothing is billed by usage."],
   ["Packed. One box, one price.", "$19 a month per box, plus about $10 for the server at Hetzner."],
 ] as const;

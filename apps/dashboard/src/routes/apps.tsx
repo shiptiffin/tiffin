@@ -58,6 +58,8 @@ import { nextDeployFor, startersQuery } from "@/lib/starters";
 import { clock, full, liveSince, relative, windowLabel } from "@/lib/time";
 import { MEMORY_STOPS } from "@/components/project-rows";
 import { ProjectIcon } from "@/components/project-icon";
+import { hasLinkPreview, LinkPreviewFact, LinkPreviewTab, StatusMark } from "@/components/link-preview";
+import { statusTone, summaryWords } from "@/lib/link-preview";
 
 // ------------------------------------------------------------------ shared
 
@@ -308,7 +310,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
           <h2 id="production" className="label mb-2">
             Production
           </h2>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-y border-rule py-4 lg:grid-cols-4 lg:gap-x-8">
+          <dl className={cn("grid grid-cols-2 gap-x-6 gap-y-4 border-y border-rule py-4 lg:grid-cols-4 lg:gap-x-8", current.linkPreview && "xl:grid-cols-5")}>
             <Fact label="Version">
               <Link to="/projects/$project/apps/$app/deploys/$id" params={{ project, app, id: current.id }} className="inline-flex items-center gap-2 font-[550] hover:text-brass-ink">
                 <PilotLight state="on" />v{vs.get(current.id)}
@@ -325,6 +327,20 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
               {current.durationSeconds !== undefined ? secs(current.durationSeconds) : "–"}
               {current.buildSeconds !== undefined && <span className="block text-xs text-ink-3">{secs(current.buildSeconds)} to build</span>}
             </Fact>
+            {current.linkPreview && (
+              <Fact label="Link preview">
+                <Link
+                  to="/projects/$project/apps/$app/deploys/$id"
+                  params={{ project, app, id: current.id }}
+                  search={{ tab: "preview" }}
+                  className={cn("inline-flex items-center gap-1.5 font-[550] underline decoration-rule-3 underline-offset-4 hover:decoration-ink", statusTone(current.linkPreview.status) || "text-ink")}
+                >
+                  {current.linkPreview.status !== "ok" && <StatusMark status={current.linkPreview.status} />}
+                  {summaryWords(current.linkPreview)}
+                </Link>
+                {current.linkPreview.title && <span className="block truncate text-xs text-ink-3">{current.linkPreview.title}</span>}
+              </Fact>
+            )}
           </dl>
         </section>
       )}
@@ -663,6 +679,8 @@ function LogTools({ text, file }: { text: string; file: string }) {
   );
 }
 
+type Tab = "build" | "runtime" | "preview";
+
 export function DeployPage({ project, app, id }: { project: string; app: string; id: string }) {
   useTitle(`Deploy · ${app}`);
   const qc = useQueryClient();
@@ -679,7 +697,8 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
   const dep = d.data;
   const log = useBuildLog(project, app, id);
   const [ui, setUi] = useUrlState(["tab"] as const);
-  const tab = ui.tab === "runtime" ? "runtime" : "build";
+  const previewTab = hasLinkPreview(dep);
+  const tab = ui.tab === "runtime" ? "runtime" : ui.tab === "preview" && previewTab ? "preview" : "build";
   const viewer = useRef<BuildLogHandle>(null);
   const logsAt = useRef<HTMLDivElement>(null);
   const vs = versions(deploys.data ?? []);
@@ -715,8 +734,8 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
   const startedRun = !!dep && dep.buildSeconds !== undefined && dep.status !== "skipped";
   const by = dep ? startedBy(dep, who) : undefined;
 
-  const openTab = (t: "build" | "runtime", then?: () => void) => {
-    setUi({ tab: t === "runtime" ? "runtime" : undefined });
+  const openTab = (t: Tab, then?: () => void) => {
+    setUi({ tab: t === "build" ? undefined : t });
     requestAnimationFrame(() => {
       logsAt.current?.scrollIntoView({ block: "start", behavior: "smooth" });
       then?.();
@@ -775,7 +794,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
       {again.isError && <ProblemNote className="mt-3 max-w-[46rem]" error={again.error} />}
 
       {dep && (
-        <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-rule py-4 lg:grid-cols-4 lg:gap-x-8">
+        <dl className={cn("mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-rule py-4 lg:grid-cols-4 lg:gap-x-8", dep.linkPreview && "xl:grid-cols-5")}>
           <Fact label="Environment">
             {dep.preview ? (
               <>
@@ -806,8 +825,13 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
             {running ? `${secs(elapsed)} so far` : dep.durationSeconds !== undefined ? secs(dep.durationSeconds) : "–"}
             {dep.buildSeconds !== undefined && <span className="block text-xs text-ink-3">{secs(dep.buildSeconds)} to build</span>}
           </Fact>
+          {dep.linkPreview && previewTab && (
+            <Fact label="Link preview">
+              <LinkPreviewFact d={dep} onOpen={() => openTab("preview")} />
+            </Fact>
+          )}
           {visitURL(dep) ? (
-            <Fact label={dep.preview ? "Address" : "This version’s address"} className="col-span-2">
+            <Fact label={dep.preview ? "Address" : "This version’s address"} className={cn("col-span-2", dep.linkPreview && "lg:col-span-3")}>
               <span className="inline-flex max-w-full items-center gap-1">
                 <a href={visitURL(dep)} target="_blank" rel="noopener noreferrer" className="ident inline-flex min-w-0 items-center gap-1 text-[0.75rem] text-brass-ink hover:text-ink">
                   <span className="truncate">{dep.url!.replace(/^https?:\/\//, "")}</span>
@@ -819,7 +843,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
               {!dep.preview && dep.status !== "live" && <span className="block text-xs text-ink-3">Read-only: writes to the database fail on old versions.</span>}
             </Fact>
           ) : dep.retention === "cleaned" ? (
-            <Fact label="This version’s address" className="col-span-2">
+            <Fact label="This version’s address" className={cn("col-span-2", dep.linkPreview && "lg:col-span-3")}>
               <span className="text-ink-3">Cleaned up</span>
             </Fact>
           ) : null}
@@ -890,13 +914,14 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
         </div>
       )}
 
-      <section ref={logsAt} className="mt-9 scroll-mt-6" aria-label="Logs">
-        <Tabs.Root value={tab} onValueChange={(t) => setUi({ tab: t === "runtime" ? "runtime" : undefined })}>
-          <Tabs.List aria-label="Logs" className="mb-3 flex gap-1 border-b border-rule">
+      <section ref={logsAt} className="mt-9 scroll-mt-6" aria-label="Logs and link preview">
+        <Tabs.Root value={tab} onValueChange={(t) => setUi({ tab: t === "build" ? undefined : t })}>
+          <Tabs.List aria-label="Logs and link preview" className="mb-3 flex gap-1 overflow-x-auto border-b border-rule">
             {(
               [
                 ["build", "Build log", log.model.lines.length ? int(log.model.dropped + log.model.lines.length) : ""],
                 ["runtime", "Runtime logs", ""],
+                ...(previewTab ? ([["preview", "Link preview", ""]] as const) : []),
               ] as const
             ).map(([k, label, n]) => (
               <Tabs.Trigger
@@ -907,6 +932,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
                 {label}
                 {n && <span className="text-xs font-[400] text-ink-3 tnum">{n}</span>}
                 {k === "build" && log.live && <PilotLight state="busy" label="Building" />}
+                {k === "preview" && dep?.linkPreview && dep.linkPreview.status !== "ok" && <StatusMark status={dep.linkPreview.status} />}
               </Tabs.Trigger>
             ))}
           </Tabs.List>
@@ -946,6 +972,11 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
           <Tabs.Content value="runtime" className="outline-hidden">
             {dep ? <DeployRuntimeLogs project={project} app={app} dep={dep} name={name} /> : <Skeleton className="h-40" />}
           </Tabs.Content>
+          {previewTab && dep && (
+            <Tabs.Content value="preview" className="outline-hidden">
+              <LinkPreviewTab project={project} app={app} d={dep} writer={can("apply:reversible")} />
+            </Tabs.Content>
+          )}
         </Tabs.Root>
       </section>
     </Page>

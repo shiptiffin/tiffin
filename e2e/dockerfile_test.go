@@ -115,7 +115,7 @@ CMD ["sh", "-c", "exec httpd -f -p $PORT -h /www"]
 
 	// ---- a redeploy of the live version (its source, built again) ----
 	p = time.Now()
-	rd := b.ok("deploys", "redeploy", "dock", "svc")
+	rd := b.ok("deploys", "redeploy", "dock", "svc", "--no-wait")
 	d3 := waitDeploy(t, b, "dock", "svc", rd["id"].(string), 10*time.Minute)
 	phase("redeploy", p)
 	if d3["status"] != "live" || d3["trigger"] != "redeploy" {

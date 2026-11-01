@@ -51,16 +51,17 @@ func (f *fakeDNS) has(name, value string) bool {
 
 // fakeGoogle answers the Google APIs the box calls.
 type fakeGoogle struct {
-	mu       sync.Mutex
-	dns      *fakeDNS
-	files    func(host, path string) string // what the box serves
-	owners   [][]string
-	sites    []string
-	sitemaps []string
-	inspects int
-	queries  []string // the dimensions of each Search Analytics query
-	apiOff   bool     // the Site Verification API is off
-	revoked  bool     // the key was deleted
+	mu         sync.Mutex
+	dns        *fakeDNS
+	files      func(host, path string) string // what the box serves
+	owners     [][]string
+	sites      []string
+	sitemaps   []string
+	inspects   int
+	queries    []string // the dimensions of each Search Analytics query
+	incomplete string   // the first day Google says it is still filling in
+	apiOff     bool     // the Site Verification API is off
+	revoked    bool     // the key was deleted
 }
 
 func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +145,11 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"date,page": {{"keys": []string{"2026-10-20", "https://shop.example.com/"}, "clicks": 3, "impressions": 40, "position": 8.0},
 				{"keys": []string{"2026-10-21", "https://shop.example.com/pricing"}, "clicks": 1, "impressions": 60, "position": 12.0}},
 		}[strings.Join(dims, ",")]
-		reply(map[string]any{"rows": rows})
+		out := map[string]any{"rows": rows}
+		if g.incomplete != "" {
+			out["metadata"] = map[string]string{"firstIncompleteDate": g.incomplete}
+		}
+		reply(out)
 	case r.Method == http.MethodPut && strings.HasPrefix(p, "/webmasters/v3/sites/"):
 		g.sites = append(g.sites, strings.TrimPrefix(p, "/webmasters/v3/sites/"))
 		w.WriteHeader(204)
