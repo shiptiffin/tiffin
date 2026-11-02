@@ -17,7 +17,7 @@ const (
 	NerdctlVersion  = "2.4.1"
 	RailpackVersion = "0.40.1"
 	BunVersion      = "1.4.4"
-	NodeVersion     = "24.22.1"
+	NodeVersion     = "24.22.2"
 )
 
 // nerdctlFullSHA256 is per GOARCH (nerdctl-full-<v>-linux-<arch>.tar.gz).
