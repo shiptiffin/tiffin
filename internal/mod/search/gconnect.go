@@ -360,9 +360,44 @@ func (m *Module) gdataFor(ctx context.Context, host string) *gdata {
 	return &d
 }
 
+// saveGdata stores what a pass read. An answer someone's search inspect
+// stored meanwhile (newer than d) is kept.
 func (m *Module) saveGdata(ctx context.Context, host string, d *gdata) {
+	m.gdMu.Lock()
+	defer m.gdMu.Unlock()
+	if cur := m.gdataFor(ctx, host); cur != nil {
+		for u, s := range cur.Inspected {
+			if s.At.After(d.At) && s.At.After(d.Inspected[u].At) {
+				if d.Inspected == nil {
+					d.Inspected = map[string]gInspectSeen{}
+				}
+				d.Inspected[u] = s
+			}
+		}
+	}
+	m.putGdata(ctx, host, d)
+}
+
+func (m *Module) putGdata(ctx context.Context, host string, d *gdata) {
 	b, _ := json.Marshal(d)
 	_ = m.p.DB.KVPut(ctx, kvNS, "gdata/"+host, b)
+}
+
+// noteInspection keeps the answer to a search inspect as inspectSome keeps
+// its own, so status and the report show it at once and the page waits its
+// turn from now. key is the page as the sitemap spells it.
+func (m *Module) noteInspection(ctx context.Context, host, key string, r *GInspection) {
+	m.gdMu.Lock()
+	defer m.gdMu.Unlock()
+	d := m.gdataFor(ctx, host)
+	if d == nil {
+		d = &gdata{}
+	}
+	if d.Inspected == nil {
+		d.Inspected = map[string]gInspectSeen{}
+	}
+	d.Inspected[key] = gInspectSeen{At: m.now(), Verdict: r.Verdict, Coverage: r.Coverage}
+	m.putGdata(ctx, host, d)
 }
 
 // propFor is the property that covers host: the registrable domain's

@@ -85,6 +85,7 @@ type Module struct {
 
 	gc   *gclient // the Google client for the stored key
 	gcAt time.Time
+	gdMu sync.Mutex // writes of what Google said about a host (gdata)
 
 	hist     *histStore // the history behind the Search tab (nil: none)
 	prunedAt time.Time

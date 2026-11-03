@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shiptiffin/tiffin/internal/api"
 	"github.com/shiptiffin/tiffin/internal/dnskit"
 	"github.com/shiptiffin/tiffin/internal/platform"
 )
@@ -58,6 +60,8 @@ type fakeGoogle struct {
 	sites      []string
 	sitemaps   []string
 	inspects   int
+	inspected  []string // the pages asked about, in order
+	newIndexed bool     // Google has indexed /new by now
 	queries    []string // the dimensions of each Search Analytics query
 	incomplete string   // the first day Google says it is still filling in
 	apiOff     bool     // the Site Verification API is off
@@ -155,11 +159,15 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 	case p == "/v1/urlInspection/index:inspect":
 		g.inspects++
-		verdict, cov := "PASS", "Submitted and indexed"
-		if strings.HasSuffix(body["inspectionUrl"].(string), "/new") {
-			verdict, cov = "NEUTRAL", "Discovered - currently not indexed"
+		page := body["inspectionUrl"].(string)
+		g.inspected = append(g.inspected, page)
+		res := map[string]any{"verdict": "PASS", "coverageState": "Submitted and indexed", "crawledAs": "MOBILE", "indexingState": "INDEXING_ALLOWED",
+			"sitemap": []string{"https://shop.example.com/sitemap.xml"}, "referringUrls": []string{"https://shop.example.com/"}}
+		if strings.HasSuffix(page, "/new") && !g.newIndexed {
+			res = map[string]any{"verdict": "NEUTRAL", "coverageState": "Discovered - currently not indexed", "crawledAs": "CRAWLING_USER_AGENT_UNSPECIFIED",
+				"indexingState": "INDEXING_STATE_UNSPECIFIED", "sitemap": []string{"https://shop.example.com/sitemap.xml"}}
 		}
-		reply(map[string]any{"inspectionResult": map[string]any{"indexStatusResult": map[string]any{"verdict": verdict, "coverageState": cov}}})
+		reply(map[string]any{"inspectionResult": map[string]any{"indexStatusResult": res}})
 	default:
 		w.WriteHeader(404)
 	}
@@ -316,5 +324,121 @@ func TestGoogleConnection(t *testing.T) {
 	}
 	if gh := h.host("shop.example.com").Google; gh.State != "not_connected" {
 		t.Fatalf("after disconnect %+v", gh)
+	}
+}
+
+// googleShop is a harness with Google connected and shop.example.com
+// verified (its zone on the DNS provider), its sitemap / and /new, read once.
+func googleShop(t *testing.T) (*harness, *fakeGoogle) {
+	t.Helper()
+	h := newHarness(t)
+	sec, err := platform.OpenSecrets(h.m.p.DB, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns := &fakeDNS{txts: map[string][]string{}}
+	h.m.p.Secrets, h.m.p.DNS = sec, dns
+	fg := &fakeGoogle{dns: dns, files: func(string, string) string { return "" }}
+	h.s.google = fg
+	h.m.googleBase = "https://google.test"
+	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "", "t"); err != nil {
+		t.Fatal(err)
+	}
+	h.s.set("shop.example.com", "/sitemap.xml", sitemap(map[string]string{"https://shop.example.com/": "2026-10-01", "https://shop.example.com/new": "2026-10-24"}))
+	h.serve("shop.example.com", "d1")
+	h.pass()
+	h.now = h.now.Add(20 * time.Second)
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Index == nil || gh.Index.Checked != 2 {
+		t.Fatalf("set up %+v", gh)
+	}
+	return h, fg
+}
+
+// search inspect: a malformed page is refused before Google; the answer
+// carries Google's diagnostics and, for a sitemap page, is kept.
+func TestManualInspect(t *testing.T) {
+	h, fg := googleShop(t)
+	n := fg.inspects
+	for _, bad := range []string{
+		"https://shop.example.com/ /new /pricing", "https://shop.example.com//", "https://shop.example.com/a//b", "http://shop.example.com/",
+		"/pricing", "shop.example.com/pricing", "https://shop.example.com:8443/", "https://u@shop.example.com/", "https://shop.example.com/#top",
+	} {
+		_, err := h.m.inspectOne(h.ctx, "shop", bad)
+		var pb *api.Problem
+		if !errors.As(err, &pb) || pb.Status != 422 || pb.Hint == "" {
+			t.Fatalf("%q: %v", bad, err)
+		}
+	}
+	if _, err := h.m.inspectOne(h.ctx, "shop", "https://shop.example.com//"); !strings.Contains(err.(*api.Problem).Hint, "inspect https://shop.example.com/") {
+		t.Fatalf("doubled slash hint %+v", err)
+	}
+	if _, err := h.m.inspectOne(h.ctx, "shop", "https://other.example.com/"); err == nil || err.(*api.Problem).Status != 404 {
+		t.Fatalf("another host %v", err)
+	}
+	if fg.inspects != n {
+		t.Fatalf("Google was asked about %d malformed pages", fg.inspects-n)
+	}
+
+	// Not indexed: Google's diagnostics come through, its *_UNSPECIFIED left out.
+	r, err := h.m.inspectOne(h.ctx, "shop", "https://Shop.Example.com/new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.URL != "https://shop.example.com/new" || r.Verdict != "NEUTRAL" || r.CrawledAs != "" || r.Indexing != "" || len(r.Sitemaps) != 1 ||
+		r.InSitemap == nil || !*r.InSitemap || len(r.Warnings) != 0 {
+		t.Fatalf("not indexed %+v", r)
+	}
+	// Google indexes it: the answer someone asked for shows at once.
+	fg.newIndexed = true
+	h.now = h.now.Add(time.Hour)
+	if r, err = h.m.inspectOne(h.ctx, "shop", "https://shop.example.com/new"); err != nil || r.CrawledAs != "MOBILE" || len(r.ReferringURLs) != 1 {
+		t.Fatalf("indexed %+v %v", r, err)
+	}
+	if ix := h.host("shop.example.com").Google.Index; ix.Checked != 2 || ix.Indexed != 2 || len(ix.NotIndexed) != 0 {
+		t.Fatalf("status after the inspect %+v", ix)
+	}
+	if rp, err := h.m.report(h.ctx, &reportIn{Project: "shop"}); err != nil || rp.Google.Index.Indexed != 2 {
+		t.Fatalf("report after the inspect %+v %v", rp.Google.Index, err)
+	}
+	// The next pull keeps it and doesn't ask again before its turn.
+	m := len(fg.inspected)
+	h.now = h.now.Add(gPullEvery)
+	h.pass()
+	if d := h.m.gdataFor(h.ctx, "shop.example.com"); d.Inspected["https://shop.example.com/new"].Verdict != "PASS" || len(fg.inspected) != m {
+		t.Fatalf("after the next pull %+v %v", d.Inspected, fg.inspected[m:])
+	}
+
+	// Off the sitemap: answered with a warning, not kept.
+	for page, want := range map[string]string{
+		"https://shop.example.com/pricing": "doesn't list this page",
+		"https://shop.example.com/new/":    "the sitemap lists https://shop.example.com/new,",
+	} {
+		r, err := h.m.inspectOne(h.ctx, "shop", page)
+		if err != nil || r.InSitemap == nil || *r.InSitemap || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], want) {
+			t.Fatalf("%s: %+v %v", page, r, err)
+		}
+		if _, kept := h.m.gdataFor(h.ctx, "shop.example.com").Inspected[page]; kept {
+			t.Fatalf("%s was kept", page)
+		}
+	}
+	// The home page without a slash is the home page.
+	if r, err := h.m.inspectOne(h.ctx, "shop", "https://shop.example.com"); err != nil || r.URL != "https://shop.example.com/" || !*r.InSitemap {
+		t.Fatalf("home page %+v %v", r, err)
+	}
+}
+
+func TestPageURL(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://Shop.Example.com":           "https://shop.example.com/",
+		" https://shop.example.com/a?b=1 ":   "https://shop.example.com/a?b=1",
+		"https://shop.example.com/caf%C3%A9": "https://shop.example.com/caf%C3%A9",
+	} {
+		if pu, pb := pageURL(raw); pb != nil || pu.String() != want {
+			t.Fatalf("%q: %v %v", raw, pu, pb)
+		}
+	}
+	if _, pb := pageURL("https://shop.example.com/a b"); pb == nil || !strings.Contains(pb.Detail, "space") {
+		t.Fatalf("space %v", pb)
 	}
 }
