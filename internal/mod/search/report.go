@@ -435,16 +435,20 @@ func (m *Module) completeThrough(ctx context.Context, hosts []string, now time.T
 		if d == nil || d.Incomplete == "" {
 			continue
 		}
-		t, err := time.Parse(time.DateOnly, d.Incomplete)
-		if err != nil {
-			continue
-		}
-		t = t.AddDate(0, 0, -1)
-		if !seen || t.Before(out) {
+		if t := completeAt(d); !seen || t.Before(out) {
 			out, seen = t, true
 		}
 	}
 	return out
+}
+
+// completeAt is the last day Google had finished counting at a read: the
+// day before the first one it said it was filling in, else three days back.
+func completeAt(d *gdata) time.Time {
+	if t, err := time.Parse(time.DateOnly, d.Incomplete); err == nil {
+		return t.AddDate(0, 0, -1)
+	}
+	return d.At.UTC().Truncate(24*time.Hour).AddDate(0, 0, -3)
 }
 
 // pageKey is a page as the report shows it: a path for one address, host

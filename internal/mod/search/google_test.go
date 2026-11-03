@@ -140,7 +140,7 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.queries = append(g.queries, strings.Join(dims, ","))
 		rows := map[string][]map[string]any{
 			"date":  {{"keys": []string{"2026-10-20"}, "clicks": 3, "impressions": 40, "position": 8.0}, {"keys": []string{"2026-10-21"}, "clicks": 1, "impressions": 60, "position": 12.0}},
-			"query": {{"keys": []string{"self hosted vercel"}, "clicks": 3, "impressions": 50, "position": 7.5}},
+			"query": {{"keys": []string{"a tie"}, "clicks": 3, "impressions": 10, "position": 4.0}, {"keys": []string{"self hosted vercel"}, "clicks": 3, "impressions": 50, "position": 7.5}},
 			"page":  {{"keys": []string{"https://shop.example.com/"}, "clicks": 4, "impressions": 100, "position": 10.4}},
 			// Day by day (the history): Google answers whatever days were asked
 			// for with these, so the store must keep only the days it asked for.
@@ -235,8 +235,12 @@ func TestGoogleConnection(t *testing.T) {
 	h.now = h.now.Add(20 * time.Second)
 	h.pass() // verify, add, sitemap, data
 	gh := h.host("shop.example.com").Google
-	if gh.State != GVerified || gh.Clicks != 4 || gh.Impressions != 100 || gh.Position != 10.4 || len(gh.Queries) != 1 || gh.Queries[0].Key != "self hosted vercel" {
-		t.Fatalf("verified %+v", gh)
+	if gh.State != GVerified || gh.Clicks != 4 || gh.Impressions != 100 || gh.Position != 10.4 || len(gh.Queries) != 2 || gh.Queries[0].Key != "self hosted vercel" {
+		t.Fatalf("verified %+v", gh) // the same clicks: more impressions first
+	}
+	// 28 days to the read, the last ones still filling in.
+	if gh.From != "2026-09-27" || gh.To != "2026-10-24" || gh.Complete != "2026-10-21" {
+		t.Fatalf("days %s..%s complete %s", gh.From, gh.To, gh.Complete)
 	}
 	if gh.Index == nil || gh.Index.Checked != 2 || gh.Index.Indexed != 1 || len(gh.Index.NotIndexed) != 1 || gh.Index.NotIndexed[0].Coverage != "Discovered - currently not indexed" {
 		t.Fatalf("index %+v", gh.Index)
