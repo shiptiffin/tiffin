@@ -253,6 +253,17 @@ func (s *histStore) gscSpan(ctx context.Context, hosts []string) (first, last st
 	return a.String, b.String
 }
 
+// crawlFirst is the first day the crawler log holds for the hosts.
+func (s *histStore) crawlFirst(ctx context.Context, hosts []string) string {
+	if len(hosts) == 0 {
+		return ""
+	}
+	in, args := hostsIn(hosts)
+	var a sql.NullString
+	_ = s.db.QueryRowContext(ctx, `SELECT MIN(day) FROM crawl_day WHERE `+in, args...).Scan(&a)
+	return a.String
+}
+
 // crawlTotals are each bot's hits and errors from..to across the hosts, and
 // the fake claims.
 func (s *histStore) crawlTotals(ctx context.Context, hosts []string, from, to string) (map[string][2]int, int, error) {
