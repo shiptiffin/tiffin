@@ -355,6 +355,34 @@ func googleShop(t *testing.T) (*harness, *fakeGoogle) {
 	return h, fg
 }
 
+// A page Google hasn't indexed is asked about again after a day; one it has,
+// after a week.
+func TestInspectAgain(t *testing.T) {
+	h, fg := googleShop(t)
+	n := len(fg.inspected)
+	h.now = h.now.Add(gPullEvery)
+	h.pass()
+	if len(fg.inspected) != n {
+		t.Fatalf("asked again after 12 hours: %v", fg.inspected[n:])
+	}
+	h.now = h.now.Add(gPullEvery)
+	h.pass()
+	if got := fg.inspected[n:]; len(got) != 1 || got[0] != "https://shop.example.com/new" {
+		t.Fatalf("after a day %v", got)
+	}
+	for range 12 { // a week on: the indexed page too, and the other again
+		h.now = h.now.Add(gPullEvery)
+		h.pass()
+	}
+	asked := map[string]int{}
+	for _, u := range fg.inspected[n:] {
+		asked[u]++
+	}
+	if asked["https://shop.example.com/new"] != 7 || asked["https://shop.example.com/"] != 1 {
+		t.Fatalf("after a week %v", asked)
+	}
+}
+
 // search inspect: a malformed page is refused before Google; the answer
 // carries Google's diagnostics and, for a sitemap page, is kept.
 func TestManualInspect(t *testing.T) {

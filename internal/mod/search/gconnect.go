@@ -26,8 +26,11 @@ import (
 const (
 	gPullEvery    = 12 * time.Hour
 	gInspectDaily = 20 // pages per host per day sent to URL Inspection
-	gReinspect    = 7 * 24 * time.Hour
-	gVerifyFor    = 24 * time.Hour // keep trying while DNS reaches Google
+	// An answer stands a week for a page Google has indexed and a day for
+	// one it hasn't: on a new site those are the pages that change.
+	gReinspect       = 7 * 24 * time.Hour
+	gReinspectNotYet = 24 * time.Hour
+	gVerifyFor       = 24 * time.Hour // keep trying while DNS reaches Google
 )
 
 // Google property states.
@@ -146,6 +149,14 @@ type gInspectSeen struct {
 	At       time.Time `json:"at"`
 	Verdict  string    `json:"verdict"`
 	Coverage string    `json:"coverage"`
+}
+
+// stands is how long the answer holds before the page is asked about again.
+func (s gInspectSeen) stands() time.Duration {
+	if s.Verdict == "PASS" {
+		return gReinspect
+	}
+	return gReinspectNotYet
 }
 
 func (m *Module) googleConn(ctx context.Context) (*googleConn, error) {
@@ -816,7 +827,7 @@ func (m *Module) inspectSome(ctx context.Context, g *gclient, prop, host string,
 		if d.InspectUsed >= gInspectDaily || ctx.Err() != nil {
 			return
 		}
-		if seen, ok := d.Inspected[u]; ok && now.Sub(seen.At) < gReinspect {
+		if seen, ok := d.Inspected[u]; ok && now.Sub(seen.At) < seen.stands() {
 			continue
 		}
 		r, err := g.inspect(ctx, prop, u)
