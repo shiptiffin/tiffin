@@ -713,7 +713,9 @@ yet), and Analytics › Search filtered by country, device or search type.
   service account keys can't use it.
 - With Google connected, search data is read every 12 hours and kept for 16 months (as
   long as Google keeps it); the first read fills them in. URL Inspection checks about 20
-  pages per domain a day, so a large site takes a while to fill in.
+  pages per domain a day (a page Google hasn't indexed again after a day, an indexed one
+  after a week), so a large site takes a while to fill in. A `search inspect` answer is
+  kept only for a page the sitemap lists.
 - Google's days run on Pacific time and the days it is still counting (usually the last
   2 or 3) are left out; the crawler log and visits count UTC days up to today, so their
   days differ a little.
@@ -721,9 +723,10 @@ yet), and Analytics › Search filtered by country, device or search type.
   than the totals. Each month of history keeps at most 100,000 searches and 100,000
   pages per address.
 - What moved compares the 1,000 searches and pages with the most clicks in each period,
-  and shows nothing when Google had no numbers for the days before. A change counts only
-  when it is at least 3 and twice the square root of the two periods' counts together, so
-  a small site often sees "too few searches" for 7 days; 28 days usually shows more.
+  and shows nothing unless the box has Google's numbers for all of the days before. A
+  change counts only when it is at least 3 and twice the square root of the two periods'
+  counts together, so a small site often sees "too few searches" for 7 days; 28 days
+  usually shows more.
 - Visits from AI apps come from the project's analytics: they cover the whole project,
   not one address, and an app that hides where a visit came from counts as direct.
 - Crawler counts before this release were kept for 30 days only, so a longer period
@@ -749,7 +752,8 @@ yet), and Analytics › Search filtered by country, device or search type.
 - The crawler log counts bots from their companies' published address lists. Bots
   without one (Meta, ByteDance, Common Crawl, Mistral) are not shown, and Anthropic's
   one list covers its three bots, told apart by user agent. Daily counts are kept 16
-  months; the pages each bot read, 30 days.
+  months; the pages each bot read, 30 days; the last 10 errors per bot and address, with
+  their path, 30 days (errors from before November 2026 have no path).
 - `tiffin protect under-attack` challenges search bots too while it is on.
 
 ## Managed boxes (ShipTiffin)

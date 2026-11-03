@@ -4619,7 +4619,7 @@ export interface paths {
         put?: never;
         /**
          * Ask Google whether a page is indexed
-         * @description Google's URL Inspection for one page of a findable address: indexed or not and why ("Crawled - currently not indexed", "Discovered - currently not indexed", blocked by robots.txt, noindex, a different canonical), when Google last crawled it, and the canonical it chose. Needs the Google connection and a verified property. Google allows 2,000 a day per property.
+         * @description Google's URL Inspection for one page of a findable address: indexed or not and why ("Crawled - currently not indexed", "Discovered - currently not indexed", blocked by robots.txt, noindex, a different canonical), when Google last crawled it and as which Googlebot, the canonical it chose, the sitemaps Google found it in and the pages Google knows link to it. Needs the Google connection and a verified property. Google allows 2,000 a day per property, so a page that isn't one https URL (spaces, a doubled slash, a port, a #fragment) is refused before it is sent; one the host's sitemap doesn't list gets a warning. The answer for a sitemap page is kept: search status and search report show it at once.
          */
         post: operations["search-inspect"];
         delete?: never;
@@ -13227,10 +13227,21 @@ export interface components {
             /** Format: int64 */
             search: number;
         };
+        SearchCrawlError: {
+            /** Format: date-time */
+            at: string;
+            host: string;
+            /** @description Without the query string */
+            path: string;
+            /** Format: int64 */
+            status: number;
+        };
         SearchCrawled: {
             /** @description An AI company's bot (OpenAI, Anthropic, Perplexity), not a search engine's */
             ai: boolean;
             bot: string;
+            /** @description The last 10 requests in the crawler days that answered 4xx or 5xx, newest first, with the address. The box keeps the last 10 per bot and address for 30 days, so errors can count more. */
+            errorPaths?: components["schemas"]["SearchCrawlError"][] | null;
             /**
              * Format: int64
              * @description Requests answered 4xx or 5xx
@@ -13253,6 +13264,8 @@ export interface components {
         SearchCrawler: {
             /** @description Googlebot, Bingbot, OAI-SearchBot, ChatGPT-User, GPTBot, Claude-SearchBot, Claude-User, ClaudeBot, PerplexityBot, Perplexity-User, Applebot, DuckDuckBot */
             bot: string;
+            /** @description The last 10 requests that answered 4xx or 5xx (30 days), newest first */
+            errorPaths?: components["schemas"]["SearchCrawlError"][] | null;
             /**
              * Format: int64
              * @description Requests in the last 7 days that answered 4xx or 5xx
@@ -13307,14 +13320,27 @@ export interface components {
         SearchGInspection: {
             /** @description Google's words: "Submitted and indexed", "Crawled - currently not indexed", "Discovered - currently not indexed"... */
             coverage: string;
+            /** @description MOBILE or DESKTOP: the Googlebot that crawled it last */
+            crawledAs?: string;
             googleCanonical?: string;
+            /** @description Whether the sitemap the box last read on the host lists the page; missing when the host has no sitemap */
+            inSitemap?: boolean;
             indexing?: string;
             lastCrawl?: string;
             pageFetch?: string;
+            /** @description Pages Google knows link to it; a page Google only discovered often has none */
+            referringUrls?: string[] | null;
+            /** @description Missing, like the two states below, when Google doesn't say */
             robotsTxt?: string;
+            /** @description The sitemaps Google found the page in (Google's sitemap field) */
+            sitemaps?: string[] | null;
+            /** @description The page asked about */
+            url?: string;
             userCanonical?: string;
             /** @description PASS (indexed), NEUTRAL (not indexed, no problem) or FAIL */
             verdict: string;
+            /** @description What makes the answer less useful: the page isn't in the sitemap, or the sitemap spells it differently */
+            warnings?: string[] | null;
         };
         SearchGNotYet: {
             at: string;
@@ -13374,12 +13400,16 @@ export interface components {
         SearchGoogleHost: {
             /** Format: int64 */
             clicks: number;
+            /** @description The last day Google had finished counting at the read; search report stops there, so its numbers are lower */
+            complete?: string;
             /** Format: double */
             ctr: number;
             daily?: components["schemas"]["SearchGDay"][] | null;
             detail?: string;
             /** @description Why the box could not read Google's data lately (the key, an API turned off, a lost permission) */
             error?: string;
+            /** @description The first of the 28 days the numbers below cover (Google's days run on Pacific time) */
+            from?: string;
             /** Format: int64 */
             impressions: number;
             /** @description What URL Inspection said about the pages checked so far (about 20 a day) */
@@ -13406,6 +13436,8 @@ export interface components {
              * @enum {string}
              */
             state: "not_connected" | "verifying" | "verified" | "failed";
+            /** @description The last of them, the day of the read: Google is still filling in its last 2 to 3 days, so these numbers grow */
+            to?: string;
         };
         SearchGoogleProperty: {
             detail?: string;
@@ -13538,7 +13570,9 @@ export interface components {
         SearchReport: {
             /** @description Requests per day: search engines and AI apart */
             crawlDays?: components["schemas"]["SearchCrawlDay"][] | null;
+            /** @description The first crawler day (UTC), never before the first day the box logged a bot */
             crawlFrom: string;
+            /** @description The last crawler day: today, on UTC */
             crawlTo: string;
             /** @description Search and AI bots that fetched pages in the crawler days, most requests first. A bot counts only from the addresses its operator publishes. */
             crawlers: components["schemas"]["SearchCrawled"][] | null;
@@ -13547,7 +13581,7 @@ export interface components {
              * @description Requests whose user agent claimed a known bot from an address outside its operator's list
              */
             fakes: number;
-            /** @description The first day of Google's numbers (YYYY-MM-DD). Google's days run on Pacific time and Google is still filling in its last 2 to 3 days, so a period ends on the last complete day. */
+            /** @description The first day of Google's numbers (YYYY-MM-DD), never before google.first. Google's days run on Pacific time and Google is still filling in its last 2 to 3 days, so a period ends on the last complete day. */
             from: string;
             google: components["schemas"]["SearchReportGoogle"];
             /** @description The one address shown, when asked for */
@@ -13555,6 +13589,7 @@ export interface components {
             /** @description Every production address of the project's apps; the report covers the findable ones (or host) */
             hosts: components["schemas"]["SearchReportHost"][] | null;
             indexNow: components["schemas"]["SearchReportIndex"];
+            /** @description The days before the period asked for, never before google.first (searches.previousData says how much they hold) */
             prevFrom: string;
             prevTo: string;
             project: string;
@@ -13661,13 +13696,18 @@ export interface components {
             /** @description The last day Google has finished counting: the days shown end there */
             complete?: string;
             daily: components["schemas"]["SearchDay"][] | null;
-            /** @description The searches and pages that gained or lost the most against the days before, only changes bigger than chance (all four lists empty: too few searches to tell); missing when Google had nothing then */
+            /** @description The searches and pages that gained or lost the most against the days before, only changes bigger than chance (all four lists empty: too few searches to tell); missing when Google had nothing then or previousData isn't full */
             moved?: components["schemas"]["SearchMoved"];
             /** @description Pages that showed up, as paths (with the host when the report covers several addresses) */
             pages: components["schemas"]["SearchGTop"][] | null;
             prevDaily: components["schemas"]["SearchDay"][] | null;
-            /** @description The same number of days before */
+            /** @description The same number of days before; zeros only mean no searches when previousData is full */
             previous: components["schemas"]["SearchTotals"];
+            /**
+             * @description full: Google's numbers cover the days before. partial: they start inside them (prevFrom is google.first), so previous sums fewer days than totals and moved is missing. none: the days before come before google.first: previous is no data, not zeros, and moved is missing.
+             * @enum {string}
+             */
+            previousData: "full" | "partial" | "none";
             /** @description What people searched, most clicks first (50 at most). Google leaves out rare searches, so these add up to less than the totals. */
             queries: components["schemas"]["SearchGTop"][] | null;
             /** @description The last day Google has numbers for, complete or not */
