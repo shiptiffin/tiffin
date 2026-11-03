@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -72,20 +73,30 @@ func botFor(ua string) *bot {
 const (
 	crawlDays     = 30   // days of counts kept
 	crawlPagesMax = 2000 // pages remembered per host and bot
+	crawlErrsMax  = 10   // error answers remembered per host and bot
 	listsEvery    = 24 * time.Hour
 )
 
 // Crawler is one bot's visits to a host.
 type Crawler struct {
-	Bot        string    `json:"bot" doc:"Googlebot, Bingbot, OAI-SearchBot, ChatGPT-User, GPTBot, Claude-SearchBot, Claude-User, ClaudeBot, PerplexityBot, Perplexity-User, Applebot, DuckDuckBot"`
-	Operator   string    `json:"operator"`
-	Purpose    string    `json:"purpose" enum:"search,user,training" doc:"search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models"`
-	LastAt     time.Time `json:"lastAt"`
-	LastPath   string    `json:"lastPath"`
-	LastStatus int       `json:"lastStatus"`
-	Hits7d     int       `json:"hits7d" doc:"Requests in the last 7 days"`
-	Pages7d    int       `json:"pages7d" doc:"Different pages fetched in the last 7 days"`
-	Errors7d   int       `json:"errors7d" doc:"Requests in the last 7 days that answered 4xx or 5xx"`
+	Bot        string       `json:"bot" doc:"Googlebot, Bingbot, OAI-SearchBot, ChatGPT-User, GPTBot, Claude-SearchBot, Claude-User, ClaudeBot, PerplexityBot, Perplexity-User, Applebot, DuckDuckBot"`
+	Operator   string       `json:"operator"`
+	Purpose    string       `json:"purpose" enum:"search,user,training" doc:"search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models"`
+	LastAt     time.Time    `json:"lastAt"`
+	LastPath   string       `json:"lastPath"`
+	LastStatus int          `json:"lastStatus"`
+	Hits7d     int          `json:"hits7d" doc:"Requests in the last 7 days"`
+	Pages7d    int          `json:"pages7d" doc:"Different pages fetched in the last 7 days"`
+	Errors7d   int          `json:"errors7d" doc:"Requests in the last 7 days that answered 4xx or 5xx"`
+	ErrorPaths []CrawlError `json:"errorPaths,omitempty" doc:"The last 10 requests that answered 4xx or 5xx (30 days), newest first"`
+}
+
+// CrawlError is one request a bot got an error answer for.
+type CrawlError struct {
+	Host   string    `json:"host"`
+	Path   string    `json:"path" doc:"Without the query string"`
+	Status int       `json:"status"`
+	At     time.Time `json:"at"`
 }
 
 type dayCount struct {
@@ -99,6 +110,13 @@ type botSeen struct {
 	LastStatus int                  `json:"lastStatus"`
 	Days       map[string]*dayCount `json:"days"`
 	Pages      map[string]time.Time `json:"pages"`
+	Errs       []crawlErr           `json:"errs,omitempty"` // the last few error answers, oldest first
+}
+
+type crawlErr struct {
+	Path   string    `json:"p"`
+	Status int       `json:"s"`
+	At     time.Time `json:"t"`
 }
 
 type crawlRecord struct {
@@ -303,6 +321,10 @@ func (m *Module) crawlLine(ctx context.Context, line []byte) {
 	d.Hits++
 	if e.Status >= 400 {
 		d.Errors++
+		s.Errs = append(s.Errs, crawlErr{Path: path, Status: e.Status, At: e.Time})
+		if len(s.Errs) > crawlErrsMax {
+			s.Errs = s.Errs[len(s.Errs)-crawlErrsMax:]
+		}
 	}
 	if t, ok := s.Pages[path]; !ok || e.Time.After(t) {
 		s.Pages[path] = e.Time
@@ -369,6 +391,7 @@ func (m *Module) track(ctx context.Context, hosts map[string]bool, now time.Time
 					delete(s.Days, d)
 				}
 			}
+			s.Errs = slices.DeleteFunc(s.Errs, func(e crawlErr) bool { return e.At.UTC().Format(time.DateOnly) < oldest })
 		}
 		for d := range r.Fakes {
 			if d < oldest {
@@ -412,6 +435,10 @@ func (m *Module) crawled(ctx context.Context, host string, now time.Time) ([]Cra
 			if t.After(since) {
 				c.Pages7d++
 			}
+		}
+		for i := len(s.Errs) - 1; i >= 0; i-- {
+			e := s.Errs[i]
+			c.ErrorPaths = append(c.ErrorPaths, CrawlError{Host: host, Path: e.Path, Status: e.Status, At: e.At})
 		}
 		out = append(out, c)
 	}

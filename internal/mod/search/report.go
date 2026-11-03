@@ -123,15 +123,16 @@ type SearchDay struct {
 
 // Crawled is one bot over the crawler days.
 type Crawled struct {
-	Bot        string     `json:"bot"`
-	Operator   string     `json:"operator"`
-	Purpose    string     `json:"purpose" enum:"search,user,training" doc:"search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models"`
-	AI         bool       `json:"ai" doc:"An AI company's bot (OpenAI, Anthropic, Perplexity), not a search engine's"`
-	Hits       int        `json:"hits"`
-	Errors     int        `json:"errors" doc:"Requests answered 4xx or 5xx"`
-	LastAt     *time.Time `json:"lastAt,omitempty"`
-	LastPath   string     `json:"lastPath,omitempty"`
-	LastStatus int        `json:"lastStatus,omitempty"`
+	Bot        string       `json:"bot"`
+	Operator   string       `json:"operator"`
+	Purpose    string       `json:"purpose" enum:"search,user,training" doc:"search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models"`
+	AI         bool         `json:"ai" doc:"An AI company's bot (OpenAI, Anthropic, Perplexity), not a search engine's"`
+	Hits       int          `json:"hits"`
+	Errors     int          `json:"errors" doc:"Requests answered 4xx or 5xx"`
+	LastAt     *time.Time   `json:"lastAt,omitempty"`
+	LastPath   string       `json:"lastPath,omitempty"`
+	LastStatus int          `json:"lastStatus,omitempty"`
+	ErrorPaths []CrawlError `json:"errorPaths,omitempty" doc:"The last 10 requests in the crawler days that answered 4xx or 5xx, newest first, with the address. The box keeps the last 10 per bot and address for 30 days, so errors can count more."`
 }
 
 // CrawlDay is one day's bot requests.
@@ -565,13 +566,19 @@ func (m *Module) reportCrawlers(ctx context.Context, r *Report, hosts []string, 
 			return err
 		}
 	}
-	// The last visit of each bot, from the crawler log (30 days).
+	// The last visit and errors of each bot, from the crawler log (30 days).
 	lastSeen := map[string]Crawler{}
+	errs := map[string][]CrawlError{}
 	for _, h := range hosts {
 		cs, _ := m.crawled(ctx, h, now)
 		for _, c := range cs {
 			if c.LastAt.After(lastSeen[c.Bot].LastAt) {
 				lastSeen[c.Bot] = c
+			}
+			for _, e := range c.ErrorPaths {
+				if day := e.At.UTC().Format(time.DateOnly); day >= r.CrawlFrom && day <= r.CrawlTo {
+					errs[c.Bot] = append(errs[c.Bot], e)
+				}
 			}
 		}
 	}
@@ -585,6 +592,10 @@ func (m *Module) reportCrawlers(ctx context.Context, r *Report, hosts []string, 
 		if seen {
 			at := c.LastAt
 			x.LastAt, x.LastPath, x.LastStatus = &at, c.LastPath, c.LastStatus
+		}
+		if es := errs[b.Name]; len(es) > 0 {
+			sort.SliceStable(es, func(i, j int) bool { return es[i].At.After(es[j].At) })
+			x.ErrorPaths = es[:min(len(es), crawlErrsMax)]
 		}
 		r.Crawlers = append(r.Crawlers, x)
 	}

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -465,6 +466,25 @@ func TestCrawlerLog(t *testing.T) {
 
 	if g.Bot != "Googlebot" || g.Purpose != "search" || g.Hits7d != 3 || g.Pages7d != 3 || g.Errors7d != 1 || g.LastPath != "/old" || g.LastStatus != 404 {
 		t.Fatalf("googlebot %+v", g)
+	}
+	if len(g.ErrorPaths) != 1 || g.ErrorPaths[0] != (CrawlError{Host: "shop.example", Path: "/old", Status: 404, At: at.Add(2 * time.Minute)}) || len(hs.Crawled[1].ErrorPaths) != 0 {
+		t.Fatalf("error paths %+v", hs.Crawled)
+	}
+	// The last 10 errors, newest first; a month on, none.
+	h.m.crawl.lists = parseLists(map[string][]string{listGoogle: {"66.249.64.0/19"}})
+	h.pass() // the fresh module tracks the host again
+	for i := range 12 {
+		h.m.crawlLine(h.ctx, accessLine(at.Add(time.Duration(10+i)*time.Minute), "66.249.66.1", "shop.example", "/e"+strconv.Itoa(i)+"?q=1", gb, 500+i%2))
+	}
+	h.pass()
+	if ep := h.host("shop.example").Crawled[0].ErrorPaths; len(ep) != 10 || ep[0].Path != "/e11" || ep[0].Status != 501 || ep[9].Path != "/e2" {
+		t.Fatalf("last 10 %+v", ep)
+	}
+	h.now = h.now.AddDate(0, 0, crawlDays+1)
+	h.m.crawlLine(h.ctx, accessLine(h.now, "66.249.66.1", "shop.example", "/", gb, 200))
+	h.pass()
+	if ep := h.host("shop.example").Crawled[0].ErrorPaths; len(ep) != 0 {
+		t.Fatalf("a month on %+v", ep)
 	}
 	if hid := h.host("shop.shiptiffin.app"); len(hid.Crawled) != 0 {
 		t.Fatalf("hidden host crawled %+v", hid.Crawled)

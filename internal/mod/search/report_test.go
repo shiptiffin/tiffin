@@ -140,6 +140,13 @@ func TestReport(t *testing.T) {
 	if len(r.Crawlers) != 2 || r.Crawlers[0].Bot != "Googlebot" || r.Crawlers[0].Hits != 2 || r.Crawlers[0].Errors != 1 || r.Crawlers[0].AI || r.Crawlers[0].LastPath != "/gone" {
 		t.Fatalf("crawlers %+v", r.Crawlers)
 	}
+	if ep := r.Crawlers[0].ErrorPaths; len(ep) != 1 || ep[0].Host != "shop.example.com" || ep[0].Path != "/gone" || ep[0].Status != 404 || len(r.Crawlers[1].ErrorPaths) != 0 {
+		t.Fatalf("error paths %+v", r.Crawlers)
+	}
+	// Only the crawler days' errors: none on a day without visits.
+	if quiet := report(reportIn{From: "2026-10-24", To: "2026-10-24"}); len(quiet.Crawlers) != 0 {
+		t.Fatalf("crawlers on a day without visits %+v", quiet.Crawlers)
+	}
 	if c := r.Crawlers[1]; c.Bot != "ChatGPT-User" || !c.AI || c.Purpose != "user" {
 		t.Fatalf("chatgpt %+v", c)
 	}
