@@ -11,8 +11,9 @@ import (
 // LoginLinkTTL is how long a one-time dashboard login link stays valid.
 const LoginLinkTTL = 10 * time.Minute
 
-// SessionTTL is how long a dashboard session lasts.
-const SessionTTL = 12 * time.Hour
+// SessionTTL is a dashboard session's fixed lifetime from sign-in.
+// Ordinary activity doesn't renew it; sensitive actions still need SudoWindow.
+const SessionTTL = 7 * 24 * time.Hour
 
 const loginPrefix = "tfl_"
 

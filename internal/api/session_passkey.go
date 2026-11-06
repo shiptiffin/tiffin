@@ -41,7 +41,7 @@ type PasskeySignIn struct {
 	Person    string    `json:"person" doc:"The person's ID (usr_...)"`
 	Name      string    `json:"name" doc:"The person's name; the session is named after them"`
 	Role      string    `json:"role" enum:"owner,admin,member,viewer" doc:"Their role; the session has exactly its power"`
-	ExpiresAt time.Time `json:"expiresAt" doc:"When the session ends (12 hours, like a login link's)"`
+	ExpiresAt time.Time `json:"expiresAt" doc:"When the session ends (7 days, like a login link's)"`
 }
 
 type clientIPKey struct{}
@@ -201,7 +201,7 @@ func (a *API) registerPasskeySignIn() {
 
 	f := op("session-passkey", http.MethodPost, "/v1/session/passkey", "-", RiskWrite, "Sign in with a passkey",
 		"Verifies the passkey assertion from navigator.credentials.get() against the passkeys people registered, then starts "+
-			"the same dashboard session a login link gives (that person's role, 12 hours) and sets the session cookie. "+
+			"the same dashboard session a login link gives (that person's role, 7 days) and sets the session cookie. "+
 			"Removed people cannot sign in. Used by the dashboard's login page.", "system")
 	f.Security = nil
 	f.Errors = append(f.Errors, 429, 501)

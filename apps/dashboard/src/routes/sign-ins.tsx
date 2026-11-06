@@ -40,7 +40,7 @@ export function SignInsPage() {
       <PageHeader
         eyebrow={accessCrumbs}
         title="Sign-ins"
-        lede="Each sign-in lasts 12 hours."
+        lede="Each sign-in lasts 7 days."
         actions={
           others.length > 0 && (
             <Button variant="secondary" size="lg" onClick={() => setEndingOthers(true)}>
