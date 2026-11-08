@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-CXCudH8Z.js";import{t}from"./cn-t8_aPh0-.js";import"./index-ClDcKq0f.js";var n=e();function r({value:e,unit:r,of:i,className:a}){return(0,n.jsxs)(`span`,{className:t(`tnum whitespace-nowrap`,a),children:[e,r&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,r]}),i&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,i]})]})}export{r as t};
