@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shiptiffin/tiffin/internal/api"
 	"github.com/shiptiffin/tiffin/internal/change"
@@ -117,6 +118,13 @@ func sessionCookie(t *testing.T, res *http.Response) *http.Cookie {
 	t.Helper()
 	for _, c := range res.Cookies() {
 		if c.Name == api.SessionCookie {
+			if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.Domain != "" {
+				t.Fatal("session cookie must remain host-only, Secure, HttpOnly and SameSite=Strict")
+			}
+			const week = 7 * 24 * time.Hour
+			if left := time.Until(c.Expires); left < week-time.Minute || left > week {
+				t.Fatalf("session cookie must persist for seven days, got %s", left)
+			}
 			return c
 		}
 	}

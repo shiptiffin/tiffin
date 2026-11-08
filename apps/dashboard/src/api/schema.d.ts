@@ -5947,7 +5947,7 @@ export interface paths {
         put?: never;
         /**
          * Sign in with a passkey
-         * @description Verifies the passkey assertion from navigator.credentials.get() against the passkeys people registered, then starts the same dashboard session a login link gives (that person's role, 12 hours) and sets the session cookie. Removed people cannot sign in. Used by the dashboard's login page.
+         * @description Verifies the passkey assertion from navigator.credentials.get() against the passkeys people registered, then starts the same dashboard session a login link gives (that person's role, 7 days) and sets the session cookie. Removed people cannot sign in. Used by the dashboard's login page.
          */
         post: operations["session-passkey"];
         delete?: never;
@@ -10677,7 +10677,7 @@ export interface components {
         PasskeySignIn: {
             /**
              * Format: date-time
-             * @description When the session ends (12 hours, like a login link's)
+             * @description When the session ends (7 days, like a login link's)
              */
             expiresAt: string;
             /** @description The person's name; the session is named after them */
