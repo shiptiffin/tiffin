@@ -47,7 +47,7 @@ func TestSessionKeyOutlivesItsSession(t *testing.T) {
 		t.Fatalf("1-year key is capped: %v %v", k, err)
 	}
 
-	// The session expires (12 hours); the keys keep working.
+	// The session expires (7 days); the keys keep working.
 	m.now = func() time.Time { return time.Now().Add(SessionTTL + time.Hour) }
 	if _, err := m.Authenticate(ctx, never); err != nil {
 		t.Fatalf("key died with its session's expiry: %v", err)

@@ -298,7 +298,7 @@ func (e *oauthEnv) signedInAs(res *http.Response, body string, person *tokens.Pe
 	if res.StatusCode != 200 || !strings.Contains(body, `content="0;url=`+next+`"`) {
 		e.t.Fatalf("callback: %d %s", res.StatusCode, body)
 	}
-	c := cookieNamed(res, api.SessionCookie)
+	c := sessionCookie(e.t, res)
 	if c == nil || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode {
 		e.t.Fatalf("session cookie: %+v", c)
 	}
