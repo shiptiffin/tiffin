@@ -26,8 +26,11 @@ import (
 const (
 	gPullEvery    = 12 * time.Hour
 	gInspectDaily = 20 // pages per host per day sent to URL Inspection
-	gReinspect    = 7 * 24 * time.Hour
-	gVerifyFor    = 24 * time.Hour // keep trying while DNS reaches Google
+	// An answer stands a week for a page Google has indexed and a day for
+	// one it hasn't: on a new site those are the pages that change.
+	gReinspect       = 7 * 24 * time.Hour
+	gReinspectNotYet = 24 * time.Hour
+	gVerifyFor       = 24 * time.Hour // keep trying while DNS reaches Google
 )
 
 // Google property states.
@@ -77,6 +80,9 @@ type GoogleHost struct {
 	Error    string     `json:"error,omitempty" doc:"Why the box could not read Google's data lately (the key, an API turned off, a lost permission)"`
 	PulledAt *time.Time `json:"pulledAt,omitempty" doc:"When the search data below was read"`
 	// Last 28 days, web search, this address only.
+	From        string       `json:"from,omitempty" doc:"The first of the 28 days the numbers below cover (Google's days run on Pacific time)"`
+	To          string       `json:"to,omitempty" doc:"The last of them, the day of the read: Google is still filling in its last 2 to 3 days, so these numbers grow"`
+	Complete    string       `json:"complete,omitempty" doc:"The last day Google had finished counting at the read; search report stops there, so its numbers are lower"`
 	Clicks      int          `json:"clicks"`
 	Impressions int          `json:"impressions"`
 	CTR         float64      `json:"ctr"`
@@ -119,6 +125,8 @@ type GNotYet struct {
 
 type gdata struct {
 	At          time.Time               `json:"at"`
+	From        string                  `json:"from,omitempty"` // the days the totals cover
+	To          string                  `json:"to,omitempty"`
 	Error       string                  `json:"error,omitempty"`
 	TriedAt     time.Time               `json:"triedAt,omitzero"` // the last read that failed
 	Clicks      int                     `json:"clicks"`
@@ -146,6 +154,14 @@ type gInspectSeen struct {
 	At       time.Time `json:"at"`
 	Verdict  string    `json:"verdict"`
 	Coverage string    `json:"coverage"`
+}
+
+// stands is how long the answer holds before the page is asked about again.
+func (s gInspectSeen) stands() time.Duration {
+	if s.Verdict == "PASS" {
+		return gReinspect
+	}
+	return gReinspectNotYet
 }
 
 func (m *Module) googleConn(ctx context.Context) (*googleConn, error) {
@@ -360,9 +376,44 @@ func (m *Module) gdataFor(ctx context.Context, host string) *gdata {
 	return &d
 }
 
+// saveGdata stores what a pass read. An answer someone's search inspect
+// stored meanwhile (newer than d) is kept.
 func (m *Module) saveGdata(ctx context.Context, host string, d *gdata) {
+	m.gdMu.Lock()
+	defer m.gdMu.Unlock()
+	if cur := m.gdataFor(ctx, host); cur != nil {
+		for u, s := range cur.Inspected {
+			if s.At.After(d.At) && s.At.After(d.Inspected[u].At) {
+				if d.Inspected == nil {
+					d.Inspected = map[string]gInspectSeen{}
+				}
+				d.Inspected[u] = s
+			}
+		}
+	}
+	m.putGdata(ctx, host, d)
+}
+
+func (m *Module) putGdata(ctx context.Context, host string, d *gdata) {
 	b, _ := json.Marshal(d)
 	_ = m.p.DB.KVPut(ctx, kvNS, "gdata/"+host, b)
+}
+
+// noteInspection keeps the answer to a search inspect as inspectSome keeps
+// its own, so status and the report show it at once and the page waits its
+// turn from now. key is the page as the sitemap spells it.
+func (m *Module) noteInspection(ctx context.Context, host, key string, r *GInspection) {
+	m.gdMu.Lock()
+	defer m.gdMu.Unlock()
+	d := m.gdataFor(ctx, host)
+	if d == nil {
+		d = &gdata{}
+	}
+	if d.Inspected == nil {
+		d.Inspected = map[string]gInspectSeen{}
+	}
+	d.Inspected[key] = gInspectSeen{At: m.now(), Verdict: r.Verdict, Coverage: r.Coverage}
+	m.putGdata(ctx, host, d)
 }
 
 // propFor is the property that covers host: the registrable domain's
@@ -606,7 +657,8 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 			d.Sitemap = sm
 		}
 	}
-	from, to := now.AddDate(0, 0, -28), now
+	from, to := now.AddDate(0, 0, -27), now
+	d.From, d.To = from.Format(time.DateOnly), to.Format(time.DateOnly)
 	filter := hostFilter(host)
 	if rows, err := g.query(ctx, prop, from, to, []string{"date"}, filter, 100); err == nil {
 		var pos, impr float64
@@ -631,8 +683,10 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 		return
 	}
 	m.noteGoogle(ctx, nil)
+	// Google ranks by clicks alone, so with few clicks its first rows are
+	// ties in its own order: take more and rank by impressions too.
 	top := func(dim string) []GTop {
-		rows, err := g.query(ctx, prop, from, to, []string{dim}, filter, 10)
+		rows, err := g.query(ctx, prop, from, to, []string{dim}, filter, 1000)
 		if err != nil {
 			return nil
 		}
@@ -644,7 +698,16 @@ func (m *Module) pull(ctx context.Context, g *gclient, prop, host, sitemap strin
 			}
 			out = append(out, GTop{Key: k, Clicks: int(r.Clicks), Impressions: int(r.Impressions), Position: round1(r.Position)})
 		}
-		return out
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].Clicks != out[j].Clicks {
+				return out[i].Clicks > out[j].Clicks
+			}
+			if out[i].Impressions != out[j].Impressions {
+				return out[i].Impressions > out[j].Impressions
+			}
+			return out[i].Key < out[j].Key
+		})
+		return out[:min(len(out), 10)]
 	}
 	d.Queries, d.Pages = top("query"), top("page")
 	m.inspectSome(ctx, g, prop, host, d, now)
@@ -781,7 +844,7 @@ func (m *Module) inspectSome(ctx context.Context, g *gclient, prop, host string,
 		if d.InspectUsed >= gInspectDaily || ctx.Err() != nil {
 			return
 		}
-		if seen, ok := d.Inspected[u]; ok && now.Sub(seen.At) < gReinspect {
+		if seen, ok := d.Inspected[u]; ok && now.Sub(seen.At) < seen.stands() {
 			continue
 		}
 		r, err := g.inspect(ctx, prop, u)
@@ -817,6 +880,9 @@ func (m *Module) googleHost(ctx context.Context, host string) *GoogleHost {
 			out.PulledAt = &at
 		}
 		out.Clicks, out.Impressions, out.CTR, out.Position = d.Clicks, d.Impressions, d.CTR, d.Position
+		if out.From, out.To = d.From, d.To; d.To != "" {
+			out.Complete = completeAt(d).Format(time.DateOnly)
+		}
 		out.Daily, out.Queries, out.Pages, out.Sitemap = d.Daily, d.Queries, d.Pages, d.Sitemap
 		if len(d.Inspected) > 0 {
 			ic := &GIndexCount{}

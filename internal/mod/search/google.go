@@ -314,14 +314,20 @@ func (g *gclient) queryAt(ctx context.Context, siteURL string, from, to time.Tim
 
 // GInspection is what Google's URL Inspection says about one page.
 type GInspection struct {
-	Verdict       string `json:"verdict" doc:"PASS (indexed), NEUTRAL (not indexed, no problem) or FAIL"`
-	Coverage      string `json:"coverage" doc:"Google's words: \"Submitted and indexed\", \"Crawled - currently not indexed\", \"Discovered - currently not indexed\"..."`
-	LastCrawl     string `json:"lastCrawl,omitempty"`
-	RobotsTxt     string `json:"robotsTxt,omitempty"`
-	Indexing      string `json:"indexing,omitempty"`
-	PageFetch     string `json:"pageFetch,omitempty"`
-	GoogleCanon   string `json:"googleCanonical,omitempty"`
-	UserCanonical string `json:"userCanonical,omitempty"`
+	URL           string   `json:"url,omitempty" doc:"The page asked about"`
+	Verdict       string   `json:"verdict" doc:"PASS (indexed), NEUTRAL (not indexed, no problem) or FAIL"`
+	Coverage      string   `json:"coverage" doc:"Google's words: \"Submitted and indexed\", \"Crawled - currently not indexed\", \"Discovered - currently not indexed\"..."`
+	LastCrawl     string   `json:"lastCrawl,omitempty"`
+	CrawledAs     string   `json:"crawledAs,omitempty" doc:"MOBILE or DESKTOP: the Googlebot that crawled it last"`
+	RobotsTxt     string   `json:"robotsTxt,omitempty" doc:"Missing, like the two states below, when Google doesn't say"`
+	Indexing      string   `json:"indexing,omitempty"`
+	PageFetch     string   `json:"pageFetch,omitempty"`
+	GoogleCanon   string   `json:"googleCanonical,omitempty"`
+	UserCanonical string   `json:"userCanonical,omitempty"`
+	Sitemaps      []string `json:"sitemaps,omitempty" doc:"The sitemaps Google found the page in (Google's sitemap field)"`
+	ReferringURLs []string `json:"referringUrls,omitempty" doc:"Pages Google knows link to it; a page Google only discovered often has none"`
+	InSitemap     *bool    `json:"inSitemap,omitempty" doc:"Whether the sitemap the box last read on the host lists the page; missing when the host has no sitemap"`
+	Warnings      []string `json:"warnings,omitempty" doc:"What makes the answer less useful: the page isn't in the sitemap, or the sitemap spells it differently"`
 }
 
 // inspect asks URL Inspection about a page (2,000 a day per property).
@@ -329,14 +335,17 @@ func (g *gclient) inspect(ctx context.Context, siteURL, page string) (*GInspecti
 	var out struct {
 		InspectionResult struct {
 			IndexStatusResult struct {
-				Verdict         string `json:"verdict"`
-				CoverageState   string `json:"coverageState"`
-				RobotsTxtState  string `json:"robotsTxtState"`
-				IndexingState   string `json:"indexingState"`
-				LastCrawlTime   string `json:"lastCrawlTime"`
-				PageFetchState  string `json:"pageFetchState"`
-				GoogleCanonical string `json:"googleCanonical"`
-				UserCanonical   string `json:"userCanonical"`
+				Verdict         string   `json:"verdict"`
+				CoverageState   string   `json:"coverageState"`
+				RobotsTxtState  string   `json:"robotsTxtState"`
+				IndexingState   string   `json:"indexingState"`
+				LastCrawlTime   string   `json:"lastCrawlTime"`
+				PageFetchState  string   `json:"pageFetchState"`
+				GoogleCanonical string   `json:"googleCanonical"`
+				UserCanonical   string   `json:"userCanonical"`
+				CrawledAs       string   `json:"crawledAs"`
+				Sitemap         []string `json:"sitemap"`
+				ReferringURLs   []string `json:"referringUrls"`
 			} `json:"indexStatusResult"`
 		} `json:"inspectionResult"`
 	}
@@ -344,8 +353,17 @@ func (g *gclient) inspect(ctx context.Context, siteURL, page string) (*GInspecti
 		return nil, err
 	}
 	r := out.InspectionResult.IndexStatusResult
-	return &GInspection{Verdict: r.Verdict, Coverage: r.CoverageState, LastCrawl: r.LastCrawlTime, RobotsTxt: r.RobotsTxtState,
-		Indexing: r.IndexingState, PageFetch: r.PageFetchState, GoogleCanon: r.GoogleCanonical, UserCanonical: r.UserCanonical}, nil
+	return &GInspection{Verdict: r.Verdict, Coverage: r.CoverageState, LastCrawl: r.LastCrawlTime, CrawledAs: said(r.CrawledAs),
+		RobotsTxt: said(r.RobotsTxtState), Indexing: said(r.IndexingState), PageFetch: said(r.PageFetchState),
+		GoogleCanon: r.GoogleCanonical, UserCanonical: r.UserCanonical, Sitemaps: r.Sitemap, ReferringURLs: r.ReferringURLs}, nil
+}
+
+// said is one of Google's states, or "" for its *_UNSPECIFIED (Google doesn't say).
+func said(state string) string {
+	if strings.HasSuffix(state, "_UNSPECIFIED") {
+		return ""
+	}
+	return state
 }
 
 // GSitemap is what Google says about a submitted sitemap.

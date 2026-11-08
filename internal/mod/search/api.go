@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/shiptiffin/tiffin/internal/api"
@@ -406,8 +408,10 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 	ins := api.Outbound(api.Op("search-inspect", http.MethodPost, "/v1/projects/{project}/search/inspect", "search inspect", api.RiskRead,
 		"Ask Google whether a page is indexed",
 		"Google's URL Inspection for one page of a findable address: indexed or not and why (\"Crawled - currently not indexed\", \"Discovered - currently not indexed\", "+
-			"blocked by robots.txt, noindex, a different canonical), when Google last crawled it, and the canonical it chose. Needs the Google connection and a verified property. "+
-			"Google allows 2,000 a day per property.", tag))
+			"blocked by robots.txt, noindex, a different canonical), when Google last crawled it and as which Googlebot, the canonical it chose, "+
+			"the sitemaps Google found it in and the pages Google knows link to it. Needs the Google connection and a verified property. "+
+			"Google allows 2,000 a day per property, so a page that isn't one https URL (spaces, a doubled slash, a port, a #fragment) is refused before it is sent; "+
+			"one the host's sitemap doesn't list gets a warning. The answer for a sitemap page is kept: search status and search report show it at once.", tag))
 	ins.Errors = append(ins.Errors, 404, 409, 422)
 	huma.Register(a, ins, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -421,44 +425,134 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 		if err := ready(); err != nil {
 			return nil, err
 		}
-		pu, err := url.Parse(in.Body.Page)
-		if err != nil || pu.Scheme != "https" || pu.Host == "" {
-			return nil, api.NewProblem(422, "validation", "page must be a full https URL")
-		}
-		host := strings.ToLower(pu.Host)
-		views, err := m.hosts(ctx)
+		r, err := m.inspectOne(ctx, in.Project, in.Body.Page)
 		if err != nil {
 			return nil, err
-		}
-		found := false
-		for _, v := range views {
-			if v.Host == host && v.Project == in.Project && v.Findable {
-				found = true
-			}
-		}
-		if !found {
-			return nil, api.NewProblem(404, "not_found", host+" is not a findable address of project "+in.Project)
-		}
-		g, _, err := m.gclientFor(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if g == nil {
-			pb := api.NewProblem(409, "precondition", "Google Search Console is not connected on this box")
-			pb.Hint = "the box owner connects it in Settings › Search engines (tiffin search google connect)"
-			return nil, pb
-		}
-		gh := m.googleHost(ctx, host)
-		if gh.State != GVerified {
-			pb := api.NewProblem(409, "precondition", host+" is not verified in Search Console yet: "+gh.Detail)
-			return nil, pb
-		}
-		r, err := g.inspect(ctx, gh.Property, in.Body.Page)
-		if err != nil {
-			return nil, api.NewProblem(502, "upstream", err.Error())
 		}
 		return &struct{ Body GInspection }{*r}, nil
 	}))
+}
+
+// inspectOne asks URL Inspection about one page of a project's findable
+// address, and keeps the answer when it is a sitemap page.
+func (m *Module) inspectOne(ctx context.Context, project, raw string) (*GInspection, error) {
+	pu, pb := pageURL(raw)
+	if pb != nil {
+		return nil, pb
+	}
+	host := pu.Host
+	views, err := m.hosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for _, v := range views {
+		if v.Host == host && v.Project == project && v.Findable {
+			found = true
+		}
+	}
+	if !found {
+		return nil, api.NewProblem(404, "not_found", host+" is not a findable address of project "+project)
+	}
+	g, _, err := m.gclientFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if g == nil {
+		pb := api.NewProblem(409, "precondition", "Google Search Console is not connected on this box")
+		pb.Hint = "the box owner connects it in Settings › Search engines (tiffin search google connect)"
+		return nil, pb
+	}
+	gh := m.googleHost(ctx, host)
+	if gh.State != GVerified {
+		pb := api.NewProblem(409, "precondition", host+" is not verified in Search Console yet: "+gh.Detail)
+		return nil, pb
+	}
+	page := pu.String()
+	key, inSitemap, warning := m.inSitemap(ctx, host, page)
+	r, err := g.inspect(ctx, gh.Property, page)
+	if err != nil {
+		return nil, api.NewProblem(502, "upstream", err.Error())
+	}
+	r.URL, r.InSitemap = page, inSitemap
+	if warning != "" {
+		r.Warnings = append(r.Warnings, warning)
+	}
+	if key != "" {
+		m.noteInspection(ctx, host, key, r)
+	}
+	return r, nil
+}
+
+// pageURL checks a page before it goes to URL Inspection, where each
+// one counts against Google's 2,000 a day: one absolute https URL, without
+// spaces, doubled slashes, a port, user info or a fragment. It returns the
+// page with its host in lower case and an empty path as /.
+func pageURL(raw string) (*url.URL, *api.Problem) {
+	raw = strings.TrimSpace(raw)
+	bad := func(detail, hint string) (*url.URL, *api.Problem) {
+		pb := api.NewProblem(422, "validation", detail)
+		pb.Hint = hint
+		return nil, pb
+	}
+	if strings.IndexFunc(raw, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return bad("page must be one URL, and this one has a space in it: "+raw, "inspect one page at a time: search inspect <project> --page https://example.com/pricing")
+	}
+	pu, err := url.Parse(raw)
+	if err != nil || pu.Scheme != "https" || pu.Host == "" || pu.Opaque != "" {
+		return bad("page must be a full https URL: "+raw, "for example https://example.com/pricing")
+	}
+	if pu.User != nil || pu.Port() != "" {
+		return bad("page must name the host alone, without user info or a port: "+raw, "inspect https://"+strings.ToLower(pu.Hostname())+pu.EscapedPath())
+	}
+	pu.Host = strings.ToLower(pu.Host)
+	if pu.Fragment != "" || strings.HasSuffix(raw, "#") {
+		pu.Fragment, pu.RawFragment = "", ""
+		return bad("page must not have a #fragment: Google indexes the page without it", "inspect "+pu.String())
+	}
+	if strings.Contains(pu.EscapedPath(), "//") {
+		fixed := *pu
+		fixed.Path, fixed.RawPath = doubled.ReplaceAllString(pu.Path, "/"), ""
+		return bad("page has a doubled slash in its path, so Google sees another URL: "+raw, "inspect "+fixed.String())
+	}
+	if pu.Path == "" {
+		pu.Path = "/"
+	}
+	return pu, nil
+}
+
+var doubled = regexp.MustCompile(`/{2,}`)
+
+// inSitemap looks page up in the sitemap the box last read on host. key is
+// the page as the sitemap spells it when its URL Inspection answer belongs
+// with the ones inspectSome keeps (a sitemap page, or the home page of a
+// host without a sitemap), else "". in is nil without a sitemap.
+func (m *Module) inSitemap(ctx context.Context, host, page string) (key string, in *bool, warning string) {
+	pages := m.snapshot(ctx, host)
+	home := "https://" + host + "/"
+	if len(pages) == 0 {
+		if page == home {
+			key = home
+		}
+		return key, nil, "the box found no sitemap on " + host + ", so Google finds its pages only through links"
+	}
+	yes, no := true, false
+	if _, ok := pages[page]; ok {
+		return page, &yes, ""
+	}
+	if bare := strings.TrimSuffix(home, "/"); page == home {
+		if _, ok := pages[bare]; ok {
+			return bare, &yes, "" // the same page
+		}
+	}
+	twin := strings.TrimSuffix(page, "/")
+	if twin == page {
+		twin = page + "/"
+	}
+	if _, ok := pages[twin]; ok {
+		return "", &no, "the sitemap lists " + twin + ", not " + page + ": inspect the spelling Google is told about"
+	}
+	return "", &no, "the sitemap on " + host + " doesn't list this page, so Google finds it only through links, and search status and search report leave the answer out"
 }
 
 // IndexNowStatus is IndexNow across the box.

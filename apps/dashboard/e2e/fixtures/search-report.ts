@@ -105,6 +105,7 @@ export function searchReport(project: string, opts: { state?: "verified" | "not_
         ? {
             totals: sum(daily),
             previous: sum(prevDaily),
+            previousData: "full",
             daily,
             prevDaily,
             through: iso(to + 2 * DAY),

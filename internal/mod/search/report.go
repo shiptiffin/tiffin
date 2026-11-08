@@ -21,14 +21,14 @@ import (
 // Report is a project's search over some days.
 type Report struct {
 	Project string `json:"project"`
-	From    string `json:"from" doc:"The first day of Google's numbers (YYYY-MM-DD). Google's days run on Pacific time and Google is still filling in its last 2 to 3 days, so a period ends on the last complete day."`
+	From    string `json:"from" doc:"The first day of Google's numbers (YYYY-MM-DD), never before google.first. Google's days run on Pacific time and Google is still filling in its last 2 to 3 days, so a period ends on the last complete day."`
 	To      string `json:"to"`
 	// The days before, for the comparison.
-	PrevFrom string `json:"prevFrom"`
+	PrevFrom string `json:"prevFrom" doc:"The days before the period asked for, never before google.first (searches.previousData says how much they hold)"`
 	PrevTo   string `json:"prevTo"`
 	// The crawler log is live, so its days end today.
-	CrawlFrom string       `json:"crawlFrom"`
-	CrawlTo   string       `json:"crawlTo"`
+	CrawlFrom string       `json:"crawlFrom" doc:"The first crawler day (UTC), never before the first day the box logged a bot"`
+	CrawlTo   string       `json:"crawlTo" doc:"The last crawler day: today, on UTC"`
 	Hosts     []ReportHost `json:"hosts" doc:"Every production address of the project's apps; the report covers the findable ones (or host)"`
 	Host      string       `json:"host,omitempty" doc:"The one address shown, when asked for"`
 	IndexNow  ReportIndex  `json:"indexNow"`
@@ -73,15 +73,16 @@ type ReportGoogle struct {
 
 // Searches are Google's numbers for the days shown.
 type Searches struct {
-	Totals   SearchTotals `json:"totals"`
-	Previous SearchTotals `json:"previous" doc:"The same number of days before"`
-	Daily    []SearchDay  `json:"daily"`
-	PrevDays []SearchDay  `json:"prevDaily"`
-	Queries  []GTop       `json:"queries" doc:"What people searched, most clicks first (50 at most). Google leaves out rare searches, so these add up to less than the totals."`
-	Pages    []GTop       `json:"pages" doc:"Pages that showed up, as paths (with the host when the report covers several addresses)"`
-	Through  string       `json:"through,omitempty" doc:"The last day Google has numbers for, complete or not"`
-	Complete string       `json:"complete,omitempty" doc:"The last day Google has finished counting: the days shown end there"`
-	Moved    *Moved       `json:"moved,omitempty" doc:"The searches and pages that gained or lost the most against the days before, only changes bigger than chance (all four lists empty: too few searches to tell); missing when Google had nothing then"`
+	Totals       SearchTotals `json:"totals"`
+	Previous     SearchTotals `json:"previous" doc:"The same number of days before; zeros only mean no searches when previousData is full"`
+	PreviousData string       `json:"previousData" enum:"full,partial,none" doc:"full: Google's numbers cover the days before. partial: they start inside them (prevFrom is google.first), so previous sums fewer days than totals and moved is missing. none: the days before come before google.first: previous is no data, not zeros, and moved is missing."`
+	Daily        []SearchDay  `json:"daily"`
+	PrevDays     []SearchDay  `json:"prevDaily"`
+	Queries      []GTop       `json:"queries" doc:"What people searched, most clicks first (50 at most). Google leaves out rare searches, so these add up to less than the totals."`
+	Pages        []GTop       `json:"pages" doc:"Pages that showed up, as paths (with the host when the report covers several addresses)"`
+	Through      string       `json:"through,omitempty" doc:"The last day Google has numbers for, complete or not"`
+	Complete     string       `json:"complete,omitempty" doc:"The last day Google has finished counting: the days shown end there"`
+	Moved        *Moved       `json:"moved,omitempty" doc:"The searches and pages that gained or lost the most against the days before, only changes bigger than chance (all four lists empty: too few searches to tell); missing when Google had nothing then or previousData isn't full"`
 }
 
 // Moved is what changed most between the days shown and the days before:
@@ -122,15 +123,16 @@ type SearchDay struct {
 
 // Crawled is one bot over the crawler days.
 type Crawled struct {
-	Bot        string     `json:"bot"`
-	Operator   string     `json:"operator"`
-	Purpose    string     `json:"purpose" enum:"search,user,training" doc:"search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models"`
-	AI         bool       `json:"ai" doc:"An AI company's bot (OpenAI, Anthropic, Perplexity), not a search engine's"`
-	Hits       int        `json:"hits"`
-	Errors     int        `json:"errors" doc:"Requests answered 4xx or 5xx"`
-	LastAt     *time.Time `json:"lastAt,omitempty"`
-	LastPath   string     `json:"lastPath,omitempty"`
-	LastStatus int        `json:"lastStatus,omitempty"`
+	Bot        string       `json:"bot"`
+	Operator   string       `json:"operator"`
+	Purpose    string       `json:"purpose" enum:"search,user,training" doc:"search: builds a search index; user: fetches a page for someone's question in a chat; training: collects pages to train models"`
+	AI         bool         `json:"ai" doc:"An AI company's bot (OpenAI, Anthropic, Perplexity), not a search engine's"`
+	Hits       int          `json:"hits"`
+	Errors     int          `json:"errors" doc:"Requests answered 4xx or 5xx"`
+	LastAt     *time.Time   `json:"lastAt,omitempty"`
+	LastPath   string       `json:"lastPath,omitempty"`
+	LastStatus int          `json:"lastStatus,omitempty"`
+	ErrorPaths []CrawlError `json:"errorPaths,omitempty" doc:"The last 10 requests in the crawler days that answered 4xx or 5xx, newest first, with the address. The box keeps the last 10 per bot and address for 30 days, so errors can count more."`
 }
 
 // CrawlDay is one day's bot requests.
@@ -240,11 +242,29 @@ func (m *Module) report(ctx context.Context, in *reportIn) (Report, error) {
 	r.From, r.To = from.Format(time.DateOnly), to.Format(time.DateOnly)
 	r.PrevTo = from.AddDate(0, 0, -1).Format(time.DateOnly)
 	r.PrevFrom = from.AddDate(0, 0, -days).Format(time.DateOnly)
+	// The box holds no Google numbers before first: those days are no data,
+	// not zeros, so neither period reaches back past it.
+	prevData := "full"
+	switch {
+	case first == "" || r.PrevTo < first:
+		prevData = "none"
+	case r.PrevFrom < first:
+		r.PrevFrom, prevData = first, "partial"
+	}
+	if first != "" && r.From < first && first <= r.To {
+		r.From = first
+	}
+
+	if m.hist != nil {
+		if f := m.hist.crawlFirst(ctx, hosts); f > r.CrawlFrom && f <= r.CrawlTo {
+			r.CrawlFrom = f // the log started later
+		}
+	}
 
 	m.reportIndex(ctx, &r, hosts)
 	m.reportGoogle(ctx, &r, hosts, first)
 	if r.Google.State == GVerified && m.hist != nil {
-		s, err := m.reportSearches(ctx, &r, hosts, last)
+		s, err := m.reportSearches(ctx, &r, hosts, last, prevData)
 		if s != nil {
 			s.Complete = complete.Format(time.DateOnly)
 		}
@@ -365,8 +385,8 @@ func totals(days []SearchDay) SearchTotals {
 	return t
 }
 
-func (m *Module) reportSearches(ctx context.Context, r *Report, hosts []string, last string) (*Searches, error) {
-	s := &Searches{Through: last, Daily: []SearchDay{}, PrevDays: []SearchDay{}, Queries: []GTop{}, Pages: []GTop{}}
+func (m *Module) reportSearches(ctx context.Context, r *Report, hosts []string, last, prevData string) (*Searches, error) {
+	s := &Searches{Through: last, PreviousData: prevData, Daily: []SearchDay{}, PrevDays: []SearchDay{}, Queries: []GTop{}, Pages: []GTop{}}
 	var err error
 	if s.Daily, err = m.hist.gscDays(ctx, hosts, r.From, r.To); err != nil {
 		return nil, err
@@ -384,7 +404,8 @@ func (m *Module) reportSearches(ctx context.Context, r *Report, hosts []string, 
 	for i := range s.Pages {
 		s.Pages[i].Key = pageKey(s.Pages[i].Key, hosts)
 	}
-	if s.Previous.Impressions > 0 {
+	// Against fewer days, everything would look like it rose.
+	if prevData == "full" && s.Previous.Impressions > 0 {
 		if s.Moved, err = m.moved(ctx, r, hosts); err != nil {
 			return nil, err
 		}
@@ -414,16 +435,20 @@ func (m *Module) completeThrough(ctx context.Context, hosts []string, now time.T
 		if d == nil || d.Incomplete == "" {
 			continue
 		}
-		t, err := time.Parse(time.DateOnly, d.Incomplete)
-		if err != nil {
-			continue
-		}
-		t = t.AddDate(0, 0, -1)
-		if !seen || t.Before(out) {
+		if t := completeAt(d); !seen || t.Before(out) {
 			out, seen = t, true
 		}
 	}
 	return out
+}
+
+// completeAt is the last day Google had finished counting at a read: the
+// day before the first one it said it was filling in, else three days back.
+func completeAt(d *gdata) time.Time {
+	if t, err := time.Parse(time.DateOnly, d.Incomplete); err == nil {
+		return t.AddDate(0, 0, -1)
+	}
+	return d.At.UTC().Truncate(24*time.Hour).AddDate(0, 0, -3)
 }
 
 // pageKey is a page as the report shows it: a path for one address, host
@@ -545,13 +570,19 @@ func (m *Module) reportCrawlers(ctx context.Context, r *Report, hosts []string, 
 			return err
 		}
 	}
-	// The last visit of each bot, from the crawler log (30 days).
+	// The last visit and errors of each bot, from the crawler log (30 days).
 	lastSeen := map[string]Crawler{}
+	errs := map[string][]CrawlError{}
 	for _, h := range hosts {
 		cs, _ := m.crawled(ctx, h, now)
 		for _, c := range cs {
 			if c.LastAt.After(lastSeen[c.Bot].LastAt) {
 				lastSeen[c.Bot] = c
+			}
+			for _, e := range c.ErrorPaths {
+				if day := e.At.UTC().Format(time.DateOnly); day >= r.CrawlFrom && day <= r.CrawlTo {
+					errs[c.Bot] = append(errs[c.Bot], e)
+				}
 			}
 		}
 	}
@@ -565,6 +596,10 @@ func (m *Module) reportCrawlers(ctx context.Context, r *Report, hosts []string, 
 		if seen {
 			at := c.LastAt
 			x.LastAt, x.LastPath, x.LastStatus = &at, c.LastPath, c.LastStatus
+		}
+		if es := errs[b.Name]; len(es) > 0 {
+			sort.SliceStable(es, func(i, j int) bool { return es[i].At.After(es[j].At) })
+			x.ErrorPaths = es[:min(len(es), crawlErrsMax)]
 		}
 		r.Crawlers = append(r.Crawlers, x)
 	}

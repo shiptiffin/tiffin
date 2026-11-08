@@ -210,7 +210,11 @@ func TestInviteLifecycle(t *testing.T) {
 	}
 
 	// Sent from a session that signed out, then expired.
+	// The session has twelve hours left when it sends the seven-day invite.
+	now := time.Now()
+	m.now = func() time.Time { return now.Add(-SessionTTL + 12*time.Hour) }
 	_, annP := session(t, m, ann.ID, MethodPasskey)
+	m.now = func() time.Time { return now }
 	inv, exp, _ := m.LoginLinkFor(ctx, annP, bob.ID)
 	if time.Until(exp) < 6*24*time.Hour {
 		t.Fatalf("invite expiry %v", exp)
@@ -218,7 +222,7 @@ func TestInviteLifecycle(t *testing.T) {
 	if err := m.SignOut(ctx, annP); err != nil {
 		t.Fatal(err)
 	}
-	m.now = func() time.Time { return time.Now().Add(SessionTTL + time.Hour) }
+	m.now = func() time.Time { return now.Add(24 * time.Hour) }
 	redeems("invite from a signed-out, expired session", inv, true)
 	m.now = time.Now
 

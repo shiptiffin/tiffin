@@ -64,9 +64,11 @@ func TestReport(t *testing.T) {
 		t.Fatalf("verified %+v", r.Google)
 	}
 	// 28 days by default, ending on the last day Google finished (three days
-	// back when it doesn't say), not today (the 24th).
-	if r.To != "2026-10-21" || r.From != "2026-09-24" || r.PrevTo != "2026-09-23" || r.CrawlTo != "2026-10-24" || s.Through != "2026-10-21" || s.Complete != "2026-10-21" {
-		t.Fatalf("days %s..%s before %s..%s crawl ..%s", r.From, r.To, r.PrevFrom, r.PrevTo, r.CrawlTo)
+	// back when it doesn't say), not today (the 24th), and starting no earlier
+	// than Google's numbers (the 20th): the days before are no data, not zeros.
+	if r.To != "2026-10-21" || r.From != "2026-10-20" || r.Google.First != "2026-10-20" || r.PrevTo != "2026-09-23" || r.CrawlTo != "2026-10-24" ||
+		s.Through != "2026-10-21" || s.Complete != "2026-10-21" || s.PreviousData != "none" || s.Moved != nil {
+		t.Fatalf("days %s..%s before %s..%s (%s) crawl ..%s", r.From, r.To, r.PrevFrom, r.PrevTo, s.PreviousData, r.CrawlTo)
 	}
 	if s.Totals.Clicks != 4 || s.Totals.Impressions != 100 || s.Totals.Position != 10.4 || s.Totals.CTR != 0.04 || len(s.Daily) != 2 || s.Previous.Clicks != 0 {
 		t.Fatalf("totals %+v daily %+v", s.Totals, s.Daily)
@@ -76,7 +78,7 @@ func TestReport(t *testing.T) {
 	}
 	// Custom days: only the 21st.
 	r = report(reportIn{From: "2026-10-21", To: "2026-10-21"})
-	if r.Searches.Totals.Clicks != 1 || r.Searches.Previous.Clicks != 3 || len(r.Searches.Queries) != 1 || r.Searches.Queries[0].Key != "tiffin box" {
+	if r.Searches.Totals.Clicks != 1 || r.Searches.Previous.Clicks != 3 || r.Searches.PreviousData != "full" || len(r.Searches.Queries) != 1 || r.Searches.Queries[0].Key != "tiffin box" {
 		t.Fatalf("one day %+v", r.Searches)
 	}
 	// What moved against the 20th: "tiffin box" and /pricing came, the rest fell.
@@ -87,8 +89,14 @@ func TestReport(t *testing.T) {
 		t.Fatalf("moved %+v", mv)
 	}
 	// Nothing the days before: nothing to compare.
-	if r = report(reportIn{From: "2026-10-20", To: "2026-10-20"}); r.Searches.Moved != nil {
-		t.Fatalf("moved with no days before %+v", r.Searches.Moved)
+	if r = report(reportIn{From: "2026-10-20", To: "2026-10-20"}); r.Searches.Moved != nil || r.Searches.PreviousData != "none" {
+		t.Fatalf("moved with no days before %+v", r.Searches)
+	}
+	// Google's numbers start inside the days before: they hold fewer days,
+	// so nothing is said to have moved.
+	r = report(reportIn{From: "2026-10-22", To: "2026-10-24"})
+	if r.From != "2026-10-22" || r.PrevFrom != "2026-10-20" || r.PrevTo != "2026-10-21" || r.Searches.PreviousData != "partial" || r.Searches.Previous.Clicks != 4 || r.Searches.Moved != nil {
+		t.Fatalf("partial days before %s..%s %+v", r.PrevFrom, r.PrevTo, r.Searches)
 	}
 	if _, err := h.m.report(h.ctx, &reportIn{Project: "shop", From: "2026-10-22", To: "2026-10-21"}); err == nil {
 		t.Fatal("days the wrong way round were taken")
@@ -101,7 +109,7 @@ func TestReport(t *testing.T) {
 	fg.incomplete = "2026-10-21"
 	h.now = h.now.Add(gPullEvery)
 	h.pass()
-	if r = report(reportIn{Period: "7d"}); r.To != "2026-10-20" || r.From != "2026-10-14" || r.Searches.Complete != "2026-10-20" || r.Searches.Through != "2026-10-21" {
+	if r = report(reportIn{Period: "7d"}); r.To != "2026-10-20" || r.From != "2026-10-20" || r.Searches.Complete != "2026-10-20" || r.Searches.Through != "2026-10-21" {
 		t.Fatalf("incomplete days %s..%s %+v", r.From, r.To, r.Searches)
 	}
 	if r = report(reportIn{From: "2026-10-10", To: "2026-10-24"}); r.To != "2026-10-20" || r.CrawlTo != "2026-10-24" {
@@ -132,11 +140,22 @@ func TestReport(t *testing.T) {
 	if len(r.Crawlers) != 2 || r.Crawlers[0].Bot != "Googlebot" || r.Crawlers[0].Hits != 2 || r.Crawlers[0].Errors != 1 || r.Crawlers[0].AI || r.Crawlers[0].LastPath != "/gone" {
 		t.Fatalf("crawlers %+v", r.Crawlers)
 	}
+	if ep := r.Crawlers[0].ErrorPaths; len(ep) != 1 || ep[0].Host != "shop.example.com" || ep[0].Path != "/gone" || ep[0].Status != 404 || len(r.Crawlers[1].ErrorPaths) != 0 {
+		t.Fatalf("error paths %+v", r.Crawlers)
+	}
+	// Only the crawler days' errors: none on a day without visits.
+	if quiet := report(reportIn{From: "2026-10-24", To: "2026-10-24"}); len(quiet.Crawlers) != 0 {
+		t.Fatalf("crawlers on a day without visits %+v", quiet.Crawlers)
+	}
 	if c := r.Crawlers[1]; c.Bot != "ChatGPT-User" || !c.AI || c.Purpose != "user" {
 		t.Fatalf("chatgpt %+v", c)
 	}
 	if r.Fakes != 1 || len(r.CrawlDays) != 1 || r.CrawlDays[0].Search != 2 || r.CrawlDays[0].AI != 1 {
 		t.Fatalf("fakes %d days %+v", r.Fakes, r.CrawlDays)
+	}
+	// The crawler days start when the log does.
+	if r.CrawlFrom != at.Format(time.DateOnly) || r.CrawlTo != h.now.Format(time.DateOnly) {
+		t.Fatalf("crawler days %s..%s", r.CrawlFrom, r.CrawlTo)
 	}
 
 	// Disconnecting drops Google's numbers, not the crawler log's.

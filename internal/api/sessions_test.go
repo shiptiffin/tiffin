@@ -19,7 +19,7 @@ var (
 func (e *mailEnv) signIn(code, ip string, hdr map[string]string, device ...*http.Cookie) (string, string, *http.Cookie) {
 	e.t.Helper()
 	res, out := e.send("/v1/session", ip, map[string]any{"code": code}, hdr, device...)
-	s := cookieNamed(res, api.SessionCookie)
+	s := sessionCookie(e.t, res)
 	if res.StatusCode != 200 || s == nil {
 		e.t.Fatalf("sign in: %d %v", res.StatusCode, out)
 	}
