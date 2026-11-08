@@ -24,7 +24,7 @@ import (
 // connect from are on a CrowdSec allowlist, which stops decisions for them
 // from being made at all.
 const (
-	fwBouncerPkg     = "crowdsec-firewall-bouncer-nftables=0.0.36" // pinned; apt verifies the repo signature
+	fwBouncerPkg     = "crowdsec-firewall-bouncer-nftables=0.0.38" // pinned; apt verifies the repo signature
 	fwBouncerName    = "tiffin-firewall"
 	fwBouncerUnit    = "crowdsec-firewall-bouncer"
 	fwBouncerConfig  = "/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml.local"

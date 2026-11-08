@@ -34,7 +34,7 @@ const (
 	crowdsecRepo   = "https://packagecloud.io/crowdsec/crowdsec/ubuntu/"
 	crowdsecKey    = "https://packagecloud.io/crowdsec/crowdsec/gpgkey"
 	// crowdsecVersion is the pinned package (apt verifies it with the repo's signing key).
-	crowdsecVersion = "1.8.1"
+	crowdsecVersion = "1.8.2"
 )
 
 // Hub items installed from the CrowdSec hub: the base pipeline (linux:
