@@ -241,7 +241,7 @@ func (r *rt) edgePort(u *url.URL) bool {
 func (r *rt) projectLinks(project string) func(ctx context.Context, u *url.URL) (*url.URL, *http.Client, error) {
 	return func(ctx context.Context, u *url.URL) (*url.URL, *http.Client, error) {
 		host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
-		if _, ip := netip.ParseAddr(host); host == "" || ip == nil || host == r.p.DashboardHost() || !r.edgePort(u) {
+		if _, notIP := netip.ParseAddr(host); host == "" || notIP == nil || host == r.p.DashboardHost() || !r.edgePort(u) {
 			return nil, nil, nil // an address, or the box's own dashboard and API: never an app here
 		}
 		app, prefix, found := "", "", false
