@@ -20,16 +20,16 @@
     "updated": "2026-10-13"
   },
   "limits": {
-    "sha": "223e9111a3f21f58",
-    "updated": "2026-11-03"
+    "sha": "d36aa0b95978ab2e",
+    "updated": "2026-11-10"
   },
   "security": {
     "sha": "099b6f1aa372d665",
     "updated": "2026-11-06"
   },
   "apps": {
-    "sha": "bbe31b4868bf96e8",
-    "updated": "2026-11-01"
+    "sha": "e2e6b952ba8823a7",
+    "updated": "2026-11-10"
   },
   "data": {
     "sha": "87ad4da92ae839c7",
