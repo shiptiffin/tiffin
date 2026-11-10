@@ -142,7 +142,8 @@ export function plan(opts: TiffinAstroOptions, input: PlanInput): Plan {
     config.output === "server" || scan.onDemandPages.length > 0 || scan.serverIslands.length > 0 || scan.actions;
   if (config.adapter) {
     p.node = config.adapter.name === NODE;
-    if (!p.node) p.warn.push(`adapter "${config.adapter.name}" is not ${NODE}: left as is; the box runs @astrojs/node standalone servers, and graceful shutdown is skipped.`);
+    if (p.node) p.info.push(`adapter: ${NODE} (yours).`);
+    else p.warn.push(`adapter "${config.adapter.name}" is not ${NODE}: left as is; the box runs @astrojs/node standalone servers, and graceful shutdown is skipped.`);
   } else if (opts.adapter === false) {
     p.info.push("adapter: off (option).");
   } else if (!needsServer) {

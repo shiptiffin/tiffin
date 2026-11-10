@@ -24,7 +24,16 @@ export interface ProjectScan {
 const SOURCE = /\.(astro|md|mdx|markdoc|[cm]?[jt]sx?)$/;
 const PRERENDER_FALSE = /export\s+const\s+prerender\s*(?::\s*boolean\s*)?=\s*false\b/;
 const SERVER_DEFER = /\bserver:defer\b/;
-const CACHE_CALL = /\bcache\s*\.\s*(set|invalidate)\s*\(/;
+// Astro's route cache, not any object called "cache" (a Map's cache.set(k, v) must not count):
+// Astro.cache.set/invalidate(...), or cache.set({ maxAge | swr | tags ... }) / cache.set(false),
+// or cache.invalidate({ tags | path }). A call these miss (cache.set(liveEntry)) needs cache: true.
+const CACHE_CALL = new RegExp(
+  [
+    String.raw`\bAstro\s*\.\s*cache\s*\.\s*(set|invalidate)\s*\(`,
+    String.raw`\bcache\s*\.\s*set\s*\(\s*(\{[^)]*?\b(maxAge|swr|tags|lastModified|etag)\b|false\b)`,
+    String.raw`\bcache\s*\.\s*invalidate\s*\(\s*\{[^)]*?\b(tags|path)\b`,
+  ].join("|"),
+);
 
 function walk(dir: string, out: string[], limit = 20_000): void {
   let names: string[];

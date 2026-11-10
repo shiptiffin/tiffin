@@ -13,15 +13,18 @@ export const prerender = false;
 /** Where DATABASE_URL points: a TCP host and port, or a Unix socket path. */
 export function pgAddress(dsn: string): { host: string; port: number } | { path: string } | undefined {
   let u: URL;
+  // "postgres://user@/db?host=/socket" (no host) is valid for libpq but not for URL.
+  const NOHOST = "nohost.invalid";
   try {
-    u = new URL(dsn);
+    u = new URL(dsn.replace(/^(postgres(?:ql)?:\/\/(?:[^/@]*@)?)(?=[/?]|$)/, `$1${NOHOST}`));
   } catch {
     return undefined;
   }
   if (!/^postgres(ql)?:$/.test(u.protocol)) return undefined;
   const port = Number(u.port || u.searchParams.get("port") || 5432);
   const qhost = u.searchParams.get("host");
-  const host = decodeURIComponent(u.hostname) || qhost || "";
+  const hostname = u.hostname === NOHOST ? "" : decodeURIComponent(u.hostname);
+  const host = qhost || hostname;
   if (host.startsWith("/")) return { path: `${host.replace(/\/$/, "")}/.s.PGSQL.${port}` };
   if (!host) return { path: `/var/run/postgresql/.s.PGSQL.${port}` };
   return { host: host.replace(/^\[|\]$/g, ""), port };
