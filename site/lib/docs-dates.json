@@ -20,15 +20,15 @@
     "updated": "2026-10-13"
   },
   "limits": {
-    "sha": "e70938cb5aaca419",
+    "sha": "18990f734f5991ab",
     "updated": "2026-11-10"
   },
   "security": {
-    "sha": "099b6f1aa372d665",
-    "updated": "2026-11-06"
+    "sha": "489142eb0a63dc57",
+    "updated": "2026-11-10"
   },
   "apps": {
-    "sha": "7dbb00c43fae5aa4",
+    "sha": "2646ab8673225866",
     "updated": "2026-11-10"
   },
   "data": {
@@ -40,12 +40,12 @@
     "updated": "2026-10-08"
   },
   "email": {
-    "sha": "5f0f72e13c2f4b1b",
-    "updated": "2026-10-09"
+    "sha": "bad5cb5dd55103ba",
+    "updated": "2026-11-10"
   },
   "auth": {
-    "sha": "ae36f59fff7e64b7",
-    "updated": "2026-10-08"
+    "sha": "8a40e7ca35ecf8c0",
+    "updated": "2026-11-10"
   },
   "queues": {
     "sha": "6df710d922369b4a",

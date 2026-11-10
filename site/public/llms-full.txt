@@ -1090,7 +1090,7 @@ Three levels:
 | Nuxt 3 and 4 | First-class | Nitro's `node-server` output, on Bun; `nuxt generate` is built to files. See [Nuxt](https://shiptiffin.com/docs/apps.md#nuxt). |
 | React Router 7 and 8 (framework mode) | First-class | The box's own Bun server; `ssr: false` is built to files. See [React Router](https://shiptiffin.com/docs/apps.md#react-router). |
 | Astro, static | First-class | Built to files and served by the edge. |
-| Astro with `@astrojs/node` | Detected | Runs `dist/server/entry.mjs` as a server. |
+| Astro with `@astrojs/node` | First-class | `framework: "astro"` (or detected under `bun`): the box starts `<outDir>/server/entry.mjs` on Node.js (Bun with `runtime: "bun"`) with `HOST=0.0.0.0` and a kept `ASTRO_KEY`; the edge serves prerendered pages and `/_astro/`. See [Astro](https://shiptiffin.com/docs/apps.md#astro). |
 | Vite + React (SPA), plain HTML | First-class | Static site; client-side routers get an `index.html` fallback. |
 | Any other Bun or Node.js server (Express, Elysia, Fastify...) | Detected | Must listen on `$PORT`. The box sets `HOST=0.0.0.0`; your own `HOST` wins. |
 | Flask, Django, Litestar and other Python servers | Detected (`python`) | Started by your `command`, or Railpack's guess. |
@@ -1098,15 +1098,16 @@ Three levels:
 | Remix 2, SolidStart, TanStack Start for Solid | Not yet | Planned. |
 | Astro with the Vercel, Netlify or Cloudflare adapter | Not yet | Switch to `@astrojs/node`, or build it static. |
 
-**Bun by default.** JavaScript apps build and run on Bun. Some things only work on Node.js;
-set `runtime: "node"` for them:
+**Bun by default.** JavaScript apps build and run on Bun, except Astro with `@astrojs/node`,
+which runs on Node.js unless it sets `runtime: "bun"` (the adapter lists no Bun support).
+Some things only work on Node.js; set `runtime: "node"` for them:
 
 - native modules built for Node.js, and libraries that lean on Node internals;
 - React Router's own server (`react-router-serve`, on Express) is slow on Bun (about 340
   requests a second): the box starts its own Bun server instead, but a custom server or a
   Dockerfile that runs `react-router-serve` should run on Node.js.
 
-**SvelteKit, Nuxt and React Router** (what the box sets up is in [Apps](https://shiptiffin.com/docs/apps.md#sveltekit)):
+**SvelteKit, Nuxt, React Router and Astro** (what the box sets up is in [Apps](https://shiptiffin.com/docs/apps.md#sveltekit)):
 
 - SvelteKit with `adapter-auto` installs `adapter-node` during every build (it knows no
   box). Use `@sveltejs/adapter-bun` (SvelteKit 3) for the leaner server. `adapter-bun` needs
@@ -1120,6 +1121,18 @@ set `runtime: "node"` for them:
 - Nuxt with a `nitro.preset` in `nuxt.config` builds that preset; `bun` (Nitro 2) is not
   recommended (no graceful shutdown, buffered request bodies).
 - React Router's RSC framework mode (unstable) isn't tested.
+- Astro: the adapter and `outDir` are read the same way, for the server and for the files
+  the edge serves (`<outDir>/client`); `build.client` and `build.server` other than
+  `./client` and `./server` aren't read. SvelteKit's `out` likewise moves both its
+  `client` and `prerendered` folders. Node's 5-second keep-alive applies (Astro's adapter
+  has no setting for it); the switchboard drops idle connections after 4 seconds, so a
+  POST after a quiet spell doesn't land on a closing one.
+- Astro's `security.allowedDomains` isn't set by the box: the app's config sets it, from
+  `TIFFIN_HOSTS` (build time). It holds the app's hosts as of the build: a new own domain
+  needs a deploy, and deploy addresses (`d-<id>--…`) aren't in it.
+- Astro sessions use the adapter's default (files in the container): lost on every deploy
+  and not shared between instances. Point `session.driver` at Valkey (`REDIS_URL`) to keep
+  them.
 - Hashed asset folders (`/assets/` of React Router and TanStack Start, `/_app/immutable/`,
   `/_nuxt/`, `/_astro/`) are cached for a year, except what the app's own `public/` (SvelteKit
   `static/`) puts there, which is revalidated. A Vite `publicDir` other than `public/` isn't
@@ -1301,8 +1314,13 @@ rollback, or a change to the app's env or settings while it sleeps makes the nex
 a fresh container.
 
 Prerendered pages of Astro, SvelteKit, Nuxt, React Router and TanStack Start are
-answered by the box while the app sleeps, without waking it (see Caching below). Not yet:
-Next.js pages, pages rendered on request, and Early Hints during a wake.
+answered by the box while the app sleeps, without waking it (see Caching below), and
+don't count as use: only requests that reach the app keep it awake. Not yet:
+Next.js pages, pages rendered on request, and Early Hints during a wake. A request for a
+path with no file (a missing page, a bot probing `/wp-admin`) goes to the app and wakes
+it, even when the build wrote a `404.html`: the box can't yet tell from the build which
+paths the app renders on request (Astro's route list is in its server code, not in a file
+the box can read safely).
 
 ## Isolation between apps
 
@@ -1332,6 +1350,9 @@ is a network namespace per app, with box services on an address of their own):
 
 - **Sending** goes through a mail provider you bring (Resend, Postmark, SES, SendGrid,
   Mailgun, Brevo or any SMTP relay). Without one, mail goes to the dev inbox.
+- **Previews:** mail a preview's code sends always stays in the dev inbox, but the sign-in
+  mail auth sends for a preview (verification, magic links, codes, invites) goes out
+  through the relay like production's. See [Email](https://shiptiffin.com/docs/email.md#previews).
 - **Port 25 is blocked for apps:** their mail goes through the box (`SMTP_URL`).
 - **Hetzner blocks outbound port 465** on new servers (and 25). Use a relay on port 587
   with STARTTLS; Cloudflare Email Service's SMTP is on 465, so it doesn't work there.
@@ -2078,7 +2099,10 @@ Plainly, so you can decide what to trust it with.
   answers can't stop the engine (a project with invalid settings is left out; a
   provider's answer is capped at 1 MB and 15 s), and `@shiptiffin/sdk/auth` checks a
   session against its own app's project (`TIFFIN_AUTH_HOST`) whatever host a request
-  names. Nothing in the auth tables works as a credential: reset and magic-link tokens
+  names. Finding and creating a project's users from server code needs that project's
+  `TIFFIN_AUTH_KEY` (a secret env var, an HMAC of the project's name under its auth secret),
+  so another project's app can't, and browsers can't reach those calls at all (see
+  [Users from server code](https://shiptiffin.com/docs/auth.md#users-from-server-code)). Nothing in the auth tables works as a credential: reset and magic-link tokens
   are stored hashed, one-time codes encrypted.
 - **Mail content needs full access.** Read-only access to a project shows each message's
   sender, recipients and delivery, not what it says: mail carries reset links and codes.
@@ -2332,14 +2356,26 @@ apps: {
   api:    { framework: "hono", path: "apps/api", routes: ["web/api"], instances: 2 },
   worker: { framework: "bun",  path: "apps/worker", role: "worker" },
   site:   { framework: "static", path: "site" },
+  docs:   { framework: "astro", path: "apps/docs" },
   py:     { framework: "fastapi", path: "apps/py", release: "alembic upgrade head" },
 }
 ```
 
 `next`, `hono`, `fastapi` and any server listening on `$PORT` run as containers; `static`
-sites are served straight from the edge. Python apps (`fastapi`, and `python` for Flask,
+sites are served straight from the edge; `astro` is either, by its adapter (see
+[Astro](#astro)). Python apps (`fastapi`, and `python` for Flask,
 Django and others) build with Railpack's Python provider: see
 [FastAPI and Python](#fastapi-and-python).
+
+A server you start yourself (framework `bun` with a `start` script or `command`, a
+Dockerfile, a prebuilt image) must listen on the port in `$PORT`, which the box sets for
+each instance, and on all interfaces (`0.0.0.0`), not `localhost`: Node may bind `localhost`
+to `::1` alone, and the box reaches each instance at `127.0.0.1:$PORT` (the box's firewall
+keeps app ports off the network either way). Node's `server.listen(process.env.PORT)` with
+no host listens on all interfaces; servers that default to `localhost` need telling:
+Fastify (`listen({ port, host: "0.0.0.0" })`), Astro's Node adapter (`HOST=0.0.0.0`, which
+the box sets for Astro apps), Uvicorn and Gunicorn (`--host 0.0.0.0`,
+`--bind 0.0.0.0:$PORT`). When nothing answers on the port, the failed deploy's hint says so.
 
 JavaScript apps build and run on Bun: `next build` and `next start`, or your `build` and `start`
 scripts, run under `bun --bun`, so tools that ask for Node.js run on Bun too. It starts
@@ -2347,13 +2383,15 @@ faster and uses less memory. For an app that needs Node.js (a native module buil
 library that leans on Node internals), set `runtime: "node"` (or pick Node.js under the
 app's Runtime in the dashboard): it then builds and runs on Node.js, from the next deploy. A
 build or start that fails on Bun says so, and the version that was serving keeps serving.
+Astro with `@astrojs/node` is the exception: its adapter supports Node.js only, so it
+builds and runs on Node.js unless it sets `runtime: "bun"` (see [Astro](#astro)).
 
 The box pins both runtimes: Bun to the release it ships with, and Node.js to major 24
 (Railpack's own default, "lts", would move to a new major on its own). An app that picks
 its own version keeps it: `engines` or `packageManager` in `package.json`, `.nvmrc`,
 `.node-version`, `.bun-version`, `mise.toml` or `.tool-versions`.
 
-After a Next.js, SvelteKit, Nuxt, React Router or TanStack Start app passes its health check, the box also
+After a Next.js, SvelteKit, Nuxt, React Router, Astro (`@astrojs/node`) or TanStack Start app passes its health check, the box also
 asks it for `/` and for a page that doesn't exist; a 5xx on either stops the deploy before
 it takes traffic.
 
@@ -2361,11 +2399,10 @@ A static build whose `package.json` uses a client-side router (react-router, vue
 TanStack Router, wouter…) serves `index.html` for paths without a file, so a refresh on
 `/about` works; `index_fallback: false` in a Staticfile turns that off.
 
-SvelteKit, Nuxt, React Router (framework mode) and TanStack Start are started by the box
-itself, with the settings their servers need behind its proxy: see [SvelteKit](#sveltekit),
-[Nuxt](#nuxt), [React Router](#react-router) and [TanStack Start](#tanstack-start). Astro with
-`@astrojs/node` (standalone) runs its server the same way; without a `start` script the box
-starts `dist/server/entry.mjs`. Which frameworks are first-class, which are only
+SvelteKit, Nuxt, React Router (framework mode), Astro and TanStack Start are started by
+the box itself, with the settings their servers need behind its proxy: see
+[SvelteKit](#sveltekit), [Nuxt](#nuxt), [React Router](#react-router), [Astro](#astro) and
+[TanStack Start](#tanstack-start). Which frameworks are first-class, which are only
 detected and which aren't supported yet: [What works and what doesn't](https://shiptiffin.com/docs/limits.md#frameworks).
 Any of them runs from its own Dockerfile (`builder: "dockerfile"`, see
 [Build settings](#build-settings)).
@@ -2433,8 +2470,11 @@ failed build or health check leaves the old version serving.
 - **Previews** sleep when idle and wake on the first request. Preview names may not start
   with `d-`, which is how [each version's own address](#every-versions-own-address)
   starts. Each preview gets its own
-  copy of the project's database (see below); it shares the cache, buckets and secrets
-  with production. Email goes to the dev inbox. A preview keeps only its latest build (no rollback), and one nobody
+  copy of the project's database (see below); it shares the cache, buckets, secrets and
+  users with production. Mail the app sends itself (through its `SMTP_URL`) is kept in the
+  dev inbox; sign-in mail the box sends for it (verification, magic links, one-time codes,
+  invites) goes out like production's, through the relay when there is one, so it reaches
+  real inboxes (see [Email](https://shiptiffin.com/docs/email.md#previews)). A preview keeps only its latest build (no rollback), and one nobody
   requested or deployed to for 7 days is deleted, as if its pull request had closed;
   the next push or deploy builds it again.
 - **Start command:** an app runs its build's start command (package.json `start`); set
@@ -2463,9 +2503,15 @@ failed build or health check leaves the old version serving.
   nothing changes but speed: a page costs the app nothing and a sleeping app doesn't wake
   for it. Only exact files count; everything else goes to the app. Not Next.js: its
   `proxy.ts` runs before prerendered pages. See [the limits](https://shiptiffin.com/docs/limits.md#caching-and-images).
-- **Shutdown:** a replaced release finishes the requests it has (each within the app's
-  time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
-  they are done, then 30 seconds before it is killed, for work it does after responding.
+- **Shutdown:** a replaced release gets no new requests (the switchboard sends them to
+  the new one), finishes the requests it has (each within the app's time limit,
+  `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once they are done,
+  then 30 seconds before it is killed, for work it does after responding. A server with no
+  SIGTERM handler (Astro's standalone server) loses nothing: it has no request left when
+  it gets the signal. An app that goes to sleep does so only with no request in flight.
+  An app stopped on purpose (stopped, deleted, its project stopped, a preview deleted)
+  stops getting requests first and has up to 10 seconds to finish the ones it has before
+  SIGTERM, then 10 seconds before it is killed.
 
 ### Every version's own address
 
@@ -3003,14 +3049,19 @@ or 14 days, and the project says "Asleep since …" with a Wake button.
   to start and pass its health check.
   `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
   and `lastActive`.
-- **What counts as use:** every request to the app's addresses, including the files and
-  prerendered pages the box serves for it (which never wake it), and every delivery. A request or a job still under way keeps the
-  app awake, however long it runs. The clock is kept across restarts of the box.
+- **What counts as use:** every request that reaches the app, and every delivery. The
+  files and prerendered pages the box serves for it (client assets, Astro's or SvelteKit's
+  prerendered pages, a project bucket's images through `/_next/image`) don't count, and
+  never wake it: a mostly static site with a few server routes sleeps while visitors only
+  read its prerendered pages. A request for a path with no file (a bot probing
+  `/wp-admin`) does go to the app, and wakes it. A request or a job still under way keeps
+  the app awake, however long it runs. The clock is kept across restarts of the box.
 - **What stops:** anything the app does on its own between requests (timers,
   `setInterval`, in-memory caches) stops while it sleeps. Put recurring work in a cron:
   it wakes the app, so a cron that runs every hour keeps an app with `sleepAfter: "24h"`
   awake.
-- Previews sleep after 15 idle minutes whatever this says.
+- Previews sleep after 15 idle minutes whatever this says. A preview is deleted after 7
+  days without use; there, the files the box serves for it count as use.
 
 ## What your app gets
 
@@ -3046,7 +3097,7 @@ changing one rebuilds the app from its live version's source instead of restarti
 `--prebuilt` has no source to rebuild: it restarts and its browser code keeps the old
 value until the next deploy. Next.js apps also get `NEXT_PUBLIC_TIFFIN_URL` (the app's
 URL, a preview's own) and `NEXT_PUBLIC_SENTRY_DSN` (the box's error ingest for browsers),
-unless they set them. Setting, copying or deleting a secret is a
+and Astro apps `PUBLIC_TIFFIN_URL`, unless they set them. Setting, copying or deleting a secret is a
 change in History (`-m` gives the reason) that `tiffin undo <id>` reverts, putting back the
 old value: the change log keeps values only encrypted to the box key. Destroying a project
 deletes its secrets too (its plan lists them).
@@ -3239,6 +3290,116 @@ Measured on the live box with the `react-router` starter (a loader with two Post
 queries, 32 connections for 20 s): 1,350 requests a second at 36 ms p95, 51 MB RSS idle
 and 95 MB after the load; a cold start in 0.7 to 0.8 s; a build in 28 s; a rollback in 2 s.
 
+## Astro
+
+`framework: "astro"` is Astro, built by its `build` script (`astro build`):
+
+- **With `@astrojs/node`** (standalone mode, `npx astro add node`) the box runs its
+  server on Node.js, the only runtime the adapter supports: the app builds on Node.js and
+  starts with `exec node ./dist/server/entry.mjs`. Set `runtime: "bun"` to build and run
+  it on Bun instead (`exec bun ./dist/server/entry.mjs`). The server gets
+  `HOST=0.0.0.0` (the adapter listens on `localhost` otherwise, which the box can't reach)
+  and `PORT`, which every instance gets. A `start` script that only starts that file
+  (`node ./dist/server/entry.mjs`) is replaced by the same command with `exec`; any other
+  `start` script, or the app's `command`, runs as written, and still gets `HOST`. The
+  edge serves `/_astro/` for a year and the pages the build prerendered from
+  `<outDir>/client`, so only pages with `prerender = false` (and endpoints) reach the server,
+  and a sleeping app doesn't wake for the others, nor counts them as use (see
+  [Letting apps sleep](#letting-apps-sleep)). `outDir` in `astro.config` (default `dist`)
+  is read for both the server's path and the edge's copies. After the health check the box
+  asks for `/` and a missing page, like the other server frameworks.
+- **Without a server adapter** Astro writes the site to files (`dist/`, or its `outDir`),
+  which the edge serves with no container, as for `static`; a `start` script of the app's
+  own (a server that serves `dist/`, not `astro dev` or `astro preview`) runs instead.
+- **With another host's adapter** (`@astrojs/vercel`, `@astrojs/netlify`,
+  `@astrojs/cloudflare`) the build stops and says to use `@astrojs/node`.
+
+What the box gives an Astro server app, besides the env every app gets:
+
+- **`ASTRO_KEY`**, the key Astro encrypts server islands' props with, made once per app
+  and kept (sealed) like Next.js's Server Actions key: the same value in every build, every
+  instance and every preview, so a page of one release can still load the server islands
+  of the next. The app's own `ASTRO_KEY` (env or secret) wins.
+- **`PUBLIC_TIFFIN_URL`**, the app's URL (a preview's own), at build and run time, so
+  browser code can read it (`import.meta.env.PUBLIC_TIFFIN_URL`), unless the app sets it.
+  `TIFFIN_URL` is in the build env too, so the config can use it for `site`:
+  `site: process.env.TIFFIN_URL`.
+- **`TIFFIN_HOSTS`** at build time: the hosts the app is served on, comma-separated
+  (production's names and own domains, or a preview's host), for
+  `security.allowedDomains`. Astro trusts the edge's `X-Forwarded-Host` and
+  `X-Forwarded-Proto` only for hosts it allows; without them `Astro.url` is `http://…` and
+  its origin check can refuse form posts. The box doesn't change `astro.config`; a config
+  can read it:
+
+  ```js
+  security: { allowedDomains: (process.env.TIFFIN_HOSTS ?? "").split(",").filter(Boolean)
+    .map((hostname) => ({ hostname, protocol: "https" })) },
+  ```
+
+  It is read at build time, so a new domain needs a new deploy, and deploy addresses
+  (`d-<id>--…`) are not in it. The [`@shiptiffin/astro` integration](#the-shiptiffinastro-integration)
+  does this for you.
+
+The edge sends every request to the app with `Host` as the visitor sent it,
+`X-Forwarded-Proto: https`, `X-Forwarded-Host` (the same host, with a port only when the
+visitor's request had one), `X-Forwarded-Port`, and `X-Forwarded-For` set to the
+visitor's address alone (values a visitor sends are replaced, never appended to).
+
+An Astro app declared the earlier way, `framework: "bun"` with `@astrojs/node` in
+`package.json` (with or without `runtime`, `command` and `env: { HOST: "0.0.0.0" }`), is
+recognized and launched the same way, on Node.js unless it sets `runtime`; `framework:
+"astro"` says it outright, and gets `PUBLIC_TIFFIN_URL` too. Importing a repository with
+`@astrojs/node` suggests `framework: "astro"`; Astro without it is `static`.
+
+An app declared `framework: "static"` whose `astro.config` uses `@astrojs/node` (or whose
+build writes `dist/server/entry.mjs` and no `index.html`) fails with a hint to set
+`framework: "astro"` and remove `output`.
+
+### The `@shiptiffin/astro` integration
+
+One line in `astro.config.mjs` sets up the rest:
+
+```sh
+npm i @shiptiffin/astro @astrojs/node @shiptiffin/sdk
+```
+
+```js
+import { defineConfig } from "astro/config";
+import tiffin from "@shiptiffin/astro";
+
+export default defineConfig({ integrations: [tiffin()] });
+```
+
+At build it turns on, leaving alone anything your config already sets:
+
+- **The adapter**: `@astrojs/node` (standalone) when a page has `prerender = false`,
+  `output` is `"server"`, or the site uses server islands or Actions. A fully prerendered
+  site stays static.
+- **Proxy trust and `site`**: the app's hosts (`TIFFIN_HOSTS`, else the host of
+  `TIFFIN_URL`) go in `security.allowedDomains`, after your own entries, so `Astro.url`,
+  redirects and the origin check see the visitor's address; `site` comes from `TIFFIN_URL`
+  when unset. Both are fixed at build: redeploy after adding a domain.
+- **Sessions and the route cache on Valkey**: Astro sessions in the project's Valkey
+  (`VALKEY_PREFIX` + `sess:`, 30 days since last use, or your `session.ttl`) instead of
+  `@astrojs/node`'s files on the container's disk, which a deploy loses and instances don't
+  share. When the site uses `Astro.cache` or `routeRules`, cached pages go in Valkey too,
+  shared by every instance and invalidated on all of them; previews have their own.
+- **A health route**: `/_health` (`/_health/` with `trailingSlash: "always"`) answers 200
+  JSON from the Astro server; `health: { database: true }` also checks Postgres. The box
+  doesn't use it on its own: add `healthcheck: "/_health"` to the app in
+  `tiffin.config.ts`, so a deploy waits for the server to render a route (the default `/`
+  passes on any status below 500).
+- **Graceful shutdown**: `dist/server/entry.mjs` becomes a wrapper around the adapter's
+  entry (`astro-entry.mjs`), which the box starts as before; on `SIGTERM` requests in flight
+  finish, for up to 25 s.
+- A warning when the site uses server islands and `ASTRO_KEY` is not set (the box sets it).
+
+Each feature has an option (`tiffin({ cache: false, health: { path: "/healthz" } })`) and
+logs one line. Away from the box (`astro dev`, a build on your laptop) the box's variables
+are missing, so the features that need them do nothing. For sign-in use `authMiddleware`
+from `@shiptiffin/sdk/astro`. Every option:
+[the package's README](https://github.com/shiptiffin/tiffin/tree/main/packages/astro#readme).
+
 ## TanStack Start
 
 TanStack Start (React) on Nitro (`nitro/vite` for Nitro 3, `nitropack` for 2) writes its server
@@ -3300,15 +3461,14 @@ repository finds them by `fastapi` (or Flask, Django...) in `pyproject.toml`,
     check and memory, and a deploy replaces them without dropping requests.
   - The edge connects from 127.0.0.1 and sets `X-Forwarded-For` and `X-Forwarded-Proto`,
     so `request.client.host` is the visitor and `request.url` and `url_for` are `https`.
-  - Keep-alive 75 s: longer than the edge keeps an idle connection to the app (60 s), so
-    the app never closes one the edge is about to reuse. With Uvicorn's default (5 s) a
-    POST can get a `502` now and then.
+  - Keep-alive 75 s: far longer than the edge keeps an idle connection to the app (4 s),
+    so the app never closes one the edge is about to reuse.
   - Shutdown: `SIGTERM` comes once the requests in flight are done; background tasks get
     25 s, then the app's lifespan shutdown runs (close pools there), inside the box's 30 s.
   - `fastapi run` can set neither timeout, so the box does not use it. A `command` of your
     own replaces all of this (a factory needs one:
     `uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT`); keep the
-    keep-alive above 60 s.
+    keep-alive above 4 s (Uvicorn's default, 5 s, is enough).
 
   A `python` app starts with its `command`, or Railpack's guess: `gunicorn main:app` for
   Flask with gunicorn, `uvicorn main:app` for FastHTML, else `python main.py` (which must
@@ -4160,10 +4320,11 @@ Every app of every project can send mail: email is always there (list it in
 `services` only to set `from`).
 Until the box owner configures an SMTP relay, **nothing leaves the box**: every
 message is captured in the project's dev inbox, where you (and your agents) can
-read it, click its sign-in link and check how it looks. Preview deployments always
-use the dev inbox, even with a relay, and so does mail addressed only to domains
+read it, click its sign-in link and check how it looks. Mail a preview deployment's code
+sends stays in the dev inbox even with a relay, but the sign-in mail the box sends for a
+preview does not (see [Previews](#previews)). Mail addressed only to domains
 reserved for examples and tests (`example.com`, `.test`, `.invalid`, `.localhost`...),
-which no mail can reach: test sign-ups and invites never bounce off your relay.
+which no mail can reach, is captured too: test sign-ups and invites never bounce off your relay.
 
 ```ts
 // tiffin.config.ts
@@ -4263,6 +4424,22 @@ Cloudflare, new accounts start with a small daily quota, and messages are limite
 
 Each provider only sends from domains you have verified with it. The project's
 **Email settings** page checks the SPF, DKIM and DMARC records for its sender address.
+
+## Previews
+
+A preview deployment sends mail two ways, and they go to different places:
+
+| Mail | From a preview | Why |
+| --- | --- | --- |
+| What the app sends: its `SMTP_URL`, the SDK's `send`, any SMTP library | Always the dev inbox, even with a relay | The preview's `SMTP_URL` logs in as `<project>+<preview>`, and that mail is never relayed |
+| Sign-in mail the box's auth sends: verification, magic links, one-time codes, password resets, email changes, organization invites | Like production's: through the relay when there is one, so it reaches the real address; the dev inbox when there is none | Auth sends for every host of the project with the project's own mail settings; the people signing in on a preview are the app's real users |
+
+So a magic link asked for on a preview arrives in the user's real inbox once a relay is
+connected (it links back to the preview). Without a relay it lands in the dev inbox, and
+email sign-in still works on previews while production refuses it (`EMAIL_NOT_SET_UP`, see
+[Auth](https://shiptiffin.com/docs/auth.md)). An earlier version at [its own address](https://shiptiffin.com/docs/apps.md#every-versions-own-address)
+keeps all of its app's mail in the dev inbox, like a preview; mail to the reserved test
+domains above is captured whoever sends it.
 
 ## Mail from the box
 
@@ -4447,8 +4624,8 @@ change it: `tiffin email rate-limit set shop --per-hour 2000` (0 = unlimited).
 ## Under the hood
 
 Tiffin runs its own SMTP submission server on `127.0.0.1:2525` (go-smtp; AUTH
-PLAIN with the project's credentials; preview deployments log in as
-`<project>+<preview>`). Captured messages are stored as raw `.eml` files under
+PLAIN with the project's credentials; preview deployments' apps log in as
+`<project>+<preview>`, whose mail is always captured; the auth engine logs in as the project). Captured messages are stored as raw `.eml` files under
 `/var/lib/tiffin/email/messages/<project>/` with their metadata in the box's state
 database; both are in every backup set.
 
@@ -4516,17 +4693,31 @@ So a signed-out session, a ban or a lowered role can keep working in your server
 up to **60 seconds** (the engine's own endpoints see it at once). For a sensitive action,
 check now: `getSession(request, { fresh: true })`.
 
+Away from the box (`bun dev` on your laptop, no `TIFFIN_AUTH_URL`), `getSession` answers
+`null` and logs one warning, so the app runs signed out instead of failing on a leftover
+cookie.
+
 ### Sign-in forms in the browser
 
 The forms are yours. Better Auth's own client talks to the box's `/api/auth` on the
-app's host (`bun add better-auth`; the box runs 1.7). The bot check comes from
-`@shiptiffin/sdk/client`: `prepareCaptcha()` starts solving at once and hands over headers
-for one request at a time (`{}` when the app has the check off).
+app's host. `createAuthClient` from `@shiptiffin/sdk/client/auth` sets it up: `basePath`
+`/api/auth` and the client plugins for what the box serves (magic links, email codes,
+organizations, two-step sign-in). It is its own entry point, so apps that don't sign anyone
+in never load Better Auth. The bot check comes from `@shiptiffin/sdk/client`:
+`prepareCaptcha()` starts solving at once and hands over headers for one request at a time
+(`{}` when the app has the check off).
+
+**Install the `better-auth` the box runs** (`bun add better-auth@<version>`): the client and
+the box's engine speak one release's protocol. `tiffin auth show <project>` prints it
+(`betterAuthVersion`), and so does `authConfig()` in the browser. When the box updates
+Better Auth, update the app's too.
 
 ```tsx
 // lib/auth-client.ts
-import { createAuthClient } from "better-auth/react"; // or "better-auth/client" without React
-export const authClient = createAuthClient({ basePath: "/api/auth" });
+import { createAuthClient } from "better-auth/react"; // React hooks (useSession)
+import { tiffinClientPlugins } from "@shiptiffin/sdk/client/auth";
+export const authClient = createAuthClient({ basePath: "/api/auth", plugins: [...tiffinClientPlugins()] });
+// Without React: import { createAuthClient } from "@shiptiffin/sdk/client/auth"; createAuthClient()
 
 // app/sign-up/page.tsx
 "use client";
@@ -4560,19 +4751,20 @@ Sign in the same way with `authClient.signIn.email({ email, password }, { header
 signed in. Without React:
 
 ```ts
-import { createAuthClient } from "better-auth/client";
+import { createAuthClient } from "@shiptiffin/sdk/client/auth";
 import { prepareCaptcha } from "@shiptiffin/sdk/client";
-const authClient = createAuthClient({ basePath: "/api/auth" });
+const authClient = createAuthClient();
 const captcha = prepareCaptcha();
 await authClient.signIn.email({ email, password }, { headers: await captcha() });
 const { data } = await authClient.getSession(); // data?.user.email
 await authClient.signOut();
 ```
 
-Add Better Auth's client plugins for the rest of what the box serves:
-`organizationClient()`, `magicLinkClient()`, `emailOTPClient()`, `twoFactorClient()` from
-`better-auth/client/plugins`, `passkeyClient()` from `@better-auth/passkey/client`
-(`authClient.signIn.passkey()`, `authClient.passkey.addPasskey()`). `authConfig()` from
+`createAuthClient` already has `magicLinkClient()`, `emailOTPClient()`,
+`organizationClient()` and `twoFactorClient()`. Passkeys live in their own package: add
+`passkeyClient()` from `@better-auth/passkey/client` (same version as `better-auth`) with
+`createAuthClient({ plugins: [passkeyClient()] })` for `authClient.signIn.passkey()` and
+`authClient.passkey.addPasskey()`. `authConfig()` from
 `@shiptiffin/sdk/client` says which methods the app has on, to show only those buttons;
 its `providers` list is the sign-in buttons, in order, with their names:
 
@@ -4681,6 +4873,119 @@ needs (`getProjects(user.id)`, with a `cacheTag` per user), or use `"use cache: 
 for per-user results that must not be shared. A page that reads the session renders per
 request: keep that part inside `<Suspense>`.
 
+### Astro
+
+`@shiptiffin/sdk/astro` does for Astro what the Next.js helpers do, for pages rendered on
+demand (the Node adapter, `framework: "astro"`). It needs nothing from `astro` at runtime.
+A middleware reads the session once per request into `Astro.locals` and keeps signed-out
+visitors out of the paths you protect (the same `:path*` patterns as `authProxy`):
+
+```ts
+// src/middleware.ts
+import { authMiddleware } from "@shiptiffin/sdk/astro";
+export const onRequest = authMiddleware({ protect: ["/app/:path*", "/api/private/:path*"], signIn: "/sign-in/" });
+// with your own middleware too: sequence(authMiddleware({ ... }), yours) from "astro:middleware"
+
+// src/env.d.ts
+declare namespace App {
+  interface Locals extends import("@shiptiffin/sdk/astro").AuthLocals {} // user, organization, session
+}
+```
+
+Signed out on a protected page: a redirect to `/sign-in/?next=/app/...`; under `/api/`: 401.
+Prerendered pages are left alone (they have no request; the box serves them as files). A
+refreshed session cookie from the engine is passed on to the browser, and if the engine
+can't be reached the request counts as signed out, never signed in.
+
+In endpoints and pages, `requireSession` and `requireRole` return the session or the
+`Response` to send instead:
+
+```ts
+// src/pages/api/notes.ts
+import type { APIRoute } from "astro";
+import { requireRole } from "@shiptiffin/sdk/astro";
+export const GET: APIRoute = async (context) => {
+  const s = await requireRole(context, "member", { fresh: true }); // fresh: ask the engine now
+  if (s instanceof Response) return s; // 401 signed out, 403 role too low or no organization
+  return Response.json(await notesFor(s.organization.id));
+};
+```
+
+```astro
+---
+// src/pages/account.astro
+import { requireSession } from "@shiptiffin/sdk/astro";
+const s = await requireSession(Astro); // signed out: to /sign-in?next=/account
+if (s instanceof Response) return s;
+---
+<h1>Hello, {s.user.name}</h1>
+```
+
+They use what the middleware read, so the engine is asked once per request at most.
+`getSession(context)` answers the session or `null`. Sign-in forms use the browser client
+above. Pages that read the session are per person: send `cache-control: private, no-store`.
+
+### Users from server code
+
+Server code of the project's own apps can find an account by email, or make one:
+
+```ts
+import { createUser, getUserByEmail } from "@shiptiffin/sdk/auth";
+const user = await getUserByEmail("ana@example.com");          // the account, or null
+const { user: u, created } = await createUser({ email, name }); // the account; created: false when it was there
+```
+
+Both lowercase the address. `createUser` is idempotent: for an address that has an account it
+returns that account unchanged (`created: false`), and two calls at once make one account.
+It makes the account and nothing else:
+
+- **Nobody is signed in.** No session, no cookie, no token comes back.
+- **No email is sent**, and the address stays **unconfirmed** unless you pass
+  `emailVerified: true`. Pass that only when you know the person controls the address; an
+  email typed into a checkout form is not proof. Unconfirmed is the safe default: the first
+  magic link or one-time code to that address confirms it and signs the person in (Better
+  Auth then drops anything linked to the account before that proof). Sign-in providers
+  (Google...) join an account only once its address is confirmed, so until then the person
+  signs in with a link or a code.
+- A new account gets its personal organization, as one made by sign-up does. It isn't counted
+  as a sign-up in analytics (there is no visit behind it).
+
+**Sell access before sign-up.** A payment webhook can give the buyer an account before
+they have ever signed in, so the purchase waits for them:
+
+```ts
+// src/pages/api/stripe/webhook.ts (or app/api/stripe/webhook/route.ts)
+import { createUser } from "@shiptiffin/sdk/auth";
+
+export async function POST(request: Request) {
+  const event = stripe.webhooks.constructEvent(await request.text(), request.headers.get("stripe-signature")!, secret);
+  if (event.type === "checkout.session.completed") {
+    const email = event.data.object.customer_details!.email!;
+    const { user } = await createUser({ email, name: event.data.object.customer_details!.name ?? undefined });
+    await sql`insert into access (user_id, product) values (${user.id}, 'pack') on conflict do nothing`;
+  }
+  return new Response("ok");
+}
+```
+
+The thank-you page then asks for the email and sends a magic link
+(`authClient.signIn.magicLink({ email, callbackURL: "/app/" })`); opening it signs the buyer
+in to the account that already holds the purchase. Key access to the account's `id`, not
+the email: the address on an account can change.
+
+**Who can call them.** Only the project's own apps, on the box. The box gives every app of
+an auth-enabled project `TIFFIN_AUTH_KEY`, a key for that project (an HMAC of its name
+under the project's auth secret, which only the box holds). The calls go to the engine's
+internal address (`TIFFIN_AUTH_INTERNAL_URL`) with that key and `TIFFIN_AUTH_HOST`:
+
+- Another project's app on the box has another key, so it can't read or make this
+  project's users, whatever host it names.
+- Browsers can't reach them: under `/api/auth/` on an app's host they answer 404, key or
+  not, and Better Auth's router doesn't have them at all.
+- Away from the box (no `TIFFIN_AUTH_KEY`) they throw an error that says so. Keep the key
+  out of browser code and logs, as you would `DATABASE_URL`; previews get it too, like
+  every other secret of the project.
+
 ### Without the SDK
 
 Everything above is plain HTTP, so any language works:
@@ -4691,6 +4996,12 @@ Everything above is plain HTTP, so any language works:
   or 401. Always send `x-tiffin-auth-host`: other apps on the box can reach yours directly
   with any `Host`, and the engine answers for that header's project whatever host the
   request names.
+- **Users by email:** `POST $TIFFIN_AUTH_INTERNAL_URL/tiffin/server/find-user {"email"}`
+  answers `{"user": {...} | null}`; `POST .../tiffin/server/create-user {"email", "name"?,
+  "emailVerified"?}` answers `{"user": {...}, "created": true | false}`. Send
+  `x-tiffin-auth-host: $TIFFIN_AUTH_HOST` and `x-tiffin-auth-key: $TIFFIN_AUTH_KEY`; without
+  the right key they answer 401. A user is `id`, `email`, `name`, `image`, `emailVerified`,
+  `banned`, `createdAt`, `updatedAt`.
 - **Bot check:** sign-up, sign-in, magic links and resets need a proof of work. Fetch
   `GET /api/auth/altcha/challenge`, solve it with
   [altcha-lib](https://github.com/altcha-org/altcha-lib) (`solveChallenge`), and send

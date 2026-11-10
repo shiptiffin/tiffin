@@ -58,17 +58,31 @@ So a signed-out session, a ban or a lowered role can keep working in your server
 up to **60 seconds** (the engine's own endpoints see it at once). For a sensitive action,
 check now: `getSession(request, { fresh: true })`.
 
+Away from the box (`bun dev` on your laptop, no `TIFFIN_AUTH_URL`), `getSession` answers
+`null` and logs one warning, so the app runs signed out instead of failing on a leftover
+cookie.
+
 ### Sign-in forms in the browser
 
 The forms are yours. Better Auth's own client talks to the box's `/api/auth` on the
-app's host (`bun add better-auth`; the box runs 1.7). The bot check comes from
-`@shiptiffin/sdk/client`: `prepareCaptcha()` starts solving at once and hands over headers
-for one request at a time (`{}` when the app has the check off).
+app's host. `createAuthClient` from `@shiptiffin/sdk/client/auth` sets it up: `basePath`
+`/api/auth` and the client plugins for what the box serves (magic links, email codes,
+organizations, two-step sign-in). It is its own entry point, so apps that don't sign anyone
+in never load Better Auth. The bot check comes from `@shiptiffin/sdk/client`:
+`prepareCaptcha()` starts solving at once and hands over headers for one request at a time
+(`{}` when the app has the check off).
+
+**Install the `better-auth` the box runs** (`bun add better-auth@<version>`): the client and
+the box's engine speak one release's protocol. `tiffin auth show <project>` prints it
+(`betterAuthVersion`), and so does `authConfig()` in the browser. When the box updates
+Better Auth, update the app's too.
 
 ```tsx
 // lib/auth-client.ts
-import { createAuthClient } from "better-auth/react"; // or "better-auth/client" without React
-export const authClient = createAuthClient({ basePath: "/api/auth" });
+import { createAuthClient } from "better-auth/react"; // React hooks (useSession)
+import { tiffinClientPlugins } from "@shiptiffin/sdk/client/auth";
+export const authClient = createAuthClient({ basePath: "/api/auth", plugins: [...tiffinClientPlugins()] });
+// Without React: import { createAuthClient } from "@shiptiffin/sdk/client/auth"; createAuthClient()
 
 // app/sign-up/page.tsx
 "use client";
@@ -102,19 +116,20 @@ Sign in the same way with `authClient.signIn.email({ email, password }, { header
 signed in. Without React:
 
 ```ts
-import { createAuthClient } from "better-auth/client";
+import { createAuthClient } from "@shiptiffin/sdk/client/auth";
 import { prepareCaptcha } from "@shiptiffin/sdk/client";
-const authClient = createAuthClient({ basePath: "/api/auth" });
+const authClient = createAuthClient();
 const captcha = prepareCaptcha();
 await authClient.signIn.email({ email, password }, { headers: await captcha() });
 const { data } = await authClient.getSession(); // data?.user.email
 await authClient.signOut();
 ```
 
-Add Better Auth's client plugins for the rest of what the box serves:
-`organizationClient()`, `magicLinkClient()`, `emailOTPClient()`, `twoFactorClient()` from
-`better-auth/client/plugins`, `passkeyClient()` from `@better-auth/passkey/client`
-(`authClient.signIn.passkey()`, `authClient.passkey.addPasskey()`). `authConfig()` from
+`createAuthClient` already has `magicLinkClient()`, `emailOTPClient()`,
+`organizationClient()` and `twoFactorClient()`. Passkeys live in their own package: add
+`passkeyClient()` from `@better-auth/passkey/client` (same version as `better-auth`) with
+`createAuthClient({ plugins: [passkeyClient()] })` for `authClient.signIn.passkey()` and
+`authClient.passkey.addPasskey()`. `authConfig()` from
 `@shiptiffin/sdk/client` says which methods the app has on, to show only those buttons;
 its `providers` list is the sign-in buttons, in order, with their names:
 
@@ -223,6 +238,119 @@ needs (`getProjects(user.id)`, with a `cacheTag` per user), or use `"use cache: 
 for per-user results that must not be shared. A page that reads the session renders per
 request: keep that part inside `<Suspense>`.
 
+### Astro
+
+`@shiptiffin/sdk/astro` does for Astro what the Next.js helpers do, for pages rendered on
+demand (the Node adapter, `framework: "astro"`). It needs nothing from `astro` at runtime.
+A middleware reads the session once per request into `Astro.locals` and keeps signed-out
+visitors out of the paths you protect (the same `:path*` patterns as `authProxy`):
+
+```ts
+// src/middleware.ts
+import { authMiddleware } from "@shiptiffin/sdk/astro";
+export const onRequest = authMiddleware({ protect: ["/app/:path*", "/api/private/:path*"], signIn: "/sign-in/" });
+// with your own middleware too: sequence(authMiddleware({ ... }), yours) from "astro:middleware"
+
+// src/env.d.ts
+declare namespace App {
+  interface Locals extends import("@shiptiffin/sdk/astro").AuthLocals {} // user, organization, session
+}
+```
+
+Signed out on a protected page: a redirect to `/sign-in/?next=/app/...`; under `/api/`: 401.
+Prerendered pages are left alone (they have no request; the box serves them as files). A
+refreshed session cookie from the engine is passed on to the browser, and if the engine
+can't be reached the request counts as signed out, never signed in.
+
+In endpoints and pages, `requireSession` and `requireRole` return the session or the
+`Response` to send instead:
+
+```ts
+// src/pages/api/notes.ts
+import type { APIRoute } from "astro";
+import { requireRole } from "@shiptiffin/sdk/astro";
+export const GET: APIRoute = async (context) => {
+  const s = await requireRole(context, "member", { fresh: true }); // fresh: ask the engine now
+  if (s instanceof Response) return s; // 401 signed out, 403 role too low or no organization
+  return Response.json(await notesFor(s.organization.id));
+};
+```
+
+```astro
+---
+// src/pages/account.astro
+import { requireSession } from "@shiptiffin/sdk/astro";
+const s = await requireSession(Astro); // signed out: to /sign-in?next=/account
+if (s instanceof Response) return s;
+---
+<h1>Hello, {s.user.name}</h1>
+```
+
+They use what the middleware read, so the engine is asked once per request at most.
+`getSession(context)` answers the session or `null`. Sign-in forms use the browser client
+above. Pages that read the session are per person: send `cache-control: private, no-store`.
+
+### Users from server code
+
+Server code of the project's own apps can find an account by email, or make one:
+
+```ts
+import { createUser, getUserByEmail } from "@shiptiffin/sdk/auth";
+const user = await getUserByEmail("ana@example.com");          // the account, or null
+const { user: u, created } = await createUser({ email, name }); // the account; created: false when it was there
+```
+
+Both lowercase the address. `createUser` is idempotent: for an address that has an account it
+returns that account unchanged (`created: false`), and two calls at once make one account.
+It makes the account and nothing else:
+
+- **Nobody is signed in.** No session, no cookie, no token comes back.
+- **No email is sent**, and the address stays **unconfirmed** unless you pass
+  `emailVerified: true`. Pass that only when you know the person controls the address; an
+  email typed into a checkout form is not proof. Unconfirmed is the safe default: the first
+  magic link or one-time code to that address confirms it and signs the person in (Better
+  Auth then drops anything linked to the account before that proof). Sign-in providers
+  (Google...) join an account only once its address is confirmed, so until then the person
+  signs in with a link or a code.
+- A new account gets its personal organization, as one made by sign-up does. It isn't counted
+  as a sign-up in analytics (there is no visit behind it).
+
+**Sell access before sign-up.** A payment webhook can give the buyer an account before
+they have ever signed in, so the purchase waits for them:
+
+```ts
+// src/pages/api/stripe/webhook.ts (or app/api/stripe/webhook/route.ts)
+import { createUser } from "@shiptiffin/sdk/auth";
+
+export async function POST(request: Request) {
+  const event = stripe.webhooks.constructEvent(await request.text(), request.headers.get("stripe-signature")!, secret);
+  if (event.type === "checkout.session.completed") {
+    const email = event.data.object.customer_details!.email!;
+    const { user } = await createUser({ email, name: event.data.object.customer_details!.name ?? undefined });
+    await sql`insert into access (user_id, product) values (${user.id}, 'pack') on conflict do nothing`;
+  }
+  return new Response("ok");
+}
+```
+
+The thank-you page then asks for the email and sends a magic link
+(`authClient.signIn.magicLink({ email, callbackURL: "/app/" })`); opening it signs the buyer
+in to the account that already holds the purchase. Key access to the account's `id`, not
+the email: the address on an account can change.
+
+**Who can call them.** Only the project's own apps, on the box. The box gives every app of
+an auth-enabled project `TIFFIN_AUTH_KEY`, a key for that project (an HMAC of its name
+under the project's auth secret, which only the box holds). The calls go to the engine's
+internal address (`TIFFIN_AUTH_INTERNAL_URL`) with that key and `TIFFIN_AUTH_HOST`:
+
+- Another project's app on the box has another key, so it can't read or make this
+  project's users, whatever host it names.
+- Browsers can't reach them: under `/api/auth/` on an app's host they answer 404, key or
+  not, and Better Auth's router doesn't have them at all.
+- Away from the box (no `TIFFIN_AUTH_KEY`) they throw an error that says so. Keep the key
+  out of browser code and logs, as you would `DATABASE_URL`; previews get it too, like
+  every other secret of the project.
+
 ### Without the SDK
 
 Everything above is plain HTTP, so any language works:
@@ -233,6 +361,12 @@ Everything above is plain HTTP, so any language works:
   or 401. Always send `x-tiffin-auth-host`: other apps on the box can reach yours directly
   with any `Host`, and the engine answers for that header's project whatever host the
   request names.
+- **Users by email:** `POST $TIFFIN_AUTH_INTERNAL_URL/tiffin/server/find-user {"email"}`
+  answers `{"user": {...} | null}`; `POST .../tiffin/server/create-user {"email", "name"?,
+  "emailVerified"?}` answers `{"user": {...}, "created": true | false}`. Send
+  `x-tiffin-auth-host: $TIFFIN_AUTH_HOST` and `x-tiffin-auth-key: $TIFFIN_AUTH_KEY`; without
+  the right key they answer 401. A user is `id`, `email`, `name`, `image`, `emailVerified`,
+  `banned`, `createdAt`, `updatedAt`.
 - **Bot check:** sign-up, sign-in, magic links and resets need a proof of work. Fetch
   `GET /api/auth/altcha/challenge`, solve it with
   [altcha-lib](https://github.com/altcha-org/altcha-lib) (`solveChallenge`), and send
