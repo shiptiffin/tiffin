@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Masterminds/semver/v3"
+
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // The shipped table must load; a broken one would silently stop warnings.
@@ -247,5 +251,48 @@ func TestNextFreshConns(t *testing.T) {
 	warnOutdatedNext(BuildRequest{Deploy: d, SrcDir: src, Log: &log}, &log, time.Now())
 	if d.NextVersion != "16.4.4" || !strings.Contains(log.String(), "fresh connection for every request") {
 		t.Fatalf("version %q, log %s", d.NextVersion, log.String())
+	}
+}
+
+// A Next.js 16 app that pins a Bun before 1.4.0 is warned: those Buns fail
+// `next build` (oven-sh/bun#26874, #36866). The box's own Bun, an unpinned
+// app, a range and runtime: "node" are not.
+func TestNextOnOldBun(t *testing.T) {
+	if v, _ := semver.NewVersion(BunVersion); v == nil || v.LessThan(semver.MustParse(nextBunFixed)) {
+		t.Fatalf("the box's Bun %s is itself below %s", BunVersion, nextBunFixed)
+	}
+	cases := []struct {
+		name  string
+		files map[string]string
+		node  bool
+		next  string
+		want  string
+	}{
+		{"bun-version", map[string]string{".bun-version": "1.3.12\n"}, false, "16.3.1", "Bun 1.3.12"},
+		{"packageManager", map[string]string{"package.json": `{"packageManager":"bun@1.3.14+sha512.abc"}`}, false, "16.4.5", "Bun 1.3.14"},
+		{"engines", map[string]string{"package.json": `{"engines":{"bun":"1.3.8"}}`}, false, "16.0.0", "Bun 1.3.8"},
+		{"mise", map[string]string{"mise.toml": "[tools]\nbun = \"1.3.10\"\n"}, false, "16.4.5", "Bun 1.3.10"},
+		{"tool-versions", map[string]string{".tool-versions": "nodejs 24.1.0\nbun 1.3.13\n"}, false, "16.4.5", "Bun 1.3.13"},
+		{"fixed bun", map[string]string{".bun-version": "1.4.0"}, false, "16.4.5", ""},
+		{"range", map[string]string{"package.json": `{"engines":{"bun":">=1.3"}}`}, false, "16.4.5", ""},
+		{"no pin", map[string]string{"package.json": `{}`}, false, "16.4.5", ""},
+		{"node runtime", map[string]string{".bun-version": "1.3.12"}, true, "16.4.5", ""},
+		{"next 15", map[string]string{".bun-version": "1.3.12"}, false, "15.5.29", ""},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		for f, body := range c.files {
+			if err := os.WriteFile(filepath.Join(dir, f), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		req := BuildRequest{SrcDir: dir}
+		if c.node {
+			req.Spec.Runtime = manifest.RuntimeNode
+		}
+		got := nextOnOldBun(req, c.next)
+		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
 	}
 }

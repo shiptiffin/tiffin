@@ -807,7 +807,10 @@ range and no text lockfile (`bun.lockb`), the log says the version could not be 
 Until an app moves past 16.4.5 (15.5.29 on 15), its instances get a new connection from
 the box for every request instead of reused ones: such a version can forward a fetched
 response with more bytes than it declares (GHSA-pc58-hwjq-p385), and on a reused
-connection those bytes would be read as another visitor's response.
+connection those bytes would be read as another visitor's response. A Next.js 16 app that
+pins a Bun older than 1.4.0 (`.bun-version`, `packageManager`, `engines.bun`, mise or
+asdf) is warned too: those Bun versions fail `next build` for it. The box's own Bun is
+newer; `runtime: "node"` builds and runs Next.js on Node.js instead.
 
 Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project's
 Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).

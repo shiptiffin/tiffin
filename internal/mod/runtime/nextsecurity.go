@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+
+	"github.com/shiptiffin/tiffin/internal/manifest"
 )
 
 // Next.js security releases: a deploy whose installed next is older than
@@ -289,7 +291,82 @@ func warnOutdatedNext(req BuildRequest, log io.Writer, now time.Time) {
 	} else if note != "" {
 		fmt.Fprintf(log, "==> Next.js %s: %s\n", v, note)
 	}
+	if w := nextOnOldBun(req, v); w != "" {
+		fmt.Fprintf(log, "==> warning: %s\n", w)
+		if req.Deploy != nil {
+			req.Deploy.Warnings = append(req.Deploy.Warnings, w)
+		}
+	}
 	if t.framingUnsafe(v) {
 		fmt.Fprintf(log, "==> Next.js %s: its instances get a fresh connection for every request until next is upgraded (%s: a forwarded response could otherwise reach another client)\n", v, t.ProxyFraming.Advisory)
 	}
+}
+
+// Bun before 1.4.0 fails `next build` for Next.js 16 apps: "Expected
+// CommonJS module to have a function wrapper" loading next.config.ts
+// (oven-sh/bun#26874, Bun 1.3.8 to 1.3.13) and a crash collecting page data
+// with Next.js 16.3 (oven-sh/bun#36866, Bun 1.3.14); both fixed in 1.4.0.
+// The box's own Bun is newer; an app can pin an older one.
+const nextBunFixed = "1.4.0"
+
+var (
+	bunPinRe     = regexp.MustCompile(`(?m)^\s*bun\s*[= ]\s*"?v?(\d+\.\d+\.\d+)"?\s*$`)
+	bunVersionRe = regexp.MustCompile(`^\s*(?:bun@)?[=v^~]?(\d+\.\d+\.\d+)\s*$`)
+	bunEnginesRe = regexp.MustCompile(`^\s*(?:=|v|\^|~)?(\d+\.\d+\.\d+)\s*$`)
+)
+
+// pinnedBun is the exact Bun version an app pins (.bun-version,
+// packageManager bun@x.y.z, engines.bun, mise.toml or .tool-versions), or "".
+func pinnedBun(dir string) string {
+	if raw, err := readSrc(filepath.Join(dir, ".bun-version")); err == nil {
+		if m := bunVersionRe.FindStringSubmatch(strings.TrimSpace(string(raw))); m != nil {
+			return m[1]
+		}
+	}
+	if raw, err := readSrc(filepath.Join(dir, "package.json")); err == nil {
+		var pkg struct {
+			PackageManager string            `json:"packageManager"`
+			Engines        map[string]string `json:"engines"`
+		}
+		if json.Unmarshal(raw, &pkg) == nil {
+			if pm, ok := strings.CutPrefix(pkg.PackageManager, "bun@"); ok {
+				if m := bunEnginesRe.FindStringSubmatch(strings.SplitN(pm, "+", 2)[0]); m != nil {
+					return m[1]
+				}
+			}
+			if m := bunEnginesRe.FindStringSubmatch(pkg.Engines["bun"]); m != nil {
+				return m[1]
+			}
+		}
+	}
+	for _, f := range []string{"mise.toml", ".tool-versions"} {
+		if raw, err := readSrc(filepath.Join(dir, f)); err == nil {
+			if m := bunPinRe.FindStringSubmatch(string(raw)); m != nil {
+				return m[1]
+			}
+		}
+	}
+	return ""
+}
+
+// nextOnOldBun warns about a Next.js 16 app built on a Bun it pins below
+// nextBunFixed (not on runtime: "node", which builds with Node.js).
+func nextOnOldBun(req BuildRequest, next string) string {
+	if req.Spec.Runtime == manifest.RuntimeNode {
+		return ""
+	}
+	nv, err := semver.NewVersion(next)
+	if err != nil || nv.Major() < 16 {
+		return ""
+	}
+	pin := pinnedBun(req.appDir())
+	if pin == "" && req.SrcDir != req.appDir() {
+		pin = pinnedBun(req.SrcDir)
+	}
+	bv, err := semver.NewVersion(pin)
+	if err != nil || !bv.LessThan(semver.MustParse(nextBunFixed)) {
+		return ""
+	}
+	return fmt.Sprintf("Bun %s, which the app pins, fails `next build` for Next.js 16 apps (oven-sh/bun#26874, oven-sh/bun#36866; fixed in Bun %s). "+
+		"Pin Bun %s or later, drop the pin to build with the box's Bun, or set runtime: \"node\".", pin, nextBunFixed, nextBunFixed)
 }
