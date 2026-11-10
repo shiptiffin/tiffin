@@ -615,7 +615,7 @@ func TestPreviewNote(t *testing.T) {
 	}
 	// The app's mail stays in the dev inbox, sign-in mail does not: the
 	// note must not say all of a preview's email is kept.
-	for _, want := range []string{"Mail the app sends is kept in the dev inbox", "sign-in mail (verification, magic links", "mail relay"} {
+	for _, want := range []string{"its own database branch", "Mail the app sends is kept in the dev inbox", "sign-in mail (verification, magic links", "mail relay"} {
 		if !strings.Contains(previewNote, want) {
 			t.Errorf("preview note lacks %q: %s", want, previewNote)
 		}
