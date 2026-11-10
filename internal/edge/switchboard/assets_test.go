@@ -502,3 +502,38 @@ func TestBuildBrotliCopyIsServed(t *testing.T) {
 		t.Errorf("If-None-Match: %d, want 304", w2.Code)
 	}
 }
+
+// ?dpl= reorders releases only; it never changes where a release's files
+// are. An Astro app with its own outDir (build/client) and a SvelteKit app
+// (build/client, /_app/immutable/) still get their hashed files and
+// prerendered pages with any dpl, the deploy's own, another or none.
+func TestServeAssetDplWithOwnOutDir(t *testing.T) {
+	b := New(nil, nil)
+	for _, c := range []struct{ name, meta, hashed string }{
+		{"astro", `[{"dir":"build/client","path":"/","immutable":["/_astro/"],"pages":true}]`, "_astro/a.js"},
+		{"sveltekit", `[{"dir":"build/client","path":"/","immutable":["/_app/immutable/"],"pages":true}]`, "_app/immutable/a.js"},
+	} {
+		base := t.TempDir()
+		writeRelease(t, filepath.Join(base, "dep_1"), c.meta, map[string]string{c.hashed: "old chunk"})
+		writeRelease(t, filepath.Join(base, "dep_2"), c.meta, map[string]string{c.hashed: "new chunk", "favicon.svg": "icon"})
+		st := &Env{Project: "shop", App: "web", Live: "dep_2", Assets: base, Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
+		get := func(p string) string {
+			w := httptest.NewRecorder()
+			if !b.ServeAsset(w, httptest.NewRequest("GET", p, nil), st, "") {
+				return "-"
+			}
+			return w.Body.String()
+		}
+		for p, want := range map[string]string{
+			"/" + c.hashed:                "new chunk",
+			"/" + c.hashed + "?dpl=dep_2": "new chunk",
+			"/" + c.hashed + "?dpl=dep_1": "old chunk",
+			"/" + c.hashed + "?dpl=nope":  "new chunk",
+			"/favicon.svg?dpl=dep_1":      "icon",
+		} {
+			if got := get(p); got != want {
+				t.Errorf("%s %s: %q, want %q", c.name, p, got, want)
+			}
+		}
+	}
+}
