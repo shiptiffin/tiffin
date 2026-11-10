@@ -103,6 +103,27 @@ sveltekit({ adapter: adapter({ fallback: '200.html' }) })`,
 			"package.json":           `{"dependencies":{"react-router":"8.4.0"},"devDependencies":{"@react-router/dev":"8.4.0"}}`,
 			"react-router.config.ts": "export default {\n  // ssr: true,\n  ssr: false,\n}",
 		}, id: "react-router", files_: "build/client"},
+		{name: "TanStack Start on Nitro 3, Bun", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4","nitro":"3.0.260903-beta"},"scripts":{"build":"vite build","start":"bun .output/server/index.mjs"}}`,
+		}, id: "tanstack-start", start: "bun .output/server/index.mjs", env: "SERVER_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start on Nitro 3, Node.js, no start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4"},"devDependencies":{"nitro":"3.0.260903-beta"},"scripts":{"build":"vite build"}}`,
+		}, node: true, id: "tanstack-start", start: "node .output/server/index.mjs", env: "NITRO_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start on Nitro 2 (nitropack), node start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.120.0","nitropack":"2.12.0"},"scripts":{"start":"node .output/server/index.mjs"}}`,
+		}, id: "tanstack-start", start: "bun .output/server/index.mjs", env: "NITRO_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start for Solid", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/solid-start":"1.169.4","nitro":"3.0.260903-beta"}}`,
+		}, id: "tanstack-start", start: "bun .output/server/index.mjs", env: "SERVER_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start, its own server keeps its start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4"},"scripts":{"start":"bun run server.ts"}}`,
+		}, id: "tanstack-start", start: ""},
+		{name: "TanStack Start, Nitro and its own server script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4","nitro":"3.0.260903-beta"},"scripts":{"start":"bun run server.ts"}}`,
+		}, id: "tanstack-start", start: "", env: "SERVER_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start with neither Nitro nor a start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4"},"scripts":{"build":"vite build"}}`,
+		}, id: "tanstack-start", start: "", warn: true},
 		{name: "a Hono app is none of them", files: map[string]string{"package.json": `{"dependencies":{"hono":"4"}}`}},
 	} {
 		dir := t.TempDir()
@@ -162,6 +183,9 @@ func TestLaunchRailpackBuild(t *testing.T) {
 		{"Nuxt", map[string]string{
 			"package.json": `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt build"}}`,
 		}, "exec bun .output/server/index.mjs", "NITRO_PRESET=node-server", "NITRO_SHUTDOWN_TIMEOUT"},
+		{"TanStack Start", map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4","nitro":"3.0.260903-beta"},"scripts":{"build":"vite build","start":"bun .output/server/index.mjs"}}`,
+		}, "exec bun .output/server/index.mjs", "RAILPACK_BUILD_CMD=bun --bun run build", "SERVER_SHUTDOWN_TIMEOUT"},
 		{"React Router", map[string]string{
 			"package.json": `{"dependencies":{"react-router":"8.4.0"},"devDependencies":{"@react-router/dev":"8.4.0"},"scripts":{"build":"react-router build"}}`,
 		}, "exec bun " + rrRunnerPath + " ./build/server/index.js", "RAILPACK_BUILD_CMD=bun --bun run build", "SHUTDOWN_TIMEOUT"},
@@ -227,7 +251,7 @@ func TestLaunchFilesFromAServerApp(t *testing.T) {
 
 func TestSmokeName(t *testing.T) {
 	bun := &manifest.App{Framework: manifest.FrameworkBun}
-	if smokeName(bun, &Deploy{}) != "" || smokeName(bun, &Deploy{Launch: "nuxt"}) != "Nuxt" ||
+	if smokeName(bun, &Deploy{}) != "" || smokeName(bun, &Deploy{Launch: "nuxt"}) != "Nuxt" || smokeName(bun, &Deploy{Launch: "tanstack-start"}) != "TanStack Start" ||
 		smokeName(&manifest.App{Framework: manifest.FrameworkNext}, &Deploy{}) != "Next.js" {
 		t.Error("smoke tests: Next.js and the launched frameworks only")
 	}

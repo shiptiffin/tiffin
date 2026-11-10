@@ -1029,7 +1029,7 @@ func healthPoll(since time.Duration) time.Duration {
 
 // smokeName is the framework a deploy's first instance is smoke-tested
 // for after its health check, "" for none: Next.js, and the full-stack
-// frameworks the box launches (SvelteKit, Nuxt, React Router).
+// frameworks the box launches (SvelteKit, Nuxt, React Router, TanStack Start).
 func smokeName(spec *manifest.App, d *Deploy) string {
 	switch {
 	case spec.Framework == manifest.FrameworkNext:
@@ -1041,7 +1041,7 @@ func smokeName(spec *manifest.App, d *Deploy) string {
 }
 
 // launchNames are the frameworks a Deploy's Launch names.
-var launchNames = map[string]string{"sveltekit": "SvelteKit", "nuxt": "Nuxt", "react-router": "React Router"}
+var launchNames = map[string]string{"sveltekit": "SvelteKit", "nuxt": "Nuxt", "react-router": "React Router", "tanstack-start": "TanStack Start"}
 
 // smokeSSR asks a server-rendering instance that passed its health check
 // for two pages that take different paths through its framework: the home

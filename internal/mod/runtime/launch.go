@@ -122,6 +122,8 @@ func launchFor(appDir string, onNode bool, build string) *launch {
 		return nuxtLaunch(appDir, start, build, onNode)
 	case deps["@react-router/dev"]:
 		return reactRouterLaunch(appDir, deps, start, onNode)
+	case deps["@tanstack/react-start"] || deps["@tanstack/solid-start"]:
+		return tanstackLaunch(deps, start, onNode)
 	}
 	return nil
 }
