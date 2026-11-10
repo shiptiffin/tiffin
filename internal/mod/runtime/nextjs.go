@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shiptiffin/tiffin/internal/change"
 	"github.com/shiptiffin/tiffin/internal/platform"
@@ -154,6 +155,7 @@ func nextBefore162(dir string) (string, bool) {
 // that points Next.js at it during the build. It returns the env the image
 // needs at run time (nil when the app brings its own adapter).
 func prepareNext(req BuildRequest, env map[string]string) map[string]string {
+	warnOutdatedNext(req, req.Log, time.Now()) // whichever adapter the app uses
 	if req.Env[nextAdapterEnv] != "" {
 		fmt.Fprintf(req.Log, "==> Next.js: the app sets %s, so the box's adapter stays out\n", nextAdapterEnv)
 		return nil

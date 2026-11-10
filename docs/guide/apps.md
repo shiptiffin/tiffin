@@ -793,6 +793,16 @@ after a deploy. Previews share it; a duplicated or imported project gets its own
 the variable (or `NEXT_ADAPTER_PATH`) yourself to use your own. Older Next.js versions
 ignore the adapter and build as before.
 
+**Security releases.** Each deploy reads the `next` version the build installs (from
+`bun.lock`, `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`, in the app's folder or
+a workspace's above it, else an exact version in package.json) and warns, on the deploy
+and in its log, when it is older than the latest security release of its major line
+(16.4.5 for Next.js 16 and 15.5.29 for Next.js 15, as of 2026-11-09), or when its major
+no longer gets security fixes (14 and older; 15 after 2027-01-31). The deploy still goes
+ahead. The box's list is dated: once it is over 60 days old, its warnings and the deploy
+log say newer releases may exist, and it never reports a version as safe. With only a
+range and no text lockfile (`bun.lockb`), the log says the version could not be checked.
+
 Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project's
 Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).
 

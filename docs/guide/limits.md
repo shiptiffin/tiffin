@@ -616,6 +616,12 @@ Both are planned.
 - **Next.js cache:** a page `next build` prerendered more than 30 days ago is rendered
   anew on its first request rather than served from the build, since the box keeps a tag's
   revalidations for 30 days only.
+- **Next.js security warning:** the deploy warns when the installed `next` is older than
+  the latest security release the box knows of (a list dated 2026-11-09 that ships with
+  the box). A release Next.js publishes after that date is not known until the box is
+  updated; past 60 days the warning and the deploy log say the list may be behind. The
+  version is read from a text lockfile or an exact version in package.json, so `bun.lockb`
+  or a bare range is not checked.
 - **Next.js image cache:** `images.maximumDiskCacheSize` is enforced by each instance from
   its view of the shared directory, refreshed at most a minute old; instances together may
   overshoot it by what they write in that minute.
