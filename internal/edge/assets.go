@@ -32,9 +32,11 @@ func (HashedAssetMatcher) MatchWithError(r *http.Request) (bool, error) {
 // earlier release.
 func HashedAsset(p string) bool { return hashedAsset(p) }
 
-// hashedDirs only ever hold content-hashed files: Next.js, SvelteKit and
-// Astro build output.
-var hashedDirs = []string{"/_next/static/", "/_app/immutable/", "/_astro/"}
+// hashedDirs only ever hold content-hashed files: Next.js, SvelteKit, Astro,
+// Nuxt (and @nuxt/fonts) and SolidStart build output. The one file in them
+// that keeps its name is Nuxt's /_nuxt/builds/latest.json, which the client
+// polls for a new version.
+var hashedDirs = []string{"/_next/static/", "/_app/immutable/", "/_astro/", "/_nuxt/", "/_fonts/", "/_build/assets/"}
 
 // hashedAsset reports whether a path names a file whose name changes with
 // its content, so it can be cached for good: one under hashedDirs, or one
@@ -45,6 +47,9 @@ var hashedDirs = []string{"/_next/static/", "/_app/immutable/", "/_astro/"}
 // Getting it wrong one way only costs a revalidation; the other way would
 // pin a stale file in browsers for a year, so when unsure: no.
 func hashedAsset(p string) bool {
+	if strings.HasSuffix(p, "/_nuxt/builds/latest.json") {
+		return false
+	}
 	for _, d := range hashedDirs {
 		if strings.Contains(p, d) {
 			return true

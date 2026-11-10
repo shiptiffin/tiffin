@@ -321,6 +321,11 @@ func TestHashedAsset(t *testing.T) {
 		"/_app/immutable/entry/start.js":           true,
 		"/_astro/index.astro_astro_type_script.js": true,
 		"/fonts/inter-latin-4a2b9c1d.woff2":        true,
+		"/_nuxt/entry.BxQaZyWk.js":                 true, // Nuxt: the directory says so, digit or not
+		"/_fonts/Inter-latin-BxQaZyWk.woff2":       true,
+		"/_nuxt/builds/meta/0a1b2c3d-4e5f.json":    true,
+		"/_nuxt/builds/latest.json":                false, // keeps its name
+		"/_build/assets/index-BxQaZyWk.js":         true,  // SolidStart
 		"/":                                        false,
 		"/index.html":                              false,
 		"/index-B1x9Qa2c.html":                     false, // HTML never
