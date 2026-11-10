@@ -7042,6 +7042,8 @@ export interface components {
             organization: components["schemas"]["AuthOrg"];
         };
         AuthOverview: {
+            /** @description The Better Auth release the box's auth engine runs. Install the same better-auth version for the app's browser client */
+            betterAuthVersion: string;
             /** @description The box can't send email yet: in production, email + password sign-up, magic links, one-time codes and password resets are refused (EMAIL_NOT_SET_UP) until a mail service is connected. Previews use the dev inbox */
             emailBlocked: boolean;
             emailVerification: components["schemas"]["AuthEmailVerificationState"];

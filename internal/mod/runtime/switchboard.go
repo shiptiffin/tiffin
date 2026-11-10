@@ -161,6 +161,18 @@ func (r *rt) drainThenRemove(old []Instance) {
 	r.removeInstancesGrace(r.ctx, old, max(r.opt.RetireGrace, r.opt.StopGrace))
 }
 
+// waitDrained waits, at most bound, for the requests in flight on ins to
+// finish, once the edge sends them no new ones: an app stopped or deleted
+// on purpose still answers what it took (its server may exit at once on
+// SIGTERM, as Astro's standalone server does), as a deploy's old
+// instances do (drainThenRemove), only for less long.
+func (r *rt) waitDrained(ins []Instance, bound time.Duration) {
+	deadline := time.Now().Add(bound)
+	for r.busy(ins) > 0 && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func (r *rt) setDispatch(t map[string][]switchboard.Route) {
 	r.mu.Lock()
 	r.dispatch = t

@@ -1,9 +1,13 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -181,26 +185,106 @@ func (r *rt) linkTarget(ctx context.Context, d *Deploy) (linkpreview.Target, err
 	}
 	t.BoxHost = func(h string) bool { return r.p.IsBoxHost(h) && !slices.Contains(t.Hosts, strings.ToLower(h)) }
 	t.Outside = outsideClient()
+	t.Box = r.projectLinks(d.Project)
+	if t.Base, t.Client, err = r.reachDeploy(d, st); err != nil {
+		return linkpreview.Target{}, err
+	}
+	return t, nil
+}
 
+// reachDeploy is how the box reads a deploy that serves its environment,
+// on the box itself: its files, or its first instance (127.0.0.1:<port>,
+// through appClient, which checks who answers) with the edge's asset
+// files in front. errNotServing when it is asleep or its files are gone.
+func (r *rt) reachDeploy(d *Deploy, st *AppState) (*url.URL, *http.Client, error) {
 	noFollow := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if d.StaticRoot != "" {
 		if _, err := os.Stat(d.StaticRoot); err != nil {
-			return linkpreview.Target{}, errNotServing
+			return nil, nil, errNotServing
 		}
-		t.Base, _ = url.Parse("http://static.invalid")
-		t.Client = &http.Client{Transport: handlerTransport{http.FileServer(http.Dir(d.StaticRoot))}, CheckRedirect: noFollow}
-		return t, nil
+		base, _ := url.Parse("http://static.invalid")
+		return base, &http.Client{Transport: handlerTransport{http.FileServer(http.Dir(d.StaticRoot))}, CheckRedirect: noFollow}, nil
 	}
 	if len(st.Instances) == 0 || st.Sleeping {
-		return linkpreview.Target{}, errNotServing
+		return nil, nil, errNotServing
 	}
-	t.Base, _ = url.Parse("http://127.0.0.1:" + strconv.Itoa(st.Instances[0].Port))
+	base, _ := url.Parse("http://127.0.0.1:" + strconv.Itoa(st.Instances[0].Port))
 	var files http.Handler
 	if www := filepath.Join(r.assetsDir(d.Project, d.App, d.Preview), d.ID, "www"); exists(www) {
 		files = http.FileServer(http.Dir(www))
 	}
-	t.Client = &http.Client{Transport: fallbackTransport{base: r.appClient(0).Transport, files: files}, CheckRedirect: noFollow}
-	return t, nil
+	return base, &http.Client{Transport: fallbackTransport{base: r.appClient(0).Transport, files: files}, CheckRedirect: noFollow}, nil
+}
+
+// edgePort reports whether u names the port the box's edge serves apps
+// on for its scheme (443 or the public port; 80 for http).
+func (r *rt) edgePort(u *url.URL) bool {
+	if u.Scheme == "http" {
+		return u.Port() == "" || u.Port() == "80"
+	}
+	want := "443"
+	if pub, err := url.Parse(r.p.URL("x")); err == nil && pub.Port() != "" {
+		want = pub.Port()
+	}
+	return cmp.Or(u.Port(), "443") == want
+}
+
+// projectLinks reads links on the project's own production addresses
+// that are not the checked deploy's (production's domain in a preview's
+// og:image, another app of the project) from the live deploy that serves
+// them, on the box: those names resolve to the box, whose own addresses
+// the outside client refuses. Only the routes of this project's web apps
+// match, longest path prefix first, so a link reaches nothing but the
+// project's own live apps, through the same instance ports and checks as
+// the deploy itself: never an address taken from DNS or the link, another
+// project, or the box's dashboard and API.
+func (r *rt) projectLinks(project string) func(ctx context.Context, u *url.URL) (*url.URL, *http.Client, error) {
+	return func(ctx context.Context, u *url.URL) (*url.URL, *http.Client, error) {
+		host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+		if _, ip := netip.ParseAddr(host); host == "" || ip == nil || host == r.p.DashboardHost() || !r.edgePort(u) {
+			return nil, nil, nil // an address, or the box's own dashboard and API: never an app here
+		}
+		app, prefix, found := "", "", false
+		specs := r.appSpecs(ctx, project)
+		for _, name := range slices.Sorted(maps.Keys(specs)) {
+			spec := specs[name]
+			if spec.Role == manifest.RoleWorker {
+				continue
+			}
+			for _, rt := range appRoutes(project, name, &spec) {
+				h, p := r.splitRoute(rt)
+				if h != host || (p != "" && u.Path != p && !strings.HasPrefix(u.Path, p+"/")) {
+					continue
+				}
+				if !found || len(p) > len(prefix) {
+					app, prefix, found = name, p, true
+				}
+			}
+		}
+		if !found {
+			return nil, nil, nil
+		}
+		st, err := r.st.getState(ctx, project, app, "")
+		if err != nil || st.Live == "" || st.Stopped {
+			return nil, nil, fmt.Errorf("%s serves it, and has no live version", app)
+		}
+		d, err := r.st.getDeploy(ctx, project, app, st.Live)
+		if err != nil {
+			return nil, nil, err
+		}
+		base, c, err := r.reachDeploy(d, st)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s serves it, and is asleep now, so the box couldn't read it (it will once %s is awake)", app, app)
+		}
+		at := *u
+		at.Scheme, at.Host, at.User = base.Scheme, base.Host, nil
+		if d.StaticRoot != "" && prefix != "" {
+			// A site mounted at a path has its files at its folder's root, as the edge serves it.
+			at.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(u.Path, prefix), "/")
+			at.RawPath = ""
+		}
+		return &at, c, nil
+	}
 }
 
 var outsideOnce = sync.OnceValue(func() *http.Client { return linkpreview.OutsideClient(dnskit.LocalPublicIPs) })

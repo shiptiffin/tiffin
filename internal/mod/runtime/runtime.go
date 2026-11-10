@@ -137,6 +137,15 @@ type rt struct {
 	// previewFiles: the hosts of static previews (the edge serves their
 	// files, so the switchboard never sees their requests) → environment.
 	previewFiles map[string]string
+	// previewApps: the hosts of previews behind the switchboard →
+	// environment; visited: when the edge last served one of their files
+	// (not activity: only requests that reach an app keep it awake), which
+	// keeps the preview from expiring as unused.
+	previewApps map[string]string
+	visited     map[string]time.Time
+	// switched: production environments behind the switchboard, whose
+	// activity is the requests that reach their instances (Activity).
+	switched map[string]bool
 	// addrs: what routes found at deploy addresses (see deployaddr.go).
 	addrs deployAddrs
 	// gateKey signs the deploy-address gate's hand-off links and cookies;
@@ -203,7 +212,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{}, leftover: map[string]bool{},
-		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
+		lastSeen: map[string]time.Time{}, visited: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	if bb, ok := opt.Builder.(*boxBuilder); ok && bb.diskPressure == nil {
 		bb.diskPressure = r.diskPressure
 	}

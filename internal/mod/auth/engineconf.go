@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/shiptiffin/tiffin/internal/change"
 	"github.com/shiptiffin/tiffin/internal/manifest"
@@ -156,8 +157,14 @@ func moduleEnv(ctx context.Context, p *platform.Platform, name, project string) 
 	return nil, nil
 }
 
+// secretMu makes creating a project's secret happen once: the engine config
+// (reconcile) and app env (TIFFIN_AUTH_KEY, derived from it) both ask.
+var secretMu sync.Mutex
+
 // projectSecret returns the project's engine secret, creating it once.
 func projectSecret(ctx context.Context, p *platform.Platform, project string) (string, error) {
+	secretMu.Lock()
+	defer secretMu.Unlock()
 	v, ok, err := p.DB.KVGet(ctx, nsSecret, project)
 	if err != nil {
 		return "", err

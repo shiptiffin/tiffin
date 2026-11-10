@@ -343,8 +343,6 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		imageEnv = prepareNext(req, env)
 	case start != "" && !onNode:
 		env["RAILPACK_START_CMD"] = req.inApp("bun --bun run start")
-	case serverEntry(appDir, onNode) != "":
-		env["RAILPACK_START_CMD"] = req.inApp(serverEntry(appDir, onNode))
 	case !onNode && !req.Spec.Framework.IsPython() && bunEntry(appDir) != "":
 		env["RAILPACK_START_CMD"] = req.inApp(bunEntry(appDir))
 		fmt.Fprintf(req.Log, "==> start command: %s (no start script; the app's entry file)\n", bunEntry(appDir))
@@ -590,6 +588,9 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 		root = firstWithEntry(appDir, l.Files.Dirs, req.Launch)
 	}
 	rootRel := staticRootOf(appDir, root, req.Launch)
+	if rootRel == "" && astroServerBuilt(appDir, []string{orDefaultStr(root, astroOutDir(appDir, "")), "dist"}) {
+		return BuildResult{}, staticAstroServerError(orDefaultStr(req.Dir, "."))
+	}
 	if rootRel == "" {
 		return BuildResult{}, &BuildError{Msg: "no index.html found to serve",
 			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder: Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
@@ -700,8 +701,29 @@ func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref strin
 			return b.serveFiles(req, out, from, dir, spa)
 		}
 	}
+	for i := range dirs {
+		if astroServerBuilt(filepath.Join(out, strconv.Itoa(i)), []string{"."}) {
+			return BuildResult{}, staticAstroServerError(orDefaultStr(req.Dir, "."))
+		}
+	}
 	return BuildResult{}, &BuildError{Msg: "the build wrote no index.html in " + strings.Join(dirs, ", "),
 		Hint: "A Next.js static export writes out/ (or distDir); name another folder as the Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
+}
+
+// astroServerBuilt reports whether one of dirs (relative to root) holds an
+// Astro server build (server/entry.mjs, @astrojs/node's standalone server)
+// and no index.html: a site built with a server adapter.
+func astroServerBuilt(root string, dirs []string) bool {
+	for _, d := range dirs {
+		if d == "" || !safeRel(d) && d != "." {
+			continue
+		}
+		dir := filepath.Join(root, filepath.FromSlash(d))
+		if isFile(filepath.Join(dir, "server", "entry.mjs")) && !isFile(filepath.Join(dir, "index.html")) {
+			return true
+		}
+	}
+	return false
 }
 
 // filesStep is the step filesOnlyPlan adds to a Railpack plan.

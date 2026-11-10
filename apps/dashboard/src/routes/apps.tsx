@@ -404,7 +404,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
                 <h2 id="previews" className="label">
                   Previews
                 </h2>
-                <InfoTip label="About previews">Each preview has its own address, and idle ones sleep. Previews use this project’s live data; their email goes to the dev inbox.</InfoTip>
+                <InfoTip label="About previews">Each preview has its own address and database branch (unless shared with production), and idle ones sleep. Mail the app sends from a preview goes to the dev inbox; sign-in mail (verification, magic links, invites) is sent for real.</InfoTip>
               </div>
               <ul className="divide-y divide-rule border-y border-rule">
                 {(r?.previews ?? []).map((pv) => (

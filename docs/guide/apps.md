@@ -8,14 +8,26 @@ apps: {
   api:    { framework: "hono", path: "apps/api", routes: ["web/api"], instances: 2 },
   worker: { framework: "bun",  path: "apps/worker", role: "worker" },
   site:   { framework: "static", path: "site" },
+  docs:   { framework: "astro", path: "apps/docs" },
   py:     { framework: "fastapi", path: "apps/py", release: "alembic upgrade head" },
 }
 ```
 
 `next`, `hono`, `fastapi` and any server listening on `$PORT` run as containers; `static`
-sites are served straight from the edge. Python apps (`fastapi`, and `python` for Flask,
+sites are served straight from the edge; `astro` is either, by its adapter (see
+[Astro](#astro)). Python apps (`fastapi`, and `python` for Flask,
 Django and others) build with Railpack's Python provider: see
 [FastAPI and Python](#fastapi-and-python).
+
+A server you start yourself (framework `bun` with a `start` script or `command`, a
+Dockerfile, a prebuilt image) must listen on the port in `$PORT`, which the box sets for
+each instance, and on all interfaces (`0.0.0.0`), not `localhost`: Node may bind `localhost`
+to `::1` alone, and the box reaches each instance at `127.0.0.1:$PORT` (the box's firewall
+keeps app ports off the network either way). Node's `server.listen(process.env.PORT)` with
+no host listens on all interfaces; servers that default to `localhost` need telling:
+Fastify (`listen({ port, host: "0.0.0.0" })`), Astro's Node adapter (`HOST=0.0.0.0`, which
+the box sets for Astro apps), Uvicorn and Gunicorn (`--host 0.0.0.0`,
+`--bind 0.0.0.0:$PORT`). When nothing answers on the port, the failed deploy's hint says so.
 
 JavaScript apps build and run on Bun: `next build` and `next start`, or your `build` and `start`
 scripts, run under `bun --bun`, so tools that ask for Node.js run on Bun too. It starts
@@ -23,13 +35,15 @@ faster and uses less memory. For an app that needs Node.js (a native module buil
 library that leans on Node internals), set `runtime: "node"` (or pick Node.js under the
 app's Runtime in the dashboard): it then builds and runs on Node.js, from the next deploy. A
 build or start that fails on Bun says so, and the version that was serving keeps serving.
+Astro with `@astrojs/node` is the exception: its adapter supports Node.js only, so it
+builds and runs on Node.js unless it sets `runtime: "bun"` (see [Astro](#astro)).
 
 The box pins both runtimes: Bun to the release it ships with, and Node.js to major 24
 (Railpack's own default, "lts", would move to a new major on its own). An app that picks
 its own version keeps it: `engines` or `packageManager` in `package.json`, `.nvmrc`,
 `.node-version`, `.bun-version`, `mise.toml` or `.tool-versions`.
 
-After a Next.js, SvelteKit, Nuxt or React Router app passes its health check, the box also
+After a Next.js, SvelteKit, Nuxt, React Router or Astro (`@astrojs/node`) app passes its health check, the box also
 asks it for `/` and for a page that doesn't exist; a 5xx on either stops the deploy before
 it takes traffic.
 
@@ -37,12 +51,10 @@ A static build whose `package.json` uses a client-side router (react-router, vue
 TanStack Router, wouter…) serves `index.html` for paths without a file, so a refresh on
 `/about` works; `index_fallback: false` in a Staticfile turns that off.
 
-SvelteKit, Nuxt and React Router (framework mode) are started by the box itself, with the
-settings their servers need behind its proxy: see [SvelteKit](#sveltekit), [Nuxt](#nuxt)
-and [React Router](#react-router). TanStack Start runs as a server on Bun: its `start` script (Nitro's
-`node .output/server/index.mjs`), or Railpack's default when there is none. Astro with
-`@astrojs/node` (standalone) runs its server the same way; without a `start` script the box
-starts `dist/server/entry.mjs`. Which frameworks are first-class, which are only
+SvelteKit, Nuxt, React Router (framework mode) and Astro are started by the box itself, with the
+settings their servers need behind its proxy: see [SvelteKit](#sveltekit), [Nuxt](#nuxt),
+[React Router](#react-router) and [Astro](#astro). TanStack Start runs as a server on Bun: its `start` script (Nitro's
+`node .output/server/index.mjs`), or Railpack's default when there is none. Which frameworks are first-class, which are only
 detected and which aren't supported yet: [What works and what doesn't](limits.md#frameworks).
 Any of them runs from its own Dockerfile (`builder: "dockerfile"`, see
 [Build settings](#build-settings)).
@@ -110,8 +122,11 @@ failed build or health check leaves the old version serving.
 - **Previews** sleep when idle and wake on the first request. Preview names may not start
   with `d-`, which is how [each version's own address](#every-versions-own-address)
   starts. Each preview gets its own
-  copy of the project's database (see below); it shares the cache, buckets and secrets
-  with production. Email goes to the dev inbox. A preview keeps only its latest build (no rollback), and one nobody
+  copy of the project's database (see below); it shares the cache, buckets, secrets and
+  users with production. Mail the app sends itself (through its `SMTP_URL`) is kept in the
+  dev inbox; sign-in mail the box sends for it (verification, magic links, one-time codes,
+  invites) goes out like production's, through the relay when there is one, so it reaches
+  real inboxes (see [Email](email.md#previews)). A preview keeps only its latest build (no rollback), and one nobody
   requested or deployed to for 7 days is deleted, as if its pull request had closed;
   the next push or deploy builds it again.
 - **Start command:** an app runs its build's start command (package.json `start`); set
@@ -138,9 +153,15 @@ failed build or health check leaves the old version serving.
   nothing changes but speed: a page costs the app nothing and a sleeping app doesn't wake
   for it. Only exact files count; everything else goes to the app. Not Next.js: its
   `proxy.ts` runs before prerendered pages. See [the limits](limits.md#caching-and-images).
-- **Shutdown:** a replaced release finishes the requests it has (each within the app's
-  time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
-  they are done, then 30 seconds before it is killed, for work it does after responding.
+- **Shutdown:** a replaced release gets no new requests (the switchboard sends them to
+  the new one), finishes the requests it has (each within the app's time limit,
+  `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once they are done,
+  then 30 seconds before it is killed, for work it does after responding. A server with no
+  SIGTERM handler (Astro's standalone server) loses nothing: it has no request left when
+  it gets the signal. An app that goes to sleep does so only with no request in flight.
+  An app stopped on purpose (stopped, deleted, its project stopped, a preview deleted)
+  stops getting requests first and has up to 10 seconds to finish the ones it has before
+  SIGTERM, then 10 seconds before it is killed.
 
 ### Every version's own address
 
@@ -678,14 +699,19 @@ or 14 days, and the project says "Asleep since …" with a Wake button.
   to start and pass its health check.
   `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
   and `lastActive`.
-- **What counts as use:** every request to the app's addresses, including the files and
-  prerendered pages the box serves for it (which never wake it), and every delivery. A request or a job still under way keeps the
-  app awake, however long it runs. The clock is kept across restarts of the box.
+- **What counts as use:** every request that reaches the app, and every delivery. The
+  files and prerendered pages the box serves for it (client assets, Astro's or SvelteKit's
+  prerendered pages, a project bucket's images through `/_next/image`) don't count, and
+  never wake it: a mostly static site with a few server routes sleeps while visitors only
+  read its prerendered pages. A request for a path with no file (a bot probing
+  `/wp-admin`) does go to the app, and wakes it. A request or a job still under way keeps
+  the app awake, however long it runs. The clock is kept across restarts of the box.
 - **What stops:** anything the app does on its own between requests (timers,
   `setInterval`, in-memory caches) stops while it sleeps. Put recurring work in a cron:
   it wakes the app, so a cron that runs every hour keeps an app with `sleepAfter: "24h"`
   awake.
-- Previews sleep after 15 idle minutes whatever this says.
+- Previews sleep after 15 idle minutes whatever this says. A preview is deleted after 7
+  days without use; there, the files the box serves for it count as use.
 
 ## What your app gets
 
@@ -721,7 +747,7 @@ changing one rebuilds the app from its live version's source instead of restarti
 `--prebuilt` has no source to rebuild: it restarts and its browser code keeps the old
 value until the next deploy. Next.js apps also get `NEXT_PUBLIC_TIFFIN_URL` (the app's
 URL, a preview's own) and `NEXT_PUBLIC_SENTRY_DSN` (the box's error ingest for browsers),
-unless they set them. Setting, copying or deleting a secret is a
+and Astro apps `PUBLIC_TIFFIN_URL`, unless they set them. Setting, copying or deleting a secret is a
 change in History (`-m` gives the reason) that `tiffin undo <id>` reverts, putting back the
 old value: the change log keeps values only encrypted to the box key. Destroying a project
 deletes its secrets too (its plan lists them).
@@ -891,6 +917,70 @@ Node.js when the app depends on `@react-router/serve`. `buildDirectory` in
 Measured on the live box with the `react-router` starter (a loader with two Postgres
 queries, 32 connections for 20 s): 1,350 requests a second at 36 ms p95, 51 MB RSS idle
 and 95 MB after the load; a cold start in 0.7 to 0.8 s; a build in 28 s; a rollback in 2 s.
+
+## Astro
+
+`framework: "astro"` is Astro, built by its `build` script (`astro build`):
+
+- **With `@astrojs/node`** (standalone mode, `npx astro add node`) the box runs its
+  server on Node.js, the only runtime the adapter supports: the app builds on Node.js and
+  starts with `exec node ./dist/server/entry.mjs`. Set `runtime: "bun"` to build and run
+  it on Bun instead (`exec bun ./dist/server/entry.mjs`). The server gets
+  `HOST=0.0.0.0` (the adapter listens on `localhost` otherwise, which the box can't reach)
+  and `PORT`, which every instance gets. A `start` script that only starts that file
+  (`node ./dist/server/entry.mjs`) is replaced by the same command with `exec`; any other
+  `start` script, or the app's `command`, runs as written, and still gets `HOST`. The
+  edge serves `/_astro/` for a year and the pages the build prerendered from
+  `<outDir>/client`, so only pages with `prerender = false` (and endpoints) reach the server,
+  and a sleeping app doesn't wake for the others, nor counts them as use (see
+  [Letting apps sleep](#letting-apps-sleep)). `outDir` in `astro.config` (default `dist`)
+  is read for both the server's path and the edge's copies. After the health check the box
+  asks for `/` and a missing page, like the other server frameworks.
+- **Without a server adapter** Astro writes the site to files (`dist/`, or its `outDir`),
+  which the edge serves with no container, as for `static`; a `start` script of the app's
+  own (a server that serves `dist/`, not `astro dev` or `astro preview`) runs instead.
+- **With another host's adapter** (`@astrojs/vercel`, `@astrojs/netlify`,
+  `@astrojs/cloudflare`) the build stops and says to use `@astrojs/node`.
+
+What the box gives an Astro server app, besides the env every app gets:
+
+- **`ASTRO_KEY`**, the key Astro encrypts server islands' props with, made once per app
+  and kept (sealed) like Next.js's Server Actions key: the same value in every build, every
+  instance and every preview, so a page of one release can still load the server islands
+  of the next. The app's own `ASTRO_KEY` (env or secret) wins.
+- **`PUBLIC_TIFFIN_URL`**, the app's URL (a preview's own), at build and run time, so
+  browser code can read it (`import.meta.env.PUBLIC_TIFFIN_URL`), unless the app sets it.
+  `TIFFIN_URL` is in the build env too, so the config can use it for `site`:
+  `site: process.env.TIFFIN_URL`.
+- **`TIFFIN_HOSTS`** at build time: the hosts the app is served on, comma-separated
+  (production's names and own domains, or a preview's host), for
+  `security.allowedDomains`. Astro trusts the edge's `X-Forwarded-Host` and
+  `X-Forwarded-Proto` only for hosts it allows; without them `Astro.url` is `http://…` and
+  its origin check can refuse form posts. The box doesn't change `astro.config`; a config
+  can read it:
+
+  ```js
+  security: { allowedDomains: (process.env.TIFFIN_HOSTS ?? "").split(",").filter(Boolean)
+    .map((hostname) => ({ hostname, protocol: "https" })) },
+  ```
+
+  It is read at build time, so a new domain needs a new deploy, and deploy addresses
+  (`d-<id>--…`) are not in it.
+
+The edge sends every request to the app with `Host` as the visitor sent it,
+`X-Forwarded-Proto: https`, `X-Forwarded-Host` (the same host, with a port only when the
+visitor's request had one), `X-Forwarded-Port`, and `X-Forwarded-For` set to the
+visitor's address alone (values a visitor sends are replaced, never appended to).
+
+An Astro app declared the earlier way, `framework: "bun"` with `@astrojs/node` in
+`package.json` (with or without `runtime`, `command` and `env: { HOST: "0.0.0.0" }`), is
+recognized and launched the same way, on Node.js unless it sets `runtime`; `framework:
+"astro"` says it outright, and gets `PUBLIC_TIFFIN_URL` too. Importing a repository with
+`@astrojs/node` suggests `framework: "astro"`; Astro without it is `static`.
+
+An app declared `framework: "static"` whose `astro.config` uses `@astrojs/node` (or whose
+build writes `dist/server/entry.mjs` and no `index.html`) fails with a hint to set
+`framework: "astro"` and remove `output`.
 
 ## FastAPI and Python
 

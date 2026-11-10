@@ -1091,7 +1091,7 @@ function Live({
                 <NextStep
                   n={1}
                   title={`Push to ${L.source.branch}`}
-                  line={`Every push to ${L.source.branch} deploys ${L.app}. Each pull request gets a preview at its own address, and a comment with the link. Previews use this project’s live data. Email goes to the dev inbox.`}
+                  line={`Every push to ${L.source.branch} deploys ${L.app}. Each pull request gets a preview at its own address and database branch (unless shared with production), and a comment with the link. Mail the app sends from a preview goes to the dev inbox; sign-in mail is sent for real.`}
                 >
                   <Button asChild size="md">
                     <a href={`https://github.com/${L.source.repo}`} target="_blank" rel="noopener noreferrer">

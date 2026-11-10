@@ -610,8 +610,15 @@ func TestPreviewNote(t *testing.T) {
 	no := false
 	a := &app{io: IO{Out: &out, TTY: &no}}
 	a.printDeploys([]*rtDeploy{{App: "web", Preview: "fix", Status: "live"}}, nil)
-	if p := decode(t, out.Bytes()); p["note"] != "Previews use this project's live data. Email goes to the dev inbox." {
+	if p := decode(t, out.Bytes()); p["note"] != previewNote {
 		t.Fatalf("preview: %s", out.String())
+	}
+	// The app's mail stays in the dev inbox, sign-in mail does not: the
+	// note must not say all of a preview's email is kept.
+	for _, want := range []string{"Mail the app sends is kept in the dev inbox", "sign-in mail (verification, magic links", "mail relay"} {
+		if !strings.Contains(previewNote, want) {
+			t.Errorf("preview note lacks %q: %s", want, previewNote)
+		}
 	}
 	out.Reset()
 	a.printDeploys([]*rtDeploy{{App: "web", Status: "live"}}, nil)

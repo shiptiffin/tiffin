@@ -282,9 +282,18 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		}
 		if l := req.Launch; l != nil && l.Secret != "" && l.Files == nil {
 			// Made once and kept, for every build, instance and preview.
-			if _, err := r.appKey(ctx, d.Project, d.App, l.Secret, all); err != nil {
+			key, err := r.appKey(ctx, d.Project, d.App, l.Secret, all)
+			if err != nil {
 				return err
 			}
+			if l.SecretAtBuild {
+				req.Env[l.Secret] = key
+			}
+		}
+		if req.Launch != nil && req.Launch.ID == "astro" && spec.Role != manifest.RoleWorker && all[hostsEnv] == "" {
+			// For the app's config (security.allowedDomains): Astro trusts
+			// X-Forwarded-Host and -Proto only for hosts it allows.
+			req.Env[hostsEnv] = strings.Join(r.envHosts(d.Project, d.App, d.Preview, spec), ",")
 		}
 	}
 	if req.Dockerfile != "" {
@@ -736,6 +745,7 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 		out = append(out, in)
 	}
 	// Health checks run in parallel.
+	spec = hintSpec(spec, d)
 	var wg sync.WaitGroup
 	errs := make([]error, len(out))
 	for i, in := range out {
@@ -991,7 +1001,7 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 			} else if _, msg, ok := strings.Cut(err.Error(), "peer: "); ok {
 				lastStatus = "the box could not tell who answers: " + msg
 			} else {
-				lastStatus = "not answering"
+				lastStatus = notAnswering
 			}
 		}
 		if time.Now().After(deadline) {
@@ -1000,7 +1010,7 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 			}
 			return &healthError{msg: fmt.Sprintf("instance %s did not pass its health check (GET %s: %s) within %s. Last log lines:\n%s",
 				in.Name, path, lastStatus, r.opt.HealthTimeout, tailLog(logPath, 15)),
-				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)." + imageHint(*spec) + onNodeHint(*spec)}
+				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)." + bindHint(lastStatus) + imageHint(*spec) + onNodeHint(*spec)}
 		}
 		select {
 		case <-ctx.Done():
@@ -1027,9 +1037,21 @@ func healthPoll(since time.Duration) time.Duration {
 	return 200 * time.Millisecond
 }
 
+// hintSpec is spec as d's instances run: an Astro server the box built for
+// Node.js because the app sets no runtime (readApp) is on Node.js, so its
+// hints never suggest switching to it.
+func hintSpec(spec *manifest.App, d *Deploy) *manifest.App {
+	if spec.Runtime != "" || d.Launch != "astro" {
+		return spec
+	}
+	c := *spec
+	c.Runtime = manifest.RuntimeNode
+	return &c
+}
+
 // smokeName is the framework a deploy's first instance is smoke-tested
 // for after its health check, "" for none: Next.js, and the full-stack
-// frameworks the box launches (SvelteKit, Nuxt, React Router).
+// frameworks the box launches (SvelteKit, Nuxt, React Router, Astro).
 func smokeName(spec *manifest.App, d *Deploy) string {
 	switch {
 	case spec.Framework == manifest.FrameworkNext:
@@ -1041,7 +1063,7 @@ func smokeName(spec *manifest.App, d *Deploy) string {
 }
 
 // launchNames are the frameworks a Deploy's Launch names.
-var launchNames = map[string]string{"sveltekit": "SvelteKit", "nuxt": "Nuxt", "react-router": "React Router"}
+var launchNames = map[string]string{"sveltekit": "SvelteKit", "nuxt": "Nuxt", "react-router": "React Router", "astro": "Astro"}
 
 // smokeSSR asks a server-rendering instance that passed its health check
 // for two pages that take different paths through its framework: the home
@@ -1110,6 +1132,21 @@ func healthOK(path string, status int) bool {
 }
 
 // healthWant says what healthOK wants from path, for hints.
+// notAnswering is a health check's status when nothing took the connection.
+const notAnswering = "not answering"
+
+// bindHint is the health check hint when nothing ever answered on the
+// instance's port: the usual cause, past a server that never started, is
+// one that listens on another port or on localhost, which Node may bind to
+// ::1 alone while the box dials 127.0.0.1:$PORT.
+func bindHint(lastStatus string) string {
+	if lastStatus != notAnswering {
+		return ""
+	}
+	return " Nothing answered on that port: the server must listen on $PORT and on 0.0.0.0 (all interfaces), not localhost" +
+		" (Astro's Node adapter and some Node servers default to localhost: set HOST=0.0.0.0, or listen(process.env.PORT, \"0.0.0.0\"))."
+}
+
 func healthWant(path string) string {
 	if path == manifest.DefaultHealthcheck {
 		return " with a status below 500"
@@ -1171,18 +1208,23 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 			nextOrigin(env, r.deployURL(&Deploy{Project: project, App: app}, spec), env["TIFFIN_URL"], preview != "" && !version)
 		}
 	}
-	addNextAliases(env, spec)
+	addPublicAliases(env, spec)
 	if spec.Framework == manifest.FrameworkNext {
 		if env[nextKeyEnv], err = r.nextActionsKey(ctx, project, app, env); err != nil {
 			return nil, "", err
 		}
 	}
-	if spec.Framework == manifest.FrameworkBun && env[nuxtSecretEnv] == "" {
-		// Kept since a build found Nuxt (launch.go); the app's own wins.
-		if v, ok, err := r.storedKey(ctx, project, app, nuxtSecretEnv); err != nil {
-			return nil, "", err
-		} else if ok {
-			env[nuxtSecretEnv] = v
+	if spec.Framework == manifest.FrameworkBun || spec.Framework == manifest.FrameworkAstro {
+		// Kept since a build found Nuxt or Astro (launch.go); the app's own wins.
+		for _, name := range keptSecrets {
+			if env[name] != "" {
+				continue
+			}
+			if v, ok, err := r.storedKey(ctx, project, app, name); err != nil {
+				return nil, "", err
+			} else if ok {
+				env[name] = v
+			}
 		}
 	}
 	h := sha256.New()
@@ -1374,7 +1416,9 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	if err := r.st.putState(ctx, st); err != nil {
 		return err
 	}
-	_ = r.refreshIfNeeded(ctx)
+	if r.refreshIfNeeded(ctx) == nil {
+		r.waitDrained(ins, r.opt.StopGrace)
+	}
 	r.removeInstances(ctx, ins)
 	if d, err := r.st.getDeploy(ctx, st.Project, st.App, st.Live); err == nil && d.Status == StatusLive {
 		d.Status = StatusStopped

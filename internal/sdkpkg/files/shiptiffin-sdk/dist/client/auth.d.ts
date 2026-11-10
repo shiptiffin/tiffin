@@ -37,6 +37,12 @@ export interface AuthConfig {
         name: string;
         configured: boolean;
     }>;
+    /**
+     * The Better Auth release the box's engine runs, e.g. "1.7.14". Install
+     * the same `better-auth` for the browser client. (Absent from boxes older
+     * than this field.)
+     */
+    betterAuthVersion?: string;
 }
 /** Better Auth's IDs of the sign-in services the box supports ("oidc": any OpenID Connect provider). */
 export type SocialProvider = "google" | "github" | "apple" | "microsoft" | "discord" | "facebook" | "twitter" | "linkedin" | "gitlab" | "slack" | "twitch" | "oidc";

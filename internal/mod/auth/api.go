@@ -43,8 +43,10 @@ type Overview struct {
 	EmailVerification EmailVerificationState `json:"emailVerification"`
 	// EmailBlocked: the box can't send email yet, so in production email
 	// sign-up, magic links, one-time codes and resets are refused.
-	EmailBlocked bool  `json:"emailBlocked" doc:"The box can't send email yet: in production, email + password sign-up, magic links, one-time codes and password resets are refused (EMAIL_NOT_SET_UP) until a mail service is connected. Previews use the dev inbox"`
-	Stats        Stats `json:"stats"`
+	EmailBlocked bool `json:"emailBlocked" doc:"The box can't send email yet: in production, email + password sign-up, magic links, one-time codes and password resets are refused (EMAIL_NOT_SET_UP) until a mail service is connected. Previews use the dev inbox"`
+	// BetterAuthVersion is the Better Auth release the engine runs.
+	BetterAuthVersion string `json:"betterAuthVersion" doc:"The Better Auth release the box's auth engine runs. Install the same better-auth version for the app's browser client"`
+	Stats             Stats  `json:"stats"`
 }
 
 // ProviderState is one sign-in provider as a project sees it.
@@ -409,7 +411,7 @@ func overview(p *platform.Platform, project string, res map[string]change.Resour
 	if len(a.Methods) == 0 {
 		a.Methods = manifest.DefaultAuthMethods
 	}
-	o := &Overview{Project: project, Methods: a.Methods, Organizations: a.Organizations, Hosts: []string{}, Social: map[string]bool{}}
+	o := &Overview{Project: project, Methods: a.Methods, Organizations: a.Organizations, Hosts: []string{}, Social: map[string]bool{}, BetterAuthVersion: BetterAuthVersion}
 	for _, h := range webHosts(p, res) {
 		o.Hosts = append(o.Hosts, h.Host)
 	}

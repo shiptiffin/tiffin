@@ -361,3 +361,42 @@ func TestReleaseMetaKeptOnlyWhileServed(t *testing.T) {
 		t.Fatalf("a release the table does not serve was cached: %v", c)
 	}
 }
+
+// Only requests that reach an instance are activity: a prerendered page or
+// a client asset the board answers itself never needs the app awake, so it
+// must not keep the app from sleeping.
+func TestActivityCountsRequestsThatReachTheApp(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "app") }))
+	t.Cleanup(app.Close)
+	base := t.TempDir()
+	meta := `[{"dir":"dist/client","path":"/","immutable":["/_astro/"],"pages":true}]`
+	writeRelease(t, filepath.Join(base, "dep_1"), meta, map[string]string{"about/index.html": "about", "_astro/a.js": "js"})
+	os.WriteFile(filepath.Join(base, "dep_1", PagesFile), []byte(`{"/about":"about/index.html","/about/":"about/index.html"}`), 0o644)
+	b := New(nil, nil)
+	b.Set(Table{
+		Hosts: map[string][]Route{"app.test": {{Env: "p/a"}}},
+		Envs: map[string]*Env{"p/a": {Project: "p", App: "a", Live: "dep_1", Assets: base,
+			Instances: []Instance{{Name: "p-a-1", Port: portOf(t, app.Listener.Addr().String())}}}},
+	})
+	get := func(p string) string {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "http://app.test"+p, nil)
+		b.ServeHTTP(w, req)
+		return w.Body.String()
+	}
+	for _, p := range []string{"/about", "/_astro/a.js"} {
+		if got := get(p); got == "app" || got == "" {
+			t.Fatalf("%s: %q, want the board's file", p, got)
+		}
+		if _, ok := b.Activity()["p/a"]; ok {
+			t.Fatalf("%s, answered by the board, counted as activity", p)
+		}
+	}
+	before := time.Now()
+	if got := get("/contact"); got != "app" {
+		t.Fatalf("/contact: %q", got)
+	}
+	if at, ok := b.Activity()["p/a"]; !ok || at.Before(before) {
+		t.Fatalf("a request that reached the app is not activity: %v %v", at, ok)
+	}
+}

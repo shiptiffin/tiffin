@@ -246,7 +246,10 @@ func (b *Board) Busy(names []string) int64 {
 	return n
 }
 
-// Activity is when each environment last had a request (or one ended).
+// Activity is when each environment last had a request reach one of its
+// instances (or one ended). Requests the box answers itself (client
+// assets, prerendered pages, bucket images, live progress) do not count:
+// they never need the app awake.
 func (b *Board) Activity() map[string]time.Time {
 	b.seenMu.Lock()
 	defer b.seenMu.Unlock()
@@ -314,8 +317,10 @@ func (b *Board) acquire(key string) (*Env, Instance, func(), bool) {
 
 // ServeHTTP is the switchboard's front door: it finds the app environment a
 // request belongs to (by host and path, as the edge routed it), wakes it if
-// it sleeps, and proxies to the least busy instance. Every request counts
-// as activity, those the box answers itself included.
+// it sleeps, and proxies to the least busy instance. Only requests that
+// reach an instance count as activity (serveApp): a site whose visitors
+// only load files the box serves (prerendered pages, client assets) can
+// still sleep.
 func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	began := time.Now()
 	host := strings.ToLower(req.Host)
@@ -331,9 +336,6 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	key, prefix, ok := b.lookup(host, req.URL.Path)
 	if strings.HasPrefix(req.URL.Path, LivePrefix+"/") {
-		if ok {
-			b.touch(key)
-		}
 		b.ctl.Forward(w, req, key, prefix)
 		return
 	}
@@ -345,8 +347,6 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	b.touch(key)
-	defer b.touch(key) // a long request keeps it awake until it ends
 	st := b.env(key)
 	if st != nil && !st.Stopped {
 		// Client assets come from the box's copy of them; a sleeping app
@@ -431,6 +431,8 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 		return
 	}
 	defer done()
+	b.touch(key)
+	defer b.touch(key) // a long request keeps it awake until it ends
 	var limit time.Duration
 	ctx := peer.WithOwner(req.Context(), st.Cgroup)
 	if st.Timeout > 0 {

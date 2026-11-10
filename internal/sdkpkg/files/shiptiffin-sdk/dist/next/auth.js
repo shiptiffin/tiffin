@@ -23,18 +23,9 @@ import { forbidden, redirect, unauthorized } from "next/navigation";
 import { NextResponse } from "next/server";
 import { cache } from "react";
 import { TOKEN, authBase, cookieName, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor } from "../auth.js";
+import { dto, localPath, pattern } from "../session-view.js";
 /** The request header authProxy sets to the page's path, for ?next= on redirects to sign-in. */
 const PATH_HEADER = "x-tiffin-path";
-function dto(s) {
-    const o = s.organization;
-    return {
-        user: { id: s.user.id, email: s.user.email, name: s.user.name, image: s.user.image ?? null, emailVerified: !!s.user.emailVerified },
-        organization: o ? { id: o.id, name: o.name, slug: o.slug, role: o.role } : null,
-        sessionId: s.session.id,
-        expiresAt: s.session.expiresAt,
-        via: s.via,
-    };
-}
 /** The request's headers, with the cookie header as cookies() sees it (it includes cookies a Server Action just set). */
 async function requestHeaders() {
     const h = new Headers(await headers());
@@ -112,12 +103,6 @@ export function getSession(opts = {}) {
 /** The signed-in user, or null. */
 export async function currentUser() {
     return (await getSession())?.user ?? null;
-}
-/** A path on this site (for ?next=), or undefined: never another origin. */
-function localPath(p) {
-    if (typeof p !== "string" || !p.startsWith("/") || p.startsWith("//") || p.startsWith("/\\") || /[\u0000-\u001f]/.test(p))
-        return undefined;
-    return p;
 }
 /**
  * The signed-in session, or a redirect to the sign-in page (with ?next= when
@@ -219,20 +204,6 @@ export async function signOut(opts = {}) {
         redirect(to);
 }
 // ---- proxy.ts ---------------------------------------------------------------
-/** "/dashboard/:path*" → a RegExp (Next.js matcher syntax: :name, :name?, :name+, :name*). */
-function pattern(p) {
-    let re = "";
-    for (const seg of p.split("/").filter(Boolean)) {
-        const m = /^:\w+([?+*]?)$/.exec(seg);
-        if (!m)
-            re += "/" + seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        else if (m[1] === "")
-            re += "/[^/]+";
-        else
-            re += `(?:/[^/]+)${m[1]}`;
-    }
-    return new RegExp(`^${re}/?$`);
-}
 /**
  * proxy.ts for signed-in areas: an optimistic check of the session cookie
  * only (no network), as the Next.js guide recommends. Pages still call

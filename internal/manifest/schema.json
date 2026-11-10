@@ -108,8 +108,8 @@
           "minLength": 1
         },
         "framework": {
-          "description": "How the app is built and run. \"next\" = Next.js, \"hono\" = Hono on Bun, \"bun\" = any Bun server listening on $PORT, \"static\" = static files served directly by the proxy, \"fastapi\" = FastAPI (Python) run by Uvicorn, \"python\" = any Python server listening on $PORT (Flask, Django...). Default \"bun\".",
-          "enum": ["next", "hono", "bun", "static", "fastapi", "python"]
+          "description": "How the app is built and run. \"next\" = Next.js, \"hono\" = Hono on Bun, \"bun\" = any Bun server listening on $PORT, \"static\" = static files served directly by the proxy, \"astro\" = Astro: with @astrojs/node its standalone server runs (on Bun, or Node.js with runtime \"node\") and the edge serves its prerendered pages and assets, without a server adapter it is built to files, \"fastapi\" = FastAPI (Python) run by Uvicorn, \"python\" = any Python server listening on $PORT (Flask, Django...). Default \"bun\".",
+          "enum": ["next", "hono", "bun", "static", "astro", "fastapi", "python"]
         },
         "role": {
           "description": "What an instance does. \"web\" serves HTTP on its routes; \"worker\" only receives queue and workflow pushes and must not have routes. Default \"web\".",

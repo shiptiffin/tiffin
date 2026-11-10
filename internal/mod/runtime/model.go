@@ -81,7 +81,7 @@ type Deploy struct {
 	SPAPage string `json:"spaPage,omitempty" doc:"The page a single-page app's paths without a file serve, when not /index.html (React Router's /__spa-fallback.html, Nuxt's /200.html)"`
 	// Launch is the full-stack framework the box started the build's server
 	// for (launch.go), when it knows it.
-	Launch string `json:"launch,omitempty" enum:"sveltekit,nuxt,react-router," doc:"The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt or react-router; empty for any other app"`
+	Launch string `json:"launch,omitempty" enum:"sveltekit,nuxt,react-router,astro," doc:"The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt, react-router or astro; empty for any other app"`
 	// Assets are the build's client-asset directories the box serves itself.
 	Assets []AssetDir `json:"assets,omitempty" doc:"Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day)"`
 	// Dir is the app's folder in its source when the source is a whole

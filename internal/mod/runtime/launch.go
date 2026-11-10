@@ -13,19 +13,19 @@ import (
 )
 
 // Full-stack frameworks the box knows by their build output: SvelteKit,
-// Nuxt and React Router (framework mode). Each one builds with Railpack like
+// Nuxt, React Router (framework mode) and Astro. Each one builds with Railpack like
 // any Bun or Node app; what the box adds is in its launch: the start command
 // (exec'd, so the server gets SIGTERM and drains), the env its server reads
 // behind the box's proxy, a smoke test after the health check, and, when
 // the app's build writes only files (SvelteKit's adapter-static, Nuxt's
 // `nuxt generate`, React Router with ssr: false), serving those files from
 // the edge instead of running a server. Next.js keeps its own path
-// (nextjs.go); TanStack Start and Astro start from their start scripts.
+// (nextjs.go); TanStack Start starts from its start script.
 
 // launch is what the box does for one app's framework, read from its
 // source before the build.
 type launch struct {
-	ID   string // the preset id: sveltekit, nuxt, react-router
+	ID   string // the preset id: sveltekit, nuxt, react-router, astro
 	Name string // as people know it
 	// Start is the start command, run in the app's folder; "" leaves the
 	// app's own start script.
@@ -42,8 +42,12 @@ type launch struct {
 	// Runner: write the box's Bun server for React Router into the source.
 	Runner bool
 	// Secret is env the box makes once per app and keeps (sealed): the
-	// same value in every build, instance and preview.
+	// same value in every instance and preview, and in builds too with
+	// SecretAtBuild.
 	Secret string
+	// SecretAtBuild: the build reads Secret too (Astro writes ASTRO_KEY
+	// into its server build).
+	SecretAtBuild bool
 	// Warn is a warning for the deploy (it works, but not as well as it could).
 	Warn string
 	// Err fails the build before it starts, with a hint.
@@ -88,11 +92,27 @@ var (
 	nuxtRun = map[string]string{"NITRO_SHUTDOWN_TIMEOUT": "25000"}
 	// React Router on the box's Bun server.
 	rrRun = map[string]string{"SHUTDOWN_TIMEOUT": "25"}
+	// Astro's @astrojs/node standalone server listens on localhost unless
+	// HOST says otherwise, which Node may bind to ::1 alone, while the box
+	// reaches instances at 127.0.0.1:$PORT. All interfaces is how every app
+	// listens (the runtime firewall keeps app ports off the network). It
+	// reads PORT, which every instance gets.
+	astroRun = map[string]string{"HOST": "0.0.0.0"}
 )
 
 // nuxtSecretEnv is Nuxt's key for sessions and deriveSecret (4.6): never
 // made by a build, and it must stay the same across deploys and instances.
 const nuxtSecretEnv = "NUXT_APP_SECRET"
+
+// astroKeyEnv is the key Astro encrypts server islands' props with. Without
+// it each build makes its own, so a page of one release asking a server
+// island of the next (a rolling deploy, a page cached in a tab) fails to
+// decrypt. astro build reads it, and the server at run time.
+const astroKeyEnv = "ASTRO_KEY"
+
+// keptSecrets are the launches' Secrets: an instance gets the kept value of
+// each, unless the app sets its own.
+var keptSecrets = []string{nuxtSecretEnv, astroKeyEnv}
 
 // React Router's server on Bun: the box writes it into the build context.
 const (
@@ -122,6 +142,8 @@ func launchFor(appDir string, onNode bool, build string) *launch {
 		return nuxtLaunch(appDir, start, build, onNode)
 	case deps["@react-router/dev"]:
 		return reactRouterLaunch(appDir, deps, start, onNode)
+	case deps["astro"]:
+		return astroLaunch(appDir, deps, start, onNode)
 	}
 	return nil
 }
@@ -184,13 +206,19 @@ func svelteKitAdapter(cfg string, deps map[string]bool) string {
 	return "auto"
 }
 
+// kitOutDir is the folder SvelteKit's adapter writes (its out option,
+// adapter-static's pages), build unless the config names one.
+func kitOutDir(cfg string) string {
+	if m := kitOutRe.FindStringSubmatch(cfg); m != nil && safeRel(m[1]) {
+		return strings.TrimSuffix(strings.TrimPrefix(m[1], "./"), "/")
+	}
+	return "build"
+}
+
 func svelteKitLaunch(appDir string, deps map[string]bool, start string, onNode bool) *launch {
 	cfg := kitConfig(appDir)
 	adapter := svelteKitAdapter(cfg, deps)
-	out := "build"
-	if m := kitOutRe.FindStringSubmatch(cfg); m != nil && safeRel(m[1]) {
-		out = m[1]
-	}
+	out := kitOutDir(cfg)
 	l := &launch{ID: "sveltekit", Name: "SvelteKit"}
 	ownStart := start != "" && !kitStartRe.MatchString(start)
 	switch adapter {
@@ -323,6 +351,83 @@ func reactRouterLaunch(appDir string, deps map[string]bool, start string, onNode
 	l.Runner, l.Run = true, rrRun
 	l.Start, l.Why = "bun "+rrRunnerPath+" "+server, "the box's Bun server for React Router (Bun.serve and React Router's request handler)"
 	return l
+}
+
+// --- Astro -----------------------------------------------------------------
+
+var (
+	astroConfigs  = []string{"astro.config.mjs", "astro.config.ts", "astro.config.js", "astro.config.mts", "astro.config.cjs", "astro.config.cts"}
+	astroOutDirRe = regexp.MustCompile("\\boutDir\\s*:\\s*[\"'`]([^\"'`]+)[\"'`]")
+	// The start scripts an Astro app writes for its standalone server, which
+	// the box replaces with the same command, exec'd.
+	astroStartRe = regexp.MustCompile(`^(?:node|bun)(?: --bun)? (?:\./)?([\w./-]+)/server/entry\.mjs$`)
+	// Start scripts that are Astro's own CLI: the dev server or a local
+	// preview, never what serves a site in production.
+	astroCLIStartRe = regexp.MustCompile(`^(?:(?:bunx?|npx|pnpm|yarn) (?:--bun )?)?astro (?:dev|preview|start)\b`)
+)
+
+// astroLaunch: with @astrojs/node (standalone mode, which `astro add node`
+// sets up without a start script) the box starts dist/server/entry.mjs
+// with HOST=0.0.0.0, on Node.js unless the app sets runtime (readApp: the
+// adapter supports Node.js only), and keeps one ASTRO_KEY for its builds
+// and instances; the edge serves its prerendered pages and /_astro/ files
+// (assets.go). Without a server adapter Astro writes the site to files,
+// which the edge serves. Another host's adapter (Vercel, Netlify,
+// Cloudflare) builds a server the box cannot run.
+func astroLaunch(appDir string, deps map[string]bool, start string, onNode bool) *launch {
+	l := &launch{ID: "astro", Name: "Astro"}
+	ownStart := start != "" && !astroCLIStartRe.MatchString(start)
+	if !deps["@astrojs/node"] {
+		for _, a := range astroServer {
+			if deps[a] {
+				l.Err = &BuildError{Msg: "Astro's " + a + " adapter builds for another host, not a server the box runs",
+					Hint: "Use @astrojs/node (npx astro add node, standalone mode) for pages rendered on request, or remove the adapter to build the site to files."}
+				return l
+			}
+		}
+		if ownStart {
+			// A server of the app's own (Express serving dist/, say).
+			l.Why = "the app's start script"
+			return l
+		}
+		out := astroOutDir(appDir, "")
+		l.Files = &launchFiles{Dirs: []string{out}, Why: "Astro without a server adapter writes the site to " + out + "/"}
+		return l
+	}
+	l.Run = astroRun
+	l.Secret, l.SecretAtBuild = astroKeyEnv, true
+	if m := astroStartRe.FindStringSubmatch(start); ownStart && (m == nil || !safeRel(m[1])) {
+		l.Why = "the app's start script"
+		return l
+	}
+	out := astroOutDir(appDir, start)
+	rt := map[bool]string{true: "node", false: "bun"}[onNode]
+	l.Start, l.Why = rt+" ./"+out+"/server/entry.mjs", "@astrojs/node's standalone server, on "+map[bool]string{true: "Node.js", false: "Bun"}[onNode]
+	return l
+}
+
+// astroOutDir is where an Astro build writes: its config's outDir, else the
+// folder its start script runs <outDir>/server/entry.mjs from, else dist.
+// The launch starts the server from it and the edge serves <outDir>/client.
+func astroOutDir(appDir, start string) string {
+	out := "dist"
+	if m := astroOutDirRe.FindStringSubmatch(readConfig(appDir, astroConfigs)); m != nil && safeRel(m[1]) {
+		out = strings.TrimSuffix(strings.TrimPrefix(m[1], "./"), "/")
+	}
+	if m := astroStartRe.FindStringSubmatch(start); m != nil && safeRel(m[1]) {
+		out = strings.TrimSuffix(strings.TrimPrefix(m[1], "./"), "/")
+	}
+	return out
+}
+
+// astroNodeServer reports whether the app in appDir is an Astro app with
+// @astrojs/node, and whether its config (as written) imports it.
+func astroNodeServer(appDir string) (deps, inConfig bool) {
+	pd := packageDeps(appDir)
+	if !pd["astro"] || !pd["@astrojs/node"] {
+		return false, false
+	}
+	return true, strings.Contains(readConfig(appDir, astroConfigs), "@astrojs/node")
 }
 
 // rrVersionRe reads major.minor.patch from the start of a version range.

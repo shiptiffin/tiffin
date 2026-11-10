@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defineConfig, type TiffinConfig } from "../src";
+import { defineConfig, type AnalyticsConfig, type AttributionConfig, type TiffinConfig } from "../src";
 import { defineConfig as defineFromConfig } from "../src/config";
 
 // A sample that must type-check (the test file is part of `tsc -p packages/sdk`).
@@ -52,6 +52,21 @@ describe("@shiptiffin/sdk", () => {
       crons: { tick: { schedule: "@daily", app: "web" } },
     };
     expect(defineConfig(cfg)).toBe(cfg);
+  });
+
+  test("analytics takes marketing attribution, and Astro is a framework", () => {
+    const attribution: AttributionConfig = { campaigns: true, signups: false, firstVisitCookie: "outside-eu" };
+    const analytics: AnalyticsConfig = { retentionDays: 30, attribution };
+    const cfg = defineConfig({
+      project: "x",
+      apps: { site: { framework: "astro", runtime: "node" } },
+      services: { analytics: { attribution: {} } },
+    });
+    expect(cfg.apps?.site?.framework).toBe("astro");
+    expect(defineConfig({ project: "y", services: { analytics } }).services?.analytics?.attribution?.firstVisitCookie).toBe("outside-eu");
+    // @ts-expect-error: firstVisitCookie is one of off, outside-eu, ask-eu
+    const bad: AttributionConfig = { firstVisitCookie: "always" };
+    expect(bad).toBeDefined();
   });
 
   test("queues and topics are optional; a queue needs an app", () => {
