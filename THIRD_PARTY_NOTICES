@@ -42,7 +42,7 @@ github.com/aryann/difflib v0.0.0-20210328193216-ff5ff6dc229b  MIT  [text 15]
 github.com/aymerick/douceur v0.2.0                            MIT  [text 16]
 github.com/beorn7/perks/quantile v1.0.1                       MIT  [text 17]
 github.com/bits-and-blooms/bitset v1.25.0                     BSD-3-Clause  [text 18]
-github.com/caddyserver/caddy/v2 v2.11.7                       Apache-2.0  [text 2]
+github.com/caddyserver/caddy/v2 v2.11.9                       Apache-2.0  [text 2]
 github.com/caddyserver/certmagic v0.25.6                      Apache-2.0  [text 19]
 github.com/caddyserver/zerossl v0.1.6                         MIT  [text 20]
 github.com/ccoveille/go-safecast/v2 v2.0.1                    MIT  [text 21]
@@ -59,14 +59,14 @@ github.com/coreos/go-oidc/v3/oidc v3.21.0                     Apache-2.0  [text 
 github.com/cpuguy83/go-md2man/v2/md2man v2.0.7                MIT  [text 28]
 github.com/crowdsecurity/crowdsec/pkg v1.7.8                  MIT  [text 29]
 github.com/crowdsecurity/go-cs-lib v0.0.25                    MIT  [text 29]
-github.com/danielgtaylor/huma/v2 v2.39.1                      MIT  [text 30]
+github.com/danielgtaylor/huma/v2 v2.40.0                      MIT  [text 30]
 github.com/davecgh/go-spew/spew v1.1.2-0.20180830191138-d8f796af33cc  ISC  [text 31]
 github.com/dgraph-io/badger v1.6.2                            Apache-2.0  [text 32]
 github.com/dgraph-io/badger/v2 v2.2007.4                      Apache-2.0  [text 32]
 github.com/dgraph-io/ristretto v0.2.0                         Apache-2.0  [text 32]
 github.com/dgraph-io/ristretto/z v0.2.0                       MIT  [text 33]
 github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da  MIT  [text 34]
-github.com/dlclark/regexp2/v2 v2.8.3                          MIT  [text 35]
+github.com/dlclark/regexp2/v2 v2.12.0                         MIT  [text 35]
 github.com/dop251/goja v0.0.0-20261004200024-481fdb442bb4     MIT  [text 36]
 github.com/dop251/goja/ftoa v0.0.0-20261004200024-481fdb442bb4  LicenseRef-MIT-Lucent  [text 37]
 github.com/dop251/goja/ftoa/internal/fast v0.0.0-20261004200024-481fdb442bb4  BSD-3-Clause  [text 38]
@@ -80,12 +80,12 @@ github.com/emersion/go-smtp v0.25.0                           MIT  [text 44]
 github.com/evanw/esbuild v0.28.2                              MIT  [text 45]
 github.com/evanw/esbuild/internal/xxhash v0.28.2              MIT  [text 23]
 github.com/felixge/httpsnoop v1.1.0                           MIT  [text 46]
-github.com/fxamacker/cbor/v2 v2.9.4                           MIT  [text 47]
+github.com/fxamacker/cbor/v2 v2.9.6                           MIT  [text 47]
 github.com/gaissmai/bart v0.28.0                              MIT  [text 48]
 github.com/go-jose/go-jose/v3 v3.0.5                          Apache-2.0  [text 2]
 github.com/go-jose/go-jose/v3/json v3.0.5                     BSD-3-Clause  [text 49]
-github.com/go-jose/go-jose/v4 v4.1.5                          Apache-2.0  [text 2]
-github.com/go-jose/go-jose/v4/json v4.1.5                     BSD-3-Clause  [text 49]
+github.com/go-jose/go-jose/v4 v4.1.6                          Apache-2.0  [text 2]
+github.com/go-jose/go-jose/v4/json v4.1.6                     BSD-3-Clause  [text 49]
 github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433  BSD-3-Clause  [text 50]
 github.com/go-logr/logr v1.4.4                                Apache-2.0  [text 19]
 github.com/go-logr/stdr v1.2.2                                Apache-2.0  [text 2]
@@ -132,7 +132,7 @@ github.com/googleapis/gax-go/v2 v2.25.0                       BSD-3-Clause  [tex
 github.com/gorilla/css/scanner v1.0.1                         BSD-3-Clause  [text 66]
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.31.0             BSD-3-Clause  [text 67]
 github.com/hashicorp/golang-lru v1.0.2                        MPL-2.0  [text 68]
-github.com/hetznercloud/hcloud-go/v2/hcloud v2.52.0           MIT  [text 69]
+github.com/hetznercloud/hcloud-go/v2/hcloud v2.53.0           MIT  [text 69]
 github.com/hslatman/caddy-crowdsec-bouncer v0.14.2-0.20260909201224-ffdcb7c6f861  Apache-2.0  [text 70]
 github.com/hslatman/ipstore v0.5.0                            Apache-2.0  [text 2]
     Apache-2.0 headers in each source file; the module has no LICENSE file
@@ -140,20 +140,20 @@ github.com/huandu/xstrings v1.6.1                             MIT  [text 71]
 github.com/jackc/pgpassfile v1.0.0                            MIT  [text 72]
 github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761  MIT  [text 73]
 github.com/jackc/pgx/v5 v5.11.0                               MIT  [text 74]
-github.com/jackc/puddle/v2 v2.2.2                             MIT  [text 75]
+github.com/jackc/puddle/v2 v2.2.3                             MIT  [text 75]
 github.com/jcchavezs/mergefs v0.1.1                           Apache-2.0  [text 2]
 github.com/kaptinlin/go-i18n v0.3.1                           MIT  [text 76]
 github.com/kaptinlin/jsonpointer v0.4.17                      MIT  [text 76]
 github.com/kaptinlin/jsonschema v0.7.7                        MIT  [text 76]
 github.com/kaptinlin/messageformat-go/v1 v0.4.19              MIT  [text 77]
-github.com/klauspost/compress v1.20.1                         Apache-2.0, BSD-3-Clause, MIT  [text 78]
-github.com/klauspost/compress/internal/snapref v1.20.1        BSD-3-Clause  [text 61]
-github.com/klauspost/compress/zstd/internal/xxhash v1.20.1    MIT  [text 23]
-github.com/klauspost/cpuid/v2 v2.4.0                          MIT  [text 79]
+github.com/klauspost/compress v1.20.3                         Apache-2.0, BSD-3-Clause, MIT  [text 78]
+github.com/klauspost/compress/internal/snapref v1.20.3        BSD-3-Clause  [text 61]
+github.com/klauspost/compress/zstd/internal/xxhash v1.20.3    MIT  [text 23]
+github.com/klauspost/cpuid/v2 v2.4.1                          MIT  [text 79]
 github.com/libdns/cloudflare v0.2.2                           MIT  [text 80]
 github.com/libdns/libdns v1.1.1                               MIT  [text 80]
 github.com/manifoldco/promptui v0.9.0                         BSD-3-Clause  [text 81]
-github.com/mattn/go-colorable v0.1.15                         MIT  [text 82]
+github.com/mattn/go-colorable v0.1.16                         MIT  [text 82]
 github.com/mattn/go-isatty v0.0.24                            MIT  [text 83]
 github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d      MIT  [text 84]
 github.com/mholt/acmez/v3 v3.1.7                              Apache-2.0  [text 2]
@@ -166,32 +166,32 @@ github.com/mitchellh/go-ps v1.0.0                             MIT  [text 87]
 github.com/mitchellh/reflectwalk v1.0.2                       MIT  [text 53]
 github.com/modelcontextprotocol/go-sdk v1.8.0                 Apache-2.0, MIT  [text 88]
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822  BSD-3-Clause  [text 89]
-github.com/ncruces/go-sqlite3 v0.35.6                         MIT  [text 90]
-github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35304              MIT-0 AND blessing  [text 91]
+github.com/ncruces/go-sqlite3 v0.36.0                         MIT  [text 90]
+github.com/ncruces/go-sqlite3-wasm/v6 v6.4.35401              MIT-0 AND blessing  [text 91]
     SQLite itself is in the public domain
 github.com/ncruces/julianday v1.0.0                           MIT  [text 92]
 github.com/nlnwa/whatwg-url v0.6.2                            Apache-2.0  [text 2]
 github.com/oklog/ulid/v2 v2.1.2                               Apache-2.0  [text 2]
-github.com/oschwald/maxminddb-golang/v2 v2.7.0                ISC  [text 93]
+github.com/oschwald/maxminddb-golang/v2 v2.8.0                ISC  [text 93]
 github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58   BSD-3-Clause  [text 94]
 github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745  MIT  [text 95]
-github.com/philhofer/fwd v1.2.0                               MIT  [text 96]
+github.com/philhofer/fwd v1.2.1                               MIT  [text 96]
 github.com/pires/go-proxyproto v0.15.0                        Apache-2.0  [text 97]
 github.com/pkg/errors v0.9.1                                  BSD-2-Clause  [text 98]
-github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil v1.24.1  BSD-3-Clause  [text 99]
-github.com/prometheus/client_golang/prometheus v1.24.1        Apache-2.0  [text 2]
+github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil v1.25.0  BSD-3-Clause  [text 99]
+github.com/prometheus/client_golang/prometheus v1.25.0        Apache-2.0  [text 2]
 github.com/prometheus/client_model/go v0.6.3                  Apache-2.0  [text 2]
-github.com/prometheus/common v0.71.0                          Apache-2.0  [text 2]
+github.com/prometheus/common v0.72.0                          Apache-2.0  [text 2]
 github.com/prometheus/otlptranslator v1.0.0                   Apache-2.0  [text 2]
 github.com/prometheus/procfs v0.22.0                          Apache-2.0  [text 2]
 github.com/quic-go/qpack v0.6.0                               MIT  [text 100]
-github.com/quic-go/quic-go v0.63.0                            MIT  [text 101]
-github.com/riverqueue/river v0.49.0                           MPL-2.0  [text 52]
-github.com/riverqueue/river/riverdriver v0.49.0               MPL-2.0  [text 52]
-github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0    MPL-2.0  [text 52]
-github.com/riverqueue/river/rivershared v0.49.0               MPL-2.0  [text 52]
-github.com/riverqueue/river/rivershared/levenshtein v0.49.0   MIT  [text 102]
-github.com/riverqueue/river/rivertype v0.49.0                 MPL-2.0  [text 52]
+github.com/quic-go/quic-go v0.64.1                            MIT  [text 101]
+github.com/riverqueue/river v0.50.0                           MPL-2.0  [text 52]
+github.com/riverqueue/river/riverdriver v0.50.0               MPL-2.0  [text 52]
+github.com/riverqueue/river/riverdriver/riverpgxv5 v0.50.0    MPL-2.0  [text 52]
+github.com/riverqueue/river/rivershared v0.50.0               MPL-2.0  [text 52]
+github.com/riverqueue/river/rivershared/levenshtein v0.50.0   MIT  [text 102]
+github.com/riverqueue/river/rivertype v0.50.0                 MPL-2.0  [text 52]
 github.com/robfig/cron/v3 v3.0.1                              MIT  [text 103]
 github.com/rs/xid v1.6.0                                      MIT  [text 104]
 github.com/russross/blackfriday/v2 v2.1.0                     BSD-2-Clause  [text 105]
@@ -216,13 +216,13 @@ github.com/spf13/cast v1.10.0                                 MIT  [text 118]
 github.com/spf13/cobra v1.10.2                                Apache-2.0  [text 70]
 github.com/spf13/pflag v1.0.10                                BSD-3-Clause  [text 119]
 github.com/tailscale/tscert v0.0.0-20251216020129-aea342f6d747  BSD-3-Clause  [text 120]
-github.com/tidwall/gjson v1.19.0                              MIT  [text 121]
+github.com/tidwall/gjson v1.20.0                              MIT  [text 121]
 github.com/tidwall/match v1.2.0                               MIT  [text 121]
 github.com/tidwall/pretty v1.2.1                              MIT  [text 122]
 github.com/tidwall/sjson v1.2.5                               MIT  [text 121]
-github.com/tinylib/msgp/msgp v1.6.4                           MIT  [text 123]
+github.com/tinylib/msgp/msgp v1.6.5                           MIT  [text 123]
 github.com/tklauser/go-sysconf v0.3.16                        BSD-3-Clause  [text 124]
-github.com/ua-parser/uap-go/uaparser v0.0.0-20260529044130-17c35e68e58c  MIT  [text 125]
+github.com/ua-parser/uap-go/uaparser v0.0.0-20261028195011-4cb30e998c4c  MIT  [text 125]
 github.com/urfave/cli v1.22.17                                MIT  [text 126]
 github.com/valllabh/ocsf-schema-golang/ocsf/v1_2_0 v1.0.3     Apache-2.0  [text 2]
 github.com/x448/float16 v0.8.4                                MIT  [text 127]
@@ -262,16 +262,16 @@ go.uber.org/multierr v1.11.0                                  MIT  [text 136]
 go.uber.org/zap v1.28.0                                       MIT  [text 137]
 go.uber.org/zap/exp/zapslog v0.3.0                            MIT  [text 137]
 go.yaml.in/yaml/v3 v3.0.5                                     MIT  [text 138]
-golang.org/x/crypto v0.57.0                                   BSD-3-Clause  [text 6]
-golang.org/x/crypto/x509roots/fallback v0.0.0-20260929172509-b39ff6d641ec  BSD-3-Clause  [text 6]
+golang.org/x/crypto v0.58.0                                   BSD-3-Clause  [text 6]
+golang.org/x/crypto/x509roots/fallback v0.0.0-20261030153154-30a33513ff6d  BSD-3-Clause  [text 6]
 golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba           BSD-3-Clause  [text 6]
-golang.org/x/image v0.46.0                                    BSD-3-Clause  [text 6]
-golang.org/x/net v0.60.0                                      BSD-3-Clause  [text 6]
+golang.org/x/image v0.47.0                                    BSD-3-Clause  [text 6]
+golang.org/x/net v0.62.0                                      BSD-3-Clause  [text 6]
 golang.org/x/oauth2 v0.37.0                                   BSD-3-Clause  [text 6]
-golang.org/x/sync v0.23.0                                     BSD-3-Clause  [text 6]
-golang.org/x/sys v0.48.0                                      BSD-3-Clause  [text 6]
-golang.org/x/term v0.46.0                                     BSD-3-Clause  [text 6]
-golang.org/x/text v0.42.0                                     BSD-3-Clause  [text 6]
+golang.org/x/sync v0.24.0                                     BSD-3-Clause  [text 6]
+golang.org/x/sys v0.49.0                                      BSD-3-Clause  [text 6]
+golang.org/x/term v0.47.0                                     BSD-3-Clause  [text 6]
+golang.org/x/text v0.43.0                                     BSD-3-Clause  [text 6]
 golang.org/x/time/rate v0.16.0                                BSD-3-Clause  [text 6]
 google.golang.org/api v0.298.0                                BSD-3-Clause  [text 139]
 google.golang.org/api/internal/third_party/uritemplates v0.298.0  BSD-3-Clause  [text 140]
@@ -387,8 +387,8 @@ get-nonce 1.0.1                                 MIT  [text 162]
 internmap 2.0.3                                 ISC  [text 163]
 lucide-react 1.52.0                             ISC  [text 164]
 radix-ui 1.6.7                                  MIT  [text 151]
-react 19.3.0                                    MIT  [text 165]
-react-dom 19.3.0                                MIT  [text 165]
+react 19.3.1                                    MIT  [text 165]
+react-dom 19.3.1                                MIT  [text 165]
 react-remove-scroll 2.7.2                       MIT  [text 154]
 react-remove-scroll-bar 2.3.8                   MIT
     author: Anton Korzunov <thekashey@gmail.com>
@@ -415,76 +415,67 @@ world-atlas 2.0.2                               ISC  [text 173]
 Bundled into the auth engine (internal/mod/auth/engine/tiffin-auth.js.gz),
 which the binary embeds and runs on the box with Bun.
 
-@better-auth/api-key 1.7.7                  MIT  [text 174]
-@better-auth/core 1.7.7                     MIT  [text 174]
-@better-auth/core 1.7.7                     MIT  [text 174]
-@better-auth/kysely-adapter 1.7.7           MIT  [text 174]
-@better-auth/memory-adapter 1.7.7           MIT  [text 174]
-@better-auth/passkey 1.7.7                  MIT  [text 174]
-@better-auth/telemetry 1.7.7                MIT  [text 174]
-@better-auth/utils 0.4.2                    MIT
-    author: Bereket Engida
-    the package has no licence file; its package.json says MIT
-@better-auth/utils 0.5.0                    MIT
-    author: Bereket Engida
-    the package has no licence file; its package.json says MIT
-@better-fetch/fetch 1.3.2                   MIT  [text 175]
-@hexagon/base64 1.1.28                      MIT  [text 176]
-@levischuck/tiny-cbor 0.2.11                MIT  [text 177]
-@noble/ciphers 2.4.0                        MIT  [text 178]
-@noble/hashes 2.4.0                         MIT  [text 179]
-@opentelemetry/semantic-conventions 1.43.0  Apache-2.0  [text 2]
-    author: OpenTelemetry Authors
-@peculiar/asn1-android 2.10.0               MIT  [text 180]
-@peculiar/asn1-cms 2.10.0                   MIT  [text 180]
-@peculiar/asn1-csr 2.10.0                   MIT  [text 180]
-@peculiar/asn1-ecc 2.10.0                   MIT  [text 180]
-@peculiar/asn1-pfx 2.10.0                   MIT  [text 180]
-@peculiar/asn1-pkcs8 2.10.0                 MIT  [text 180]
-@peculiar/asn1-pkcs9 2.10.0                 MIT  [text 180]
-@peculiar/asn1-rsa 2.10.0                   MIT  [text 180]
-@peculiar/asn1-schema 2.10.0                MIT  [text 180]
-@peculiar/asn1-x509 2.10.0                  MIT  [text 180]
-@peculiar/asn1-x509-attr 2.10.0             MIT  [text 180]
-@peculiar/utils 2.0.3                       MIT  [text 181]
-@peculiar/x509 1.14.3                       MIT  [text 182]
-@simplewebauthn/server 13.3.3               MIT  [text 183]
-altcha-lib 2.6.0                            MIT  [text 184]
-asn1js 3.0.10                               BSD-3-Clause  [text 185]
-better-auth 1.7.7                           MIT  [text 174]
-better-call 1.4.0                           MIT  [text 186]
-defu 6.1.7                                  MIT  [text 187]
-jose 6.2.12                                 MIT  [text 188]
-kysely 0.29.6                               MIT  [text 189]
-kysely 0.28.17                              MIT  [text 189]
-nodemailer 10.0.15                          MIT-0  [text 190]
-pg 8.23.1                                   MIT  [text 191]
-pg-cloudflare 1.4.1                         MIT  [text 191]
-pg-connection-string 2.14.1                 MIT  [text 192]
-pg-int8 1.0.1                               ISC  [text 193]
-pg-pool 3.14.0                              MIT  [text 194]
-pg-protocol 1.16.1                          MIT  [text 191]
-pg-types 2.2.0                              MIT
+@better-auth/api-key 1.7.14         MIT  [text 174]
+@better-auth/core 1.7.14            MIT  [text 174]
+@better-auth/kysely-adapter 1.7.14  MIT  [text 174]
+@better-auth/memory-adapter 1.7.14  MIT  [text 174]
+@better-auth/passkey 1.7.14         MIT  [text 174]
+@better-auth/telemetry 1.7.14       MIT  [text 174]
+@better-auth/utils 0.5.1            MIT  [text 175]
+@better-fetch/fetch 1.3.3           MIT  [text 176]
+@hexagon/base64 1.1.28              MIT  [text 177]
+@levischuck/tiny-cbor 0.2.11        MIT  [text 178]
+@noble/ciphers 2.4.0                MIT  [text 179]
+@noble/hashes 2.4.0                 MIT  [text 180]
+@peculiar/asn1-android 2.10.0       MIT  [text 181]
+@peculiar/asn1-cms 2.10.0           MIT  [text 181]
+@peculiar/asn1-csr 2.10.0           MIT  [text 181]
+@peculiar/asn1-ecc 2.10.0           MIT  [text 181]
+@peculiar/asn1-pfx 2.10.0           MIT  [text 181]
+@peculiar/asn1-pkcs8 2.10.0         MIT  [text 181]
+@peculiar/asn1-pkcs9 2.10.0         MIT  [text 181]
+@peculiar/asn1-rsa 2.10.0           MIT  [text 181]
+@peculiar/asn1-schema 2.10.0        MIT  [text 181]
+@peculiar/asn1-x509 2.10.0          MIT  [text 181]
+@peculiar/asn1-x509-attr 2.10.0     MIT  [text 181]
+@peculiar/utils 2.0.3               MIT  [text 182]
+@peculiar/x509 1.14.3               MIT  [text 183]
+@simplewebauthn/server 13.3.3       MIT  [text 184]
+altcha-lib 2.6.0                    MIT  [text 185]
+asn1js 3.0.10                       BSD-3-Clause  [text 186]
+better-auth 1.7.14                  MIT  [text 174]
+better-call 1.4.4                   MIT  [text 187]
+defu 6.1.7                          MIT  [text 188]
+jose 6.2.12                         MIT  [text 189]
+kysely 0.29.6                       MIT  [text 190]
+nodemailer 10.0.15                  MIT-0  [text 191]
+pg 8.23.1                           MIT  [text 192]
+pg-cloudflare 1.4.1                 MIT  [text 192]
+pg-connection-string 2.14.1         MIT  [text 193]
+pg-int8 1.0.1                       ISC  [text 194]
+pg-pool 3.14.0                      MIT  [text 195]
+pg-protocol 1.16.1                  MIT  [text 192]
+pg-types 2.2.0                      MIT
     author: Brian M. Carlson
     the package has no licence file; its package.json says MIT
-pgpass 1.0.5                                MIT
+pgpass 1.0.5                        MIT
     author: Hannes Hörl <hannes.hoerl+pgpass@snowreporter.com>
     the package has no licence file; its package.json says MIT
-postgres-array 2.0.0                        MIT  [text 195]
-postgres-bytea 1.0.1                        MIT  [text 195]
-postgres-date 1.0.7                         MIT  [text 195]
-postgres-interval 1.2.0                     MIT  [text 195]
-pvtsutils 1.3.6                             MIT  [text 196]
-pvutils 1.2.0                               MIT  [text 197]
-reflect-metadata 0.2.2                      Apache-2.0  [text 198]
+postgres-array 2.0.0                MIT  [text 196]
+postgres-bytea 1.0.1                MIT  [text 196]
+postgres-date 1.0.7                 MIT  [text 196]
+postgres-interval 1.2.0             MIT  [text 196]
+pvtsutils 1.3.6                     MIT  [text 197]
+pvutils 1.2.0                       MIT  [text 198]
+reflect-metadata 0.2.2              Apache-2.0  [text 199]
     author: Ron Buckton
-rou3 0.9.2                                  MIT  [text 187]
-split2 4.2.0                                ISC  [text 199]
-tslib 2.8.1                                 0BSD  [text 171]
-tslib 1.14.1                                0BSD  [text 171]
-tsyringe 4.10.0                             MIT  [text 200]
-xtend 4.0.2                                 MIT  [text 201]
-zod 4.6.5                                   MIT  [text 202]
+rou3 0.9.2                          MIT  [text 188]
+split2 4.2.0                        ISC  [text 200]
+tslib 2.8.1                         0BSD  [text 171]
+tslib 1.14.1                        0BSD  [text 171]
+tsyringe 4.10.0                     MIT  [text 201]
+xtend 4.0.2                         MIT  [text 202]
+zod 4.6.7                           MIT  [text 203]
 
 ==============================================================================
 4. Packages the SDK depends on
@@ -493,8 +484,8 @@ zod 4.6.5                                   MIT  [text 202]
 @shiptiffin/sdk (embedded for tiffin sdk add) bundles no third-party code; a
 project that uses it installs these with it.
 
-altcha-lib 2.6.0    MIT  [text 184]
-nodemailer 10.0.15  MIT-0  [text 190]
+altcha-lib 2.6.0    MIT  [text 185]
+nodemailer 10.0.15  MIT-0  [text 191]
 
 ==============================================================================
 5. Other data in the binary
@@ -502,7 +493,7 @@ nodemailer 10.0.15  MIT-0  [text 190]
 
 Data files compiled into the tiffin binary.
 
-isbot patterns (internal/mod/analytics/enrich/isbot-patterns.json)  Unlicense  [text 203]
+isbot patterns (internal/mod/analytics/enrich/isbot-patterns.json)  Unlicense  [text 204]
 uap-core regexes (compiled into github.com/ua-parser/uap-go)  Apache-2.0  [text 2]
     https://github.com/ua-parser/uap-core
 
@@ -519,21 +510,21 @@ module, exactly as built, is at:
   github.com/hashicorp/golang-lru v1.0.2
     https://github.com/hashicorp/golang-lru/tree/v1.0.2
     https://proxy.golang.org/github.com/hashicorp/golang-lru/@v/v1.0.2.zip
-  github.com/riverqueue/river v0.49.0
-    https://github.com/riverqueue/river/tree/v0.49.0
-    https://proxy.golang.org/github.com/riverqueue/river/@v/v0.49.0.zip
-  github.com/riverqueue/river/riverdriver v0.49.0
-    https://github.com/riverqueue/river/tree/riverdriver/v0.49.0/riverdriver
-    https://proxy.golang.org/github.com/riverqueue/river/riverdriver/@v/v0.49.0.zip
-  github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0
-    https://github.com/riverqueue/river/tree/riverdriver/riverpgxv5/v0.49.0/riverdriver/riverpgxv5
-    https://proxy.golang.org/github.com/riverqueue/river/riverdriver/riverpgxv5/@v/v0.49.0.zip
-  github.com/riverqueue/river/rivershared v0.49.0
-    https://github.com/riverqueue/river/tree/rivershared/v0.49.0/rivershared
-    https://proxy.golang.org/github.com/riverqueue/river/rivershared/@v/v0.49.0.zip
-  github.com/riverqueue/river/rivertype v0.49.0
-    https://github.com/riverqueue/river/tree/rivertype/v0.49.0/rivertype
-    https://proxy.golang.org/github.com/riverqueue/river/rivertype/@v/v0.49.0.zip
+  github.com/riverqueue/river v0.50.0
+    https://github.com/riverqueue/river/tree/v0.50.0
+    https://proxy.golang.org/github.com/riverqueue/river/@v/v0.50.0.zip
+  github.com/riverqueue/river/riverdriver v0.50.0
+    https://github.com/riverqueue/river/tree/riverdriver/v0.50.0/riverdriver
+    https://proxy.golang.org/github.com/riverqueue/river/riverdriver/@v/v0.50.0.zip
+  github.com/riverqueue/river/riverdriver/riverpgxv5 v0.50.0
+    https://github.com/riverqueue/river/tree/riverdriver/riverpgxv5/v0.50.0/riverdriver/riverpgxv5
+    https://proxy.golang.org/github.com/riverqueue/river/riverdriver/riverpgxv5/@v/v0.50.0.zip
+  github.com/riverqueue/river/rivershared v0.50.0
+    https://github.com/riverqueue/river/tree/rivershared/v0.50.0/rivershared
+    https://proxy.golang.org/github.com/riverqueue/river/rivershared/@v/v0.50.0.zip
+  github.com/riverqueue/river/rivertype v0.50.0
+    https://github.com/riverqueue/river/tree/rivertype/v0.50.0/rivertype
+    https://proxy.golang.org/github.com/riverqueue/river/rivertype/@v/v0.50.0.zip
 
 ==============================================================================
 7. NOTICE files
@@ -631,7 +622,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
----- NOTICE of github.com/prometheus/client_golang/prometheus v1.24.1 ----
+---- NOTICE of github.com/prometheus/client_golang/prometheus v1.25.0 ----
 
 Prometheus instrumentation library for Go applications
 Copyright 2012-2015 The Prometheus Authors
@@ -660,7 +651,7 @@ Copyright 2012-2015 The Prometheus Authors
 This product includes software developed at
 SoundCloud Ltd. (http://soundcloud.com/).
 
----- NOTICE of github.com/prometheus/common v0.71.0 ----
+---- NOTICE of github.com/prometheus/common v0.72.0 ----
 
 Common libraries shared by Prometheus Go components.
 Copyright 2015 The Prometheus Authors
@@ -949,7 +940,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 2] cel.dev/expr v0.25.3, cloud.google.com/go/auth v0.23.3, cloud.google.com/go/auth/oauth2adapt v0.2.8, cloud.google.com/go/compute/metadata v0.9.1, github.com/Masterminds/goutils v1.1.1, github.com/caddyserver/caddy/v2 v2.11.7, github.com/corazawaf/coraza-coreruleset/v4 v4.25.0, github.com/go-jose/go-jose/v3 v3.0.5, github.com/go-jose/go-jose/v4 v4.1.5, github.com/go-logr/stdr v1.2.2, github.com/go-openapi/analysis v1.0.0, github.com/go-openapi/errors v0.22.9, github.com/go-openapi/jsonpointer v1.0.1, github.com/go-openapi/jsonreference v1.0.1, github.com/go-openapi/loads v0.25.2, github.com/go-openapi/spec v1.0.0, github.com/go-openapi/strfmt v0.27.2, github.com/go-openapi/swag v0.29.2, github.com/go-openapi/swag/cmdutils v0.29.2, github.com/go-openapi/swag/conv v0.29.2, github.com/go-openapi/swag/fileutils v0.29.2, github.com/go-openapi/swag/jsonutils v0.29.2, github.com/go-openapi/swag/loading v0.29.2, github.com/go-openapi/swag/mangling v0.29.2, github.com/go-openapi/swag/netutils v0.29.2, github.com/go-openapi/swag/pools v0.29.2, github.com/go-openapi/swag/stringutils v0.29.2, github.com/go-openapi/swag/typeutils v0.29.2, github.com/go-openapi/swag/yamlutils v0.29.2, github.com/go-openapi/validate v1.0.0, github.com/google/go-tpm v0.9.8, github.com/google/pprof/profile v0.0.0-20231212022811-ec68065c825e, github.com/google/s2a-go v0.1.10, github.com/googleapis/enterprise-certificate-proxy/client v0.3.22, github.com/hslatman/ipstore v0.5.0, github.com/jcchavezs/mergefs v0.1.1, github.com/mholt/acmez/v3 v3.1.7, github.com/mholt/caddy-l4/layer4 v0.1.1, github.com/nlnwa/whatwg-url v0.6.2, github.com/oklog/ulid/v2 v2.1.2, github.com/prometheus/client_golang/prometheus v1.24.1, github.com/prometheus/client_model/go v0.6.3, github.com/prometheus/common v0.71.0, github.com/prometheus/otlptranslator v1.0.0, github.com/prometheus/procfs v0.22.0, github.com/smallstep/linkedca v0.26.0, github.com/smallstep/truststore v0.13.0, github.com/valllabh/ocsf-schema-golang/ocsf/v1_2_0 v1.0.3, go.opentelemetry.io/auto/sdk v1.2.1, go.opentelemetry.io/proto/otlp v1.11.1, go.step.sm/crypto v0.91.0, google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc, google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc, google.golang.org/grpc v1.84.0, @opentelemetry/semantic-conventions 1.43.0, uap-core regexes (compiled into github.com/ua-parser/uap-go) ----
+---- [text 2] cel.dev/expr v0.25.3, cloud.google.com/go/auth v0.23.3, cloud.google.com/go/auth/oauth2adapt v0.2.8, cloud.google.com/go/compute/metadata v0.9.1, github.com/Masterminds/goutils v1.1.1, github.com/caddyserver/caddy/v2 v2.11.9, github.com/corazawaf/coraza-coreruleset/v4 v4.25.0, github.com/go-jose/go-jose/v3 v3.0.5, github.com/go-jose/go-jose/v4 v4.1.6, github.com/go-logr/stdr v1.2.2, github.com/go-openapi/analysis v1.0.0, github.com/go-openapi/errors v0.22.9, github.com/go-openapi/jsonpointer v1.0.1, github.com/go-openapi/jsonreference v1.0.1, github.com/go-openapi/loads v0.25.2, github.com/go-openapi/spec v1.0.0, github.com/go-openapi/strfmt v0.27.2, github.com/go-openapi/swag v0.29.2, github.com/go-openapi/swag/cmdutils v0.29.2, github.com/go-openapi/swag/conv v0.29.2, github.com/go-openapi/swag/fileutils v0.29.2, github.com/go-openapi/swag/jsonutils v0.29.2, github.com/go-openapi/swag/loading v0.29.2, github.com/go-openapi/swag/mangling v0.29.2, github.com/go-openapi/swag/netutils v0.29.2, github.com/go-openapi/swag/pools v0.29.2, github.com/go-openapi/swag/stringutils v0.29.2, github.com/go-openapi/swag/typeutils v0.29.2, github.com/go-openapi/swag/yamlutils v0.29.2, github.com/go-openapi/validate v1.0.0, github.com/google/go-tpm v0.9.8, github.com/google/pprof/profile v0.0.0-20231212022811-ec68065c825e, github.com/google/s2a-go v0.1.10, github.com/googleapis/enterprise-certificate-proxy/client v0.3.22, github.com/hslatman/ipstore v0.5.0, github.com/jcchavezs/mergefs v0.1.1, github.com/mholt/acmez/v3 v3.1.7, github.com/mholt/caddy-l4/layer4 v0.1.1, github.com/nlnwa/whatwg-url v0.6.2, github.com/oklog/ulid/v2 v2.1.2, github.com/prometheus/client_golang/prometheus v1.25.0, github.com/prometheus/client_model/go v0.6.3, github.com/prometheus/common v0.72.0, github.com/prometheus/otlptranslator v1.0.0, github.com/prometheus/procfs v0.22.0, github.com/smallstep/linkedca v0.26.0, github.com/smallstep/truststore v0.13.0, github.com/valllabh/ocsf-schema-golang/ocsf/v1_2_0 v1.0.3, go.opentelemetry.io/auto/sdk v1.2.1, go.opentelemetry.io/proto/otlp v1.11.1, go.step.sm/crypto v0.91.0, google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc, google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc, google.golang.org/grpc v1.84.0, uap-core regexes (compiled into github.com/ua-parser/uap-go) ----
 
 Apache License
                            Version 2.0, January 2004
@@ -1246,7 +1237,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 6] filippo.io/hpke v0.4.0, github.com/smallstep/pkcs7/internal/cryptobyte v0.2.3, golang.org/x/crypto v0.57.0, golang.org/x/crypto/x509roots/fallback v0.0.0-20260929172509-b39ff6d641ec, golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba, golang.org/x/image v0.46.0, golang.org/x/net v0.60.0, golang.org/x/oauth2 v0.37.0, golang.org/x/sync v0.23.0, golang.org/x/sys v0.48.0, golang.org/x/term v0.46.0, golang.org/x/text v0.42.0, golang.org/x/time/rate v0.16.0 ----
+---- [text 6] filippo.io/hpke v0.4.0, github.com/smallstep/pkcs7/internal/cryptobyte v0.2.3, golang.org/x/crypto v0.58.0, golang.org/x/crypto/x509roots/fallback v0.0.0-20261030153154-30a33513ff6d, golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba, golang.org/x/image v0.47.0, golang.org/x/net v0.62.0, golang.org/x/oauth2 v0.37.0, golang.org/x/sync v0.24.0, golang.org/x/sys v0.49.0, golang.org/x/term v0.47.0, golang.org/x/text v0.43.0, golang.org/x/time/rate v0.16.0 ----
 
 Copyright 2009 The Go Authors.
 
@@ -1944,7 +1935,7 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 23] github.com/cespare/xxhash v1.1.0, github.com/cespare/xxhash/v2 v2.3.0, github.com/evanw/esbuild/internal/xxhash v0.28.2, github.com/klauspost/compress/zstd/internal/xxhash v1.20.1 ----
+---- [text 23] github.com/cespare/xxhash v1.1.0, github.com/cespare/xxhash/v2 v2.3.0, github.com/evanw/esbuild/internal/xxhash v0.28.2, github.com/klauspost/compress/zstd/internal/xxhash v1.20.3 ----
 
 Copyright (c) 2016 Caleb Spare
 
@@ -2331,7 +2322,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 30] github.com/danielgtaylor/huma/v2 v2.39.1 ----
+---- [text 30] github.com/danielgtaylor/huma/v2 v2.40.0 ----
 
 Copyright 2020 Daniel G. Taylor
 
@@ -2627,7 +2618,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----- [text 35] github.com/dlclark/regexp2/v2 v2.8.3 ----
+---- [text 35] github.com/dlclark/regexp2/v2 v2.12.0 ----
 
 The MIT License (MIT)
 
@@ -2929,7 +2920,7 @@ Copyright (c) 2016 Felix Geisendörfer (felix@debuggable.com)
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE.
 
----- [text 47] github.com/fxamacker/cbor/v2 v2.9.4 ----
+---- [text 47] github.com/fxamacker/cbor/v2 v2.9.6 ----
 
 MIT License
 
@@ -2977,7 +2968,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 49] github.com/go-jose/go-jose/v3/json v3.0.5, github.com/go-jose/go-jose/v4/json v4.1.5 ----
+---- [text 49] github.com/go-jose/go-jose/v3/json v3.0.5, github.com/go-jose/go-jose/v4/json v4.1.6 ----
 
 Copyright (c) 2012 The Go Authors. All rights reserved.
 
@@ -3065,7 +3056,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 52] github.com/go-sql-driver/mysql v1.10.1, github.com/riverqueue/river v0.49.0, github.com/riverqueue/river/riverdriver v0.49.0, github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0, github.com/riverqueue/river/rivershared v0.49.0, github.com/riverqueue/river/rivertype v0.49.0 ----
+---- [text 52] github.com/go-sql-driver/mysql v1.10.1, github.com/riverqueue/river v0.50.0, github.com/riverqueue/river/riverdriver v0.50.0, github.com/riverqueue/river/riverdriver/riverpgxv5 v0.50.0, github.com/riverqueue/river/rivershared v0.50.0, github.com/riverqueue/river/rivertype v0.50.0 ----
 
 Mozilla Public License Version 2.0
 ==================================
@@ -3630,7 +3621,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 61] github.com/golang/snappy v1.0.0, github.com/klauspost/compress/internal/snapref v1.20.1 ----
+---- [text 61] github.com/golang/snappy v1.0.0, github.com/klauspost/compress/internal/snapref v1.20.3 ----
 
 Copyright (c) 2011 The Snappy-Go Authors. All rights reserved.
 
@@ -4201,7 +4192,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
       With Secondary Licenses", as defined by
       the Mozilla Public License, v. 2.0.
 
----- [text 69] github.com/hetznercloud/hcloud-go/v2/hcloud v2.52.0 ----
+---- [text 69] github.com/hetznercloud/hcloud-go/v2/hcloud v2.53.0 ----
 
 MIT License
 
@@ -4501,7 +4492,7 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 75] github.com/jackc/puddle/v2 v2.2.2 ----
+---- [text 75] github.com/jackc/puddle/v2 v2.2.3 ----
 
 Copyright (c) 2018 Jack Christensen
 
@@ -4574,7 +4565,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 78] github.com/klauspost/compress v1.20.1 ----
+---- [text 78] github.com/klauspost/compress v1.20.3 ----
 
 Copyright (c) 2012 The Go Authors. All rights reserved.
 Copyright (c) 2019 Klaus Post. All rights reserved.
@@ -4881,7 +4872,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 79] github.com/klauspost/cpuid/v2 v2.4.0 ----
+---- [text 79] github.com/klauspost/cpuid/v2 v2.4.1 ----
 
 The MIT License (MIT)
 
@@ -4961,7 +4952,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 82] github.com/mattn/go-colorable v0.1.15 ----
+---- [text 82] github.com/mattn/go-colorable v0.1.16 ----
 
 The MIT License (MIT)
 
@@ -5348,7 +5339,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 90] github.com/ncruces/go-sqlite3 v0.35.6 ----
+---- [text 90] github.com/ncruces/go-sqlite3 v0.36.0 ----
 
 MIT License
 
@@ -5372,7 +5363,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 91] github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35304 ----
+---- [text 91] github.com/ncruces/go-sqlite3-wasm/v6 v6.4.35401 ----
 
 MIT No Attribution License
 
@@ -5417,7 +5408,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 93] github.com/oschwald/maxminddb-golang/v2 v2.7.0 ----
+---- [text 93] github.com/oschwald/maxminddb-golang/v2 v2.8.0 ----
 
 ISC License
 
@@ -5491,7 +5482,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 96] github.com/philhofer/fwd v1.2.0 ----
+---- [text 96] github.com/philhofer/fwd v1.2.1 ----
 
 Copyright (c) 2014-2015, Philip Hofer
 
@@ -5731,7 +5722,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 99] github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil v1.24.1 ----
+---- [text 99] github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil v1.25.0 ----
 
 Copyright (c) 2013 The Go Authors. All rights reserved.
 
@@ -5771,7 +5762,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 101] github.com/quic-go/quic-go v0.63.0 ----
+---- [text 101] github.com/quic-go/quic-go v0.64.1 ----
 
 MIT License
 
@@ -5795,7 +5786,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 102] github.com/riverqueue/river/rivershared/levenshtein v0.49.0 ----
+---- [text 102] github.com/riverqueue/river/rivershared/levenshtein v0.50.0 ----
 
 The MIT License (MIT)
 
@@ -6877,7 +6868,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 121] github.com/tidwall/gjson v1.19.0, github.com/tidwall/match v1.2.0, github.com/tidwall/sjson v1.2.5 ----
+---- [text 121] github.com/tidwall/gjson v1.20.0, github.com/tidwall/match v1.2.0, github.com/tidwall/sjson v1.2.5 ----
 
 The MIT License (MIT)
 
@@ -6923,7 +6914,7 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 123] github.com/tinylib/msgp/msgp v1.6.4 ----
+---- [text 123] github.com/tinylib/msgp/msgp v1.6.5 ----
 
 Copyright (c) 2014 Philip Hofer
 Portions Copyright (c) 2009 The Go Authors (license at http://golang.org) where indicated
@@ -6966,7 +6957,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 125] github.com/ua-parser/uap-go/uaparser v0.0.0-20260529044130-17c35e68e58c ----
+---- [text 125] github.com/ua-parser/uap-go/uaparser v0.0.0-20261028195011-4cb30e998c4c ----
 
 The MIT License (MIT)
 Copyright (c) 2013 Yihuan Zhou
@@ -8706,7 +8697,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 165] react 19.3.0, react-dom 19.3.0, scheduler 0.28.0, use-sync-external-store 1.7.0 ----
+---- [text 165] react 19.3.1, react-dom 19.3.1, scheduler 0.28.0, use-sync-external-store 1.7.0 ----
 
 MIT License
 
@@ -8879,7 +8870,7 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
----- [text 174] @better-auth/api-key 1.7.7, @better-auth/core 1.7.7, @better-auth/kysely-adapter 1.7.7, @better-auth/memory-adapter 1.7.7, @better-auth/passkey 1.7.7, @better-auth/telemetry 1.7.7, better-auth 1.7.7 ----
+---- [text 174] @better-auth/api-key 1.7.14, @better-auth/core 1.7.14, @better-auth/kysely-adapter 1.7.14, @better-auth/memory-adapter 1.7.14, @better-auth/passkey 1.7.14, @better-auth/telemetry 1.7.14, better-auth 1.7.14 ----
 
 The MIT License (MIT)
 Copyright (c) 2024 - present, Bereket Engida
@@ -8902,7 +8893,31 @@ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----- [text 175] @better-fetch/fetch 1.3.2 ----
+---- [text 175] @better-auth/utils 0.5.1 ----
+
+MIT License
+
+Copyright (c) 2024 - present, Bereket Engida
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---- [text 176] @better-fetch/fetch 1.3.3 ----
 
 MIT License
 
@@ -8926,7 +8941,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 176] @hexagon/base64 1.1.28 ----
+---- [text 177] @hexagon/base64 1.1.28 ----
 
 The MIT License (MIT)
 
@@ -8950,7 +8965,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 177] @levischuck/tiny-cbor 0.2.11 ----
+---- [text 178] @levischuck/tiny-cbor 0.2.11 ----
 
 MIT License
 
@@ -8974,7 +8989,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 178] @noble/ciphers 2.4.0 ----
+---- [text 179] @noble/ciphers 2.4.0 ----
 
 The MIT License (MIT)
 
@@ -8999,7 +9014,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----- [text 179] @noble/hashes 2.4.0 ----
+---- [text 180] @noble/hashes 2.4.0 ----
 
 The MIT License (MIT)
 
@@ -9023,7 +9038,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----- [text 180] @peculiar/asn1-android 2.10.0, @peculiar/asn1-cms 2.10.0, @peculiar/asn1-csr 2.10.0, @peculiar/asn1-ecc 2.10.0, @peculiar/asn1-pfx 2.10.0, @peculiar/asn1-pkcs8 2.10.0, @peculiar/asn1-pkcs9 2.10.0, @peculiar/asn1-rsa 2.10.0, @peculiar/asn1-schema 2.10.0, @peculiar/asn1-x509 2.10.0, @peculiar/asn1-x509-attr 2.10.0 ----
+---- [text 181] @peculiar/asn1-android 2.10.0, @peculiar/asn1-cms 2.10.0, @peculiar/asn1-csr 2.10.0, @peculiar/asn1-ecc 2.10.0, @peculiar/asn1-pfx 2.10.0, @peculiar/asn1-pkcs8 2.10.0, @peculiar/asn1-pkcs9 2.10.0, @peculiar/asn1-rsa 2.10.0, @peculiar/asn1-schema 2.10.0, @peculiar/asn1-x509 2.10.0, @peculiar/asn1-x509-attr 2.10.0 ----
 
 MIT License
 
@@ -9047,7 +9062,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 181] @peculiar/utils 2.0.3 ----
+---- [text 182] @peculiar/utils 2.0.3 ----
 
 MIT License
 
@@ -9071,7 +9086,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 182] @peculiar/x509 1.14.3 ----
+---- [text 183] @peculiar/x509 1.14.3 ----
 
 MIT License
 
@@ -9095,7 +9110,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 183] @simplewebauthn/server 13.3.3 ----
+---- [text 184] @simplewebauthn/server 13.3.3 ----
 
 MIT License
 
@@ -9116,7 +9131,7 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 184] altcha-lib 2.6.0 ----
+---- [text 185] altcha-lib 2.6.0 ----
 
 MIT License
 
@@ -9140,7 +9155,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 185] asn1js 3.0.10 ----
+---- [text 186] asn1js 3.0.10 ----
 
 Copyright (c) 2014, GMO GlobalSign
 Copyright (c) 2015-2022, Peculiar Ventures
@@ -9173,7 +9188,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 186] better-call 1.4.0 ----
+---- [text 187] better-call 1.4.4 ----
 
 MIT License
 
@@ -9197,7 +9212,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 187] defu 6.1.7, rou3 0.9.2 ----
+---- [text 188] defu 6.1.7, rou3 0.9.2 ----
 
 MIT License
 
@@ -9221,7 +9236,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 188] jose 6.2.12 ----
+---- [text 189] jose 6.2.12 ----
 
 The MIT License (MIT)
 
@@ -9245,7 +9260,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 189] kysely 0.29.6, kysely 0.28.17 ----
+---- [text 190] kysely 0.29.6 ----
 
 The MIT License (MIT)
 
@@ -9269,7 +9284,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 190] nodemailer 10.0.15 ----
+---- [text 191] nodemailer 10.0.15 ----
 
 Copyright (c) 2011-2023 Andris Reinman
 
@@ -9288,7 +9303,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 191] pg 8.23.1, pg-cloudflare 1.4.1, pg-protocol 1.16.1 ----
+---- [text 192] pg 8.23.1, pg-cloudflare 1.4.1, pg-protocol 1.16.1 ----
 
 MIT License
 
@@ -9312,7 +9327,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 192] pg-connection-string 2.14.1 ----
+---- [text 193] pg-connection-string 2.14.1 ----
 
 The MIT License (MIT)
 
@@ -9336,7 +9351,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 193] pg-int8 1.0.1 ----
+---- [text 194] pg-int8 1.0.1 ----
 
 Copyright © 2017, Charmander <~@charmander.me>
 
@@ -9352,7 +9367,7 @@ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
 OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 
----- [text 194] pg-pool 3.14.0 ----
+---- [text 195] pg-pool 3.14.0 ----
 
 MIT License
 
@@ -9376,7 +9391,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 195] postgres-array 2.0.0, postgres-bytea 1.0.1, postgres-date 1.0.7, postgres-interval 1.2.0 ----
+---- [text 196] postgres-array 2.0.0, postgres-bytea 1.0.1, postgres-date 1.0.7, postgres-interval 1.2.0 ----
 
 The MIT License (MIT)
 
@@ -9400,7 +9415,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----- [text 196] pvtsutils 1.3.6 ----
+---- [text 197] pvtsutils 1.3.6 ----
 
 MIT License
 
@@ -9424,7 +9439,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 197] pvutils 1.2.0 ----
+---- [text 198] pvutils 1.2.0 ----
 
 MIT License
 
@@ -9451,7 +9466,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 198] reflect-metadata 0.2.2 ----
+---- [text 199] reflect-metadata 0.2.2 ----
 
 Apache License
 
@@ -9509,7 +9524,7 @@ If the Work includes a "NOTICE" text file as part of its distribution, then any 
 
 END OF TERMS AND CONDITIONS
 
----- [text 199] split2 4.2.0 ----
+---- [text 200] split2 4.2.0 ----
 
 Copyright (c) 2014-2018, Matteo Collina <hello@matteocollina.com>
 
@@ -9525,7 +9540,7 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
----- [text 200] tsyringe 4.10.0 ----
+---- [text 201] tsyringe 4.10.0 ----
 
 MIT License
 
@@ -9549,7 +9564,7 @@ MIT License
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
 
----- [text 201] xtend 4.0.2 ----
+---- [text 202] xtend 4.0.2 ----
 
 The MIT License (MIT)
 Copyright (c) 2012-2014 Raynos.
@@ -9572,7 +9587,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----- [text 202] zod 4.6.5 ----
+---- [text 203] zod 4.6.7 ----
 
 MIT License
 
@@ -9596,7 +9611,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----- [text 203] isbot patterns (internal/mod/analytics/enrich/isbot-patterns.json) ----
+---- [text 204] isbot patterns (internal/mod/analytics/enrich/isbot-patterns.json) ----
 
 # Unlicense
 
