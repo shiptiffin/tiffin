@@ -359,6 +359,7 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		}
 		imageEnv[k] = v
 	}
+	imageEnv = withBindHost(req.Spec, imageEnv)
 	if req.Dir != "" && env["RAILPACK_START_CMD"] == "" && start != "" {
 		// A workspace: Railpack installs at its top; the app starts in its own folder.
 		env["RAILPACK_START_CMD"] = req.inApp(pm + " run start")
