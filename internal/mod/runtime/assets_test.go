@@ -55,6 +55,52 @@ func TestClientAssetsFindsKnownBuilds(t *testing.T) {
 	}
 }
 
+// The edge serves the folders the build writes where the app's config puts
+// them, read the way the launch reads them: Astro's outDir (or the folder
+// its start script runs the server from), SvelteKit's out.
+func TestClientAssetsFollowTheOutputFolder(t *testing.T) {
+	astro := &manifest.App{Framework: manifest.FrameworkAstro, Role: manifest.RoleWeb}
+	kit := &manifest.App{Framework: manifest.FrameworkBun, Role: manifest.RoleWeb}
+	const astroPkg = `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11"}}`
+	const kitPkg = `{"devDependencies":{"@sveltejs/kit":"3","@sveltejs/adapter-node":"5"}}`
+	for _, c := range []struct {
+		name  string
+		spec  *manifest.App
+		files map[string]string
+		want  []string
+	}{
+		{"astro default", astro, map[string]string{"package.json": astroPkg}, []string{"dist/client"}},
+		{"astro outDir", astro, map[string]string{"package.json": astroPkg, "astro.config.ts": "export default defineConfig({\n  // outDir: 'old',\n  outDir: './build/',\n})"}, []string{"build/client"}},
+		{"astro start script", astro, map[string]string{"package.json": `{"dependencies":{"astro":"7","@astrojs/node":"11"},"scripts":{"start":"node ./site/server/entry.mjs"}}`}, []string{"site/client"}},
+		{"astro outDir that leaves the app", astro, map[string]string{"package.json": astroPkg, "astro.config.mjs": `export default { outDir: "../x" }`}, []string{"dist/client"}},
+		{"sveltekit default", kit, map[string]string{"package.json": kitPkg}, []string{"build/client", "build/prerendered"}},
+		{"sveltekit out", kit, map[string]string{"package.json": kitPkg, "svelte.config.js": `import adapter from "@sveltejs/adapter-node"; export default { kit: { adapter: adapter({ out: "out/server" }) } }`},
+			[]string{"out/server/client", "out/server/prerendered"}},
+	} {
+		dir := t.TempDir()
+		writeFiles(t, dir, c.files)
+		got := clientAssets(dir, c.spec)
+		var dirs []string
+		for _, a := range got {
+			dirs = append(dirs, a.Dir)
+		}
+		if !reflect.DeepEqual(dirs, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, dirs, c.want)
+		}
+		if len(got) > 0 && got[len(got)-1].Pages != true {
+			t.Errorf("%s: prerendered pages not served: %+v", c.name, got)
+		}
+	}
+	// The table itself stays as it was.
+	for _, k := range knownAssets {
+		for _, a := range k.dirs {
+			if strings.HasPrefix(a.Dir, "out/") || strings.HasPrefix(a.Dir, "site/") {
+				t.Fatalf("knownAssets changed: %+v", k.dirs)
+			}
+		}
+	}
+}
+
 func TestRetireKeepsRecentReleases(t *testing.T) {
 	now := time.Now()
 	var l []Retired

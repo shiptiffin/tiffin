@@ -53,7 +53,8 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
   `command` (e.g. `"bun run worker.ts"`; default: package.json `start`).
 - Apps get everything as env vars (`DATABASE_URL`, `REDIS_URL`, `S3_*` for `Bun.s3`,
   `S3_PUBLIC_ENDPOINT` for presigned URLs, `SMTP_URL`, `TIFFIN_AUTH_INTERNAL_URL`,
-  `TIFFIN_QUEUE_*`). Don't set those yourself; the plan warns if you do.
+  `TIFFIN_AUTH_KEY` (secret: server-side `getUserByEmail`/`createUser`), `TIFFIN_QUEUE_*`).
+  Don't set those yourself; the plan warns if you do.
 - Auth (add `email: {}` too): email sign-up, magic links and codes need a mail relay
   (Settings › Email). Until one is connected, production refuses them with `EMAIL_NOT_SET_UP`
   (`authConfig()` reports `emailReady: false`: hide those forms; passkeys and sign-in providers

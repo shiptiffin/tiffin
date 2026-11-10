@@ -203,6 +203,15 @@ type Target struct {
 	// address: other versions' and previews' addresses. A production page
 	// that points its image or canonical there points at the wrong copy.
 	BoxHost func(host string) bool
+	// Box reaches links on the box's own addresses that are not this
+	// deploy's: the project's production domain named in a preview's
+	// og:image, another app of the project. Those names resolve to the box,
+	// which Outside refuses, so they are read on the box instead. It
+	// returns where to fetch u and the client that reaches it, nil and no
+	// error when u is not one of them, or why it can't be read now. It
+	// must only ever reach the apps it maps (never an address from DNS or
+	// from u). Nil: none are.
+	Box func(ctx context.Context, u *url.URL) (*url.URL, *http.Client, error)
 	// Outside fetches images on other sites; nil leaves them unfetched.
 	Outside *http.Client
 	// Preview: the deploy is a preview, whose canonical and robots are
@@ -285,6 +294,8 @@ func (t Target) image(ctx context.Context, raw string) (*ShareImage, *Thumb) {
 	var res *fetched
 	if local := t.local(u); local != nil {
 		res, err = t.get(ctx, local, MaxImageBytes, "image/*")
+	} else if r, ok, berr := t.onBox(ctx, u, MaxImageBytes, "image/*"); ok {
+		res, err = r, berr
 	} else if t.Outside != nil && !privateHost(u.Hostname()) {
 		res, err = t.outside(ctx, u)
 	} else {
@@ -371,8 +382,12 @@ func (e statusError) Error() string { return fmt.Sprintf("it answered %d", int(e
 
 // get fetches u from the app, following redirects that stay on it.
 func (t Target) get(ctx context.Context, u *url.URL, limit int64, accept string) (*fetched, error) {
+	host := ""
+	if t.Page != nil {
+		host = t.Page.Host // what the app would see from a visitor
+	}
 	for hop := 0; ; hop++ {
-		res, loc, err := t.once(ctx, t.Client, u, limit, accept, true)
+		res, loc, err := t.once(ctx, t.Client, u, limit, accept, host)
 		if err != nil {
 			return nil, err
 		}
@@ -395,10 +410,46 @@ func (t Target) get(ctx context.Context, u *url.URL, limit int64, accept string)
 	}
 }
 
+// onBox fetches u when Box maps it to an app on the box (ok), following
+// redirects Box maps too. The request carries u's host, as a visitor's
+// would.
+func (t Target) onBox(ctx context.Context, u *url.URL, limit int64, accept string) (*fetched, bool, error) {
+	if t.Box == nil {
+		return nil, false, nil
+	}
+	for hop := 0; ; hop++ {
+		at, c, err := t.Box(ctx, u)
+		switch {
+		case err != nil:
+			return nil, true, err
+		case at == nil && hop == 0:
+			return nil, false, nil
+		case at == nil:
+			return nil, true, errors.New("it redirects away from the app, to " + u.Host)
+		}
+		res, loc, err := t.once(ctx, c, at, limit, accept, u.Host)
+		if err != nil {
+			return nil, true, err
+		}
+		if loc == "" {
+			res.at = u
+			return res, true, nil
+		}
+		if hop >= maxRedirects {
+			return nil, true, errors.New("too many redirects")
+		}
+		next, err := u.Parse(loc)
+		if err != nil || (next.Scheme != "http" && next.Scheme != "https") {
+			return nil, true, errors.New("a redirect to a bad address")
+		}
+		u = next
+	}
+}
+
 // outside fetches an image on another site.
 func (t Target) outside(ctx context.Context, u *url.URL) (*fetched, error) {
 	for hop := 0; ; hop++ {
-		res, loc, err := t.once(ctx, t.Outside, u, MaxImageBytes, "image/*", false)
+		res, loc, err := t.once(ctx, t.Outside, u, MaxImageBytes, "image/*", "")
 		if err != nil {
 			return nil, err
 		}
@@ -417,7 +468,8 @@ func (t Target) outside(ctx context.Context, u *url.URL) (*fetched, error) {
 	}
 }
 
-func (t Target) once(ctx context.Context, c *http.Client, u *url.URL, limit int64, accept string, local bool) (*fetched, string, error) {
+// once makes one request; host, when set, is the Host header it carries.
+func (t Target) once(ctx context.Context, c *http.Client, u *url.URL, limit int64, accept string, host string) (*fetched, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, t.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -426,8 +478,8 @@ func (t Target) once(ctx context.Context, c *http.Client, u *url.URL, limit int6
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", accept)
-	if local && t.Page != nil {
-		req.Host = t.Page.Host // what the app would see from a visitor
+	if host != "" {
+		req.Host = host
 	}
 	res, err := c.Do(req)
 	if err != nil {

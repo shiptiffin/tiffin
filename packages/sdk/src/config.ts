@@ -1,8 +1,10 @@
 import type { TiffinConfig } from "./types";
 
 export type {
+  AnalyticsConfig,
   AppConfig,
   AssetsConfig,
+  AttributionConfig,
   BucketConfig,
   Framework,
   GitConfig,

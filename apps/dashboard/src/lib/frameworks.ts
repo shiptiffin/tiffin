@@ -34,7 +34,7 @@ export const PRESETS: Preset[] = [
 const TESTED = new Set(["nextjs", "tanstack-start", "sveltekit", "react-router", "nuxt", "astro", "vite-react", "vite", "hono", "html", "fastapi"]);
 export const isTested = (id: string) => TESTED.has(id);
 
-const byBuild: Record<string, string> = { next: "nextjs", hono: "hono", bun: "server-other", static: "static-other", fastapi: "fastapi", python: "python-other" };
+const byBuild: Record<string, string> = { next: "nextjs", hono: "hono", bun: "server-other", static: "static-other", fastapi: "fastapi", python: "python-other", astro: "astro" };
 
 /** The preset a detected folder shows: its own, else the catch-all for how it builds. */
 export const presetOf = (r: { preset?: string; framework: string }) =>

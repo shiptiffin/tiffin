@@ -1,7 +1,7 @@
 // What the box's auth engine says about this app, and its errors in words
 // for people. For sign-in, sign-up and sessions in the browser, use Better
-// Auth's own client (better-auth/client or better-auth/react) with
-// basePath "/api/auth": the box serves it on every app host.
+// Auth's own client with basePath "/api/auth" (the box serves it on every app
+// host): createAuthClient from @shiptiffin/sdk/client/auth sets it up.
 export const baseOf = (o) => (o.baseURL ?? (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
 const configs = new Map();
 /** The app's auth config, fetched once per origin. */

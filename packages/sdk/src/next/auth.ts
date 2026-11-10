@@ -22,26 +22,11 @@ import { cookies, headers } from "next/headers";
 import { forbidden, redirect, unauthorized } from "next/navigation";
 import { NextResponse, type NextRequest } from "next/server";
 import { cache } from "react";
-import { TOKEN, authBase, cookieName, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor, type AuthSession, type Role } from "../auth";
+import { TOKEN, authBase, cookieName, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor, type Role } from "../auth";
+import { dto, localPath, pattern, type Organization, type Session, type User } from "../session-view";
 
 export type { Role } from "../auth";
-
-/** The signed-in user: only what pages need, safe to pass to Client Components. */
-export type User = { id: string; email: string; name: string; image: string | null; emailVerified: boolean };
-
-/** The active organization (or the one asked for) and the user's role in it. */
-export type Organization = { id: string; name: string; slug: string; role: Role | null };
-
-export type Session = {
-  user: User;
-  /** Null when organizations are off, or the user isn't a member of the one asked for. */
-  organization: Organization | null;
-  sessionId: string;
-  /** When the session ends, ISO 8601. */
-  expiresAt: string;
-  /** A browser session cookie, or an API key (x-api-key) in a Route Handler. */
-  via: "session" | "api-key";
-};
+export type { Organization, Session, User } from "../session-view";
 
 export type SessionOpts = {
   /** Check this organization instead of the active one. */
@@ -52,17 +37,6 @@ export type SessionOpts = {
 
 /** The request header authProxy sets to the page's path, for ?next= on redirects to sign-in. */
 const PATH_HEADER = "x-tiffin-path";
-
-function dto(s: AuthSession): Session {
-  const o = s.organization;
-  return {
-    user: { id: s.user.id, email: s.user.email, name: s.user.name, image: (s.user.image as string | null | undefined) ?? null, emailVerified: !!s.user.emailVerified },
-    organization: o ? { id: o.id, name: o.name, slug: o.slug, role: o.role } : null,
-    sessionId: s.session.id,
-    expiresAt: s.session.expiresAt,
-    via: s.via,
-  };
-}
 
 /** The request's headers, with the cookie header as cookies() sees it (it includes cookies a Server Action just set). */
 async function requestHeaders(): Promise<Headers> {
@@ -129,12 +103,6 @@ export function getSession(opts: SessionOpts = {}): Promise<Session | null> {
 /** The signed-in user, or null. */
 export async function currentUser(): Promise<User | null> {
   return (await getSession())?.user ?? null;
-}
-
-/** A path on this site (for ?next=), or undefined: never another origin. */
-function localPath(p: unknown): string | undefined {
-  if (typeof p !== "string" || !p.startsWith("/") || p.startsWith("//") || p.startsWith("/\\") || /[\u0000-\u001f]/.test(p)) return undefined;
-  return p;
 }
 
 /**
@@ -250,18 +218,6 @@ export async function signOut(opts: { redirectTo?: string } = {}): Promise<void>
 }
 
 // ---- proxy.ts ---------------------------------------------------------------
-
-/** "/dashboard/:path*" → a RegExp (Next.js matcher syntax: :name, :name?, :name+, :name*). */
-function pattern(p: string): RegExp {
-  let re = "";
-  for (const seg of p.split("/").filter(Boolean)) {
-    const m = /^:\w+([?+*]?)$/.exec(seg);
-    if (!m) re += "/" + seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    else if (m[1] === "") re += "/[^/]+";
-    else re += `(?:/[^/]+)${m[1]}`;
-  }
-  return new RegExp(`^${re}/?$`);
-}
 
 /**
  * proxy.ts for signed-in areas: an optimistic check of the session cookie

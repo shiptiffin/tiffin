@@ -1,11 +1,12 @@
 // @shiptiffin/sdk/auth against the real engine: what an app's server code sees.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import pg from "pg";
-import { getSession, requireRole, sessionFor, verifyToken, withOrg } from "../../sdk/src/auth";
+import { createUser, getSession, getUserByEmail, requireRole, sessionFor, verifyToken, withOrg } from "../../sdk/src/auth";
 import { adminHandler } from "../src/admin";
 import { Registry } from "../src/registry";
-import { publicHandler } from "../src/server";
-import { Client, HOST, ORIGIN, person, projectConfig } from "./helpers";
+import { publicHandler, serverKey } from "../src/server";
+import { BETTER_AUTH_VERSION } from "../src/version";
+import { Client, HOST, ORIGIN, lastMail, linkIn, person, projectConfig } from "./helpers";
 import { freshDatabase, stopCluster } from "./pg";
 
 let reg: Registry;
@@ -18,6 +19,8 @@ const engineFetch = ((url: string, init?: RequestInit) => {
   return handle(new Request(url, { ...init, headers: h }));
 }) as unknown as typeof fetch;
 const opts = { url: "http://127.0.0.1:7393/api/auth", host: HOST, fetch: engineFetch };
+let shopKey: string;
+let evilKey: string;
 
 // Another project on the box, with its own users.
 const EVIL = "evil.tiffin.localhost";
@@ -33,6 +36,9 @@ beforeAll(async () => {
     requireEmailVerification: false,
   });
   reg = new Registry(null, { version: 1, listen: [], projects: { shop: projectConfig(dbUrl), evil } });
+  shopKey = serverKey("shop", reg.projectConfig("shop")!.secret);
+  evilKey = serverKey("evil", evil.secret + "-evil");
+  reg.set({ version: 1, listen: [], projects: { shop: projectConfig(dbUrl), evil: { ...evil, secret: evil.secret + "-evil" } } });
   handle = publicHandler(reg);
   await adminHandler(reg)(new Request("http://admin/projects/shop/migrate", { method: "POST" }));
   await adminHandler(reg)(new Request("http://admin/projects/evil/migrate", { method: "POST" }));
@@ -171,3 +177,79 @@ test("an Authorization header is never the session's identity in the SDK's memor
   // Same header, no cookie, within the SDK's 5-second memory: nobody.
   expect(await getSession(appReq(shared), opts)).toBeNull();
 }, 60_000);
+
+test("getUserByEmail / createUser: the project's own server code, nobody else", async () => {
+  const server = { url: "http://127.0.0.1:7393/api/auth", host: HOST, key: shopKey, fetch: engineFetch };
+  expect(await getUserByEmail("buyer@example.com", server)).toBeNull();
+
+  // Made once, then found: same account, address unconfirmed, nobody signed in.
+  const made = await createUser({ email: " Buyer@Example.com ", name: "Buyer" }, server);
+  expect(made.created).toBe(true);
+  expect(made.user).toMatchObject({ email: "buyer@example.com", name: "Buyer", emailVerified: false, banned: false, image: null });
+  const again = await createUser({ email: "buyer@example.com", name: "Someone Else", emailVerified: true }, server);
+  expect(again).toEqual({ user: made.user, created: false }); // unchanged
+  expect((await getUserByEmail("BUYER@example.com", server))?.id).toBe(made.user.id);
+  const pool = reg.pool("shop")!;
+  const sessions = await pool.query(`SELECT count(*)::int AS n FROM tiffin_auth.session WHERE "userId" = $1`, [made.user.id]);
+  expect(sessions.rows[0].n).toBe(0);
+  // Like any new account: a personal organization to own things in.
+  const orgs = await pool.query(`SELECT count(*)::int AS n FROM tiffin_auth.member WHERE "userId" = $1 AND role = 'owner'`, [made.user.id]);
+  expect(orgs.rows[0].n).toBe(1);
+  // No name: the address's local part. Confirmed only when the caller says so.
+  const v = await createUser({ email: "paid@example.com", emailVerified: true }, server);
+  expect(v.user).toMatchObject({ name: "paid", emailVerified: true });
+  expect((await createUser({ email: "not an email" }, server).catch((e) => e)).message).toContain("INVALID_EMAIL");
+
+  // Two webhooks at once make one account.
+  const both = await Promise.all([createUser({ email: "race@example.com" }, server), createUser({ email: "race@example.com" }, server)]);
+  expect(both[0].user.id).toBe(both[1].user.id);
+  expect(both.filter((r) => r.created).length).toBe(1);
+
+  // The buyer signs in with a magic link later: that proves the address.
+  const buyer = new Client(handle);
+  expect((await buyer.withCaptcha("/sign-in/magic-link", { email: "buyer@example.com", callbackURL: "/" })).status).toBe(200);
+  expect((await buyer.raw(linkIn(lastMail("buyer@example.com", "magic-link").text))).status).toBe(302);
+  expect((await getSession(new Request(`${ORIGIN}/x`, { headers: { cookie: buyer.cookieHeader() } }), opts))?.user.id).toBe(made.user.id);
+  expect((await getUserByEmail("buyer@example.com", server))?.emailVerified).toBe(true);
+
+  // Another project's app on the box: its own key doesn't open this project, pinned or not.
+  const call = (path: string, headers: Record<string, string>, body: unknown = { email: "buyer@example.com" }) =>
+    engineFetch(`http://127.0.0.1:7393/api/auth/tiffin/server/${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  expect((await call("find-user", { "x-tiffin-auth-host": HOST, "x-tiffin-auth-key": evilKey })).status).toBe(401);
+  expect((await call("create-user", { "x-tiffin-auth-host": HOST, "x-tiffin-auth-key": evilKey }, { email: "planted@example.com" })).status).toBe(401);
+  expect((await call("find-user", { "x-tiffin-auth-host": HOST })).status).toBe(401);
+  expect((await call("find-user", { "x-tiffin-auth-host": HOST, "x-tiffin-auth-key": shopKey + "0" })).status).toBe(401);
+  // With its own key it reaches only its own users.
+  const own = await call("find-user", { "x-tiffin-auth-host": EVIL, "x-tiffin-auth-key": evilKey });
+  expect(await own.json()).toEqual({ user: null });
+  expect(await getUserByEmail("planted@example.com", server)).toBeNull();
+
+  // Through the edge (an app's Host, as a browser's request arrives): not there, key or not.
+  for (const host of [HOST, `${HOST}:8443`]) {
+    const res = await handle(
+      new Request(`${ORIGIN}/api/auth/tiffin/server/find-user`, {
+        method: "POST",
+        headers: { host, origin: ORIGIN, "content-type": "application/json", "x-tiffin-auth-host": HOST, "x-tiffin-auth-key": shopKey },
+        body: JSON.stringify({ email: "buyer@example.com" }),
+      }),
+    );
+    expect(res.status).toBe(404);
+  }
+  // Better Auth's own router doesn't have them either (server-only endpoints).
+  const inst = reg.get("shop")!;
+  const routed = await inst.auth.handler(new Request(`${ORIGIN}/api/auth/tiffin-find-user`, { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{}" }));
+  expect(routed.status).toBe(404);
+  expect(Object.keys(inst.auth.api)).toContain("tiffinFindUser");
+}, 60_000);
+
+test("the engine says which Better Auth it runs", async () => {
+  const installed = (await Bun.file(new URL("../node_modules/better-auth/package.json", import.meta.url)).json()) as { version: string };
+  expect(BETTER_AUTH_VERSION).toMatch(/^\d+\.\d+\.\d+$/); // pinned exactly in package.json
+  expect(BETTER_AUTH_VERSION).toBe(installed.version);
+  const c = new Client(handle);
+  expect((await c.json("/tiffin/config")).body.betterAuthVersion).toBe(BETTER_AUTH_VERSION);
+});
+
+test("the server key is the one the box gives apps (internal/mod/auth ServerKey)", () => {
+  expect(serverKey("shop", "test-secret-0123456789abcdef0123456789abcdef")).toBe("tak_shop_b1b1d9fca2d3c0f71a9f19c5bd9674cffdfac5ef00097cc8");
+});

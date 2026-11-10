@@ -76,7 +76,10 @@ Plainly, so you can decide what to trust it with.
   answers can't stop the engine (a project with invalid settings is left out; a
   provider's answer is capped at 1 MB and 15 s), and `@shiptiffin/sdk/auth` checks a
   session against its own app's project (`TIFFIN_AUTH_HOST`) whatever host a request
-  names. Nothing in the auth tables works as a credential: reset and magic-link tokens
+  names. Finding and creating a project's users from server code needs that project's
+  `TIFFIN_AUTH_KEY` (a secret env var, an HMAC of the project's name under its auth secret),
+  so another project's app can't, and browsers can't reach those calls at all (see
+  [Users from server code](auth.md#users-from-server-code)). Nothing in the auth tables works as a credential: reset and magic-link tokens
   are stored hashed, one-time codes encrypted.
 - **Mail content needs full access.** Read-only access to a project shows each message's
   sender, recipients and delivery, not what it says: mail carries reset links and codes.

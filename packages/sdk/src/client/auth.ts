@@ -1,7 +1,7 @@
 // What the box's auth engine says about this app, and its errors in words
 // for people. For sign-in, sign-up and sessions in the browser, use Better
-// Auth's own client (better-auth/client or better-auth/react) with
-// basePath "/api/auth": the box serves it on every app host.
+// Auth's own client with basePath "/api/auth" (the box serves it on every app
+// host): createAuthClient from @shiptiffin/sdk/client/auth sets it up.
 
 export interface AuthOptions {
   /** Origin of the app; default this page's. */
@@ -37,6 +37,12 @@ export interface AuthConfig {
    * SOCIAL_NOT_CONFIGURED with how to set it up: hide it from visitors.
    */
   providers: Array<{ id: SocialProvider; name: string; configured: boolean }>;
+  /**
+   * The Better Auth release the box's engine runs, e.g. "1.7.14". Install
+   * the same `better-auth` for the browser client. (Absent from boxes older
+   * than this field.)
+   */
+  betterAuthVersion?: string;
 }
 
 /** Better Auth's IDs of the sign-in services the box supports ("oidc": any OpenID Connect provider). */

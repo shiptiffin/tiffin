@@ -20,32 +20,9 @@
 import "server-only";
 import { type NextRequest } from "next/server";
 import { type Role } from "../auth.js";
+import { type Organization, type Session, type User } from "../session-view.js";
 export type { Role } from "../auth.js";
-/** The signed-in user: only what pages need, safe to pass to Client Components. */
-export type User = {
-    id: string;
-    email: string;
-    name: string;
-    image: string | null;
-    emailVerified: boolean;
-};
-/** The active organization (or the one asked for) and the user's role in it. */
-export type Organization = {
-    id: string;
-    name: string;
-    slug: string;
-    role: Role | null;
-};
-export type Session = {
-    user: User;
-    /** Null when organizations are off, or the user isn't a member of the one asked for. */
-    organization: Organization | null;
-    sessionId: string;
-    /** When the session ends, ISO 8601. */
-    expiresAt: string;
-    /** A browser session cookie, or an API key (x-api-key) in a Route Handler. */
-    via: "session" | "api-key";
-};
+export type { Organization, Session, User } from "../session-view.js";
 export type SessionOpts = {
     /** Check this organization instead of the active one. */
     organizationId?: string;

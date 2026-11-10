@@ -165,11 +165,20 @@ func TestNextAppsGetAStableKeyAndAnImageCache(t *testing.T) {
 	if b, err := base64.StdEncoding.DecodeString(k1); err != nil || len(b) != 32 {
 		t.Fatalf("key %q is not 32 bytes of base64", k1)
 	}
-	h.deploy("api", "", map[string]string{"package.json": `{}`})
+	d2 := h.deploy("api", "", map[string]string{"package.json": `{}`})
 	pv := h.deploy("api", "pr-1", map[string]string{"package.json": `{}`})
 	if pv.Status != StatusLive {
 		t.Fatal(pv.Error)
 	}
+	// Next.js embeds the key at `next build`: every build gets the one its
+	// instances run with.
+	h.bld.mu.Lock()
+	for _, d := range []*Deploy{d1, d2, pv} {
+		if got := h.bld.envs[d.ID][nextKeyEnv]; got != k1 {
+			t.Errorf("build of %s: key %q, want the app's", d.ID, got)
+		}
+	}
+	h.bld.mu.Unlock()
 	var mounts []string
 	for _, c := range h.eng.running() {
 		if c.spec.Labels["tiffin.app"] != "api" {
@@ -304,5 +313,28 @@ func TestServeBucketImage(t *testing.T) {
 		if ok, _ := get(target, "image/webp"); ok {
 			t.Errorf("%s: served, want it passed to the app", target)
 		}
+	}
+}
+
+// deploymentId is the deploy's ID, written into the build's adapter: every
+// instance of a deploy runs that one image (so they agree), and each deploy,
+// rebuild and preview has its own ID (so a browser on another one reloads).
+// The box's asset serving routes ?dpl=<deploymentId> by the same ID.
+func TestNextDeploymentIDIsTheDeploy(t *testing.T) {
+	ids := map[string]bool{}
+	for _, id := range []string{"dep_01PROD1", "dep_01PROD2", "dep_01PR7"} {
+		src := t.TempDir()
+		prepareNext(BuildRequest{Deploy: &Deploy{ID: id}, SrcDir: src, Log: io.Discard, Env: map[string]string{}}, map[string]string{})
+		raw, err := os.ReadFile(filepath.Join(src, nextDir, "adapter.js"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"deploymentId":"`+id+`"`) {
+			t.Fatalf("%s: adapter does not carry the deploy ID", id)
+		}
+		ids[id] = true
+	}
+	if len(ids) != 3 {
+		t.Fatal("deploy IDs must differ")
 	}
 }

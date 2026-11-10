@@ -121,7 +121,9 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 	sb := r.switchboardAddr()
 	owner := map[string]string{}
 	table := map[string][]switchboard.Route{}
-	files := map[string]string{} // static previews' hosts → environment
+	files := map[string]string{}  // static previews' hosts → environment
+	apps := map[string]string{}   // other previews' hosts → environment
+	switched := map[string]bool{} // production environments behind the switchboard
 	addrs := deployAddrs{hosts: map[string]deployRef{}, stubs: map[string]*switchboard.Env{}, gone: map[string]string{}}
 	add := func(rt edge.Route, who, env string) {
 		key := rt.Host + rt.PathPrefix
@@ -172,6 +174,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 				rt.FileRoot, rt.SPA, rt.SPAPage = r.staticLink(st.Project, st.App, st.Preview), spa, d.SPAPage
 			} else {
 				rt.Upstream = sb // the switchboard wakes the preview if it sleeps
+				apps[rt.Host] = env
 			}
 			add(rt, who, env)
 			continue
@@ -183,6 +186,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 				rt.FileRoot, rt.SPA, rt.SPAPage = r.staticLink(st.Project, st.App, ""), spa, d.SPAPage
 			} else {
 				rt.Upstream = sb // instances are switched behind the switchboard
+				switched[env] = true
 			}
 			add(rt, who, env)
 		}
@@ -194,7 +198,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host+out[i].PathPrefix < out[j].Host+out[j].PathPrefix })
 	r.setDispatch(table)
 	r.mu.Lock()
-	r.previewFiles = files
+	r.previewFiles, r.previewApps, r.switched = files, apps, switched
 	r.addrs = addrs
 	r.mu.Unlock()
 	for _, c := range conflicts {
@@ -407,7 +411,11 @@ func (r *rt) expirePreviews(ctx context.Context) {
 			}
 		}
 		r.mu.Lock()
-		seen := r.lastSeen[envKey(s.Project, s.App, s.Preview)]
+		key := envKey(s.Project, s.App, s.Preview)
+		seen := r.lastSeen[key]
+		if v := r.visited[key]; v.After(seen) {
+			seen = v // its files were read, though its app slept
+		}
 		r.mu.Unlock()
 		ds, err := r.st.listDeploys(ctx, s.Project, s.App, s.Preview)
 		if err != nil || time.Since(seen) < r.opt.PreviewExpire || (len(ds) > 0 && time.Since(ds[0].CreatedAt) < r.opt.PreviewExpire) {

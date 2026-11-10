@@ -9,8 +9,9 @@
 //   }
 //
 // The box gives every app TIFFIN_AUTH_URL (public), TIFFIN_AUTH_INTERNAL_URL
-// (the engine on the box) and TIFFIN_AUTH_HOST. Server-side calls go to the
-// internal URL so they skip the edge.
+// (the engine on the box), TIFFIN_AUTH_HOST and TIFFIN_AUTH_KEY (the
+// project's server key, for getUserByEmail and createUser). Server-side
+// calls go to the internal URL so they skip the edge.
 
 /** Organization roles, weakest first. */
 export const ROLES = ["viewer", "member", "admin", "owner"] as const;
@@ -74,11 +75,19 @@ export type AuthOptions = {
 
 const env = (k: string): string | undefined => (typeof process !== "undefined" ? process.env?.[k] : undefined) || undefined;
 
-function base(o: AuthOptions): string {
-  const u = o.url ?? env("TIFFIN_AUTH_INTERNAL_URL") ?? env("TIFFIN_AUTH_URL");
-  if (!u) throw new Error("@shiptiffin/sdk/auth: no auth endpoint. Turn on services.auth in tiffin.config.ts (the box sets TIFFIN_AUTH_URL), or pass { url }.");
-  return u.replace(/\/+$/, "");
+const NO_ENDPOINT = "@shiptiffin/sdk/auth: no auth endpoint. Turn on services.auth in tiffin.config.ts (the box sets TIFFIN_AUTH_URL), or pass { url }.";
+
+function maybeBase(o: AuthOptions): string | undefined {
+  return (o.url ?? env("TIFFIN_AUTH_INTERNAL_URL") ?? env("TIFFIN_AUTH_URL"))?.replace(/\/+$/, "");
 }
+
+function base(o: AuthOptions): string {
+  const u = maybeBase(o);
+  if (!u) throw new Error(NO_ENDPOINT);
+  return u;
+}
+
+let warnedNoEndpoint = false;
 
 // The engine authenticates by the session cookie or x-api-key, never Authorization.
 const FORWARD = ["cookie", "x-api-key", "user-agent", "x-forwarded-for", "x-forwarded-proto"];
@@ -96,6 +105,8 @@ export type SessionOptions = AuthOptions & {
  * The signed-in user for a request (cookie or x-api-key), with their role in
  * the active organization, or null. Pass organizationId to check another
  * organization the user belongs to (API keys have no active organization).
+ * Without an auth endpoint (running locally, away from the box) it answers
+ * null, signed out, and warns once.
  *
  * Fast: a browser session is read from the engine's signed session cookie
  * (verified here with the engine's public key, no request), else asked of the
@@ -119,7 +130,16 @@ export async function sessionFor(from: HeadersLike, opts: SessionOptions = {}): 
   // What the engine will authenticate by: the API key when there is one, else the session cookie.
   const key = headers.get("x-api-key");
   if (!key && !token) return { session: null, setCookie: [] };
-  const url = base(opts);
+  const url = maybeBase(opts);
+  if (!url) {
+    // Running without the box (local development): nobody can be signed in,
+    // whatever cookie the browser kept from somewhere else.
+    if (!warnedNoEndpoint) {
+      warnedNoEndpoint = true;
+      console.warn(`${NO_ENDPOINT} Treating every request as signed out.`);
+    }
+    return { session: null, setCookie: [] };
+  }
   if (!key && !opts.fresh) {
     const jwt = chunked(cookies, cookieName(DATA, headers));
     const s = jwt ? await fromSessionCookie(jwt, token!, url, headers.get(PIN) ?? headers.get("x-tiffin-host"), opts) : undefined;
@@ -290,6 +310,75 @@ export async function requireRole(
     throw new AuthError(403, "forbidden", `This needs the ${role} role in ${s.organization.name}; you have ${s.organization.role ?? "none"}.`);
   }
   return s as AuthSession & { organization: AuthOrganization };
+}
+
+// ---- Users by email (server code on the box) ----------------------------------
+
+/** An account as getUserByEmail and createUser return it. */
+export type ServerUser = {
+  id: string;
+  /** Lowercased, as the engine stores it. */
+  email: string;
+  name: string;
+  image: string | null;
+  emailVerified: boolean;
+  banned: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ServerAuthOptions = {
+  /** The engine on the box. Default TIFFIN_AUTH_INTERNAL_URL (never the public URL: these calls don't go through the edge). */
+  url?: string;
+  /** This app's host, which names the project. Default TIFFIN_AUTH_HOST. */
+  host?: string;
+  /** The project's server key. Default TIFFIN_AUTH_KEY. */
+  key?: string;
+  fetch?: typeof fetch;
+};
+
+async function serverCall<T>(call: "find-user" | "create-user", body: unknown, opts: ServerAuthOptions): Promise<T> {
+  const url = (opts.url ?? env("TIFFIN_AUTH_INTERNAL_URL"))?.replace(/\/+$/, "");
+  const host = opts.host ?? env("TIFFIN_AUTH_HOST");
+  const key = opts.key ?? env("TIFFIN_AUTH_KEY");
+  if (!url || !host || !key) {
+    throw new Error(
+      "@shiptiffin/sdk/auth: getUserByEmail and createUser run on the box, in the project's own apps (they need TIFFIN_AUTH_INTERNAL_URL, TIFFIN_AUTH_HOST and TIFFIN_AUTH_KEY, which the box sets when services.auth is on). Pass { url, host, key } to call from elsewhere.",
+    );
+  }
+  const res = await (opts.fetch ?? fetch)(`${url}/tiffin/server/${call}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", [PIN]: host, "x-tiffin-auth-key": key },
+    body: JSON.stringify(body),
+  });
+  const out = (await res.json().catch(() => null)) as (T & { code?: string; message?: string }) | null;
+  if (!res.ok || !out) throw new Error(`@shiptiffin/sdk/auth: ${out?.message ?? "the auth engine answered " + res.status} (${res.status}${out?.code ? " " + out.code : ""})`);
+  return out;
+}
+
+/**
+ * The project's account with this email (any case), or null. For server code
+ * of the project's own apps on the box, e.g. a payment webhook matching a
+ * buyer to an account. Another project's apps can't read these users.
+ */
+export async function getUserByEmail(email: string, opts: ServerAuthOptions = {}): Promise<ServerUser | null> {
+  return (await serverCall<{ user: ServerUser | null }>("find-user", { email }, opts)).user;
+}
+
+/**
+ * The project's account with this email, made now if there is none
+ * (`created: true`), else the one already there, unchanged. It makes only
+ * the account: nobody is signed in, no cookie is set and no email is sent.
+ * The address stays unconfirmed unless you pass `emailVerified: true`, which
+ * you should only do when you know the person controls it (a checkout form's
+ * email isn't proof). Unconfirmed, the first magic link or one-time code to
+ * that address confirms it and signs them in.
+ */
+export async function createUser(
+  input: { email: string; name?: string; emailVerified?: boolean },
+  opts: ServerAuthOptions = {},
+): Promise<{ user: ServerUser; created: boolean }> {
+  return serverCall("create-user", input, opts);
 }
 
 // ---- Row-level security ----------------------------------------------------

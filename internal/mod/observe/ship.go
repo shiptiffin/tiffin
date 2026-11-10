@@ -21,9 +21,10 @@ import (
 	"github.com/shiptiffin/tiffin/internal/platform"
 )
 
-// activityNoter is the runtime's: every request to an app's host counts as
-// the app's activity (an app whose project lets it sleep sleeps after a
-// while without any), those the box answers itself too.
+// activityNoter is the runtime's: a request to a static site's host counts
+// as its activity. An app behind the switchboard counts only the requests
+// that reach its instances (the switchboard reports those), so the runtime
+// ignores this for it.
 type activityNoter interface {
 	NoteActivity(project, app string, at time.Time)
 }

@@ -20,28 +20,29 @@ Three levels:
 | Next.js | First-class | 16.2 or later gets the box's adapter (shared cache, client assets served by the edge). Older versions build and run without it. |
 | Hono (Bun) | First-class | |
 | FastAPI | First-class | One Uvicorn process per instance. See [FastAPI and Python](apps.md#fastapi-and-python). |
-| TanStack Start (React) | First-class | Runs its Nitro server on Bun; the edge serves its client assets. |
+| TanStack Start (React) | First-class | Runs its Nitro server on Bun, started and drained by the box; the edge serves its client assets. See [TanStack Start](apps.md#tanstack-start). |
 | SvelteKit 2 and 3 | First-class | adapter-bun, adapter-node or adapter-auto run as a server on Bun; adapter-static is built to files. See [SvelteKit](apps.md#sveltekit). |
 | Nuxt 3 and 4 | First-class | Nitro's `node-server` output, on Bun; `nuxt generate` is built to files. See [Nuxt](apps.md#nuxt). |
 | React Router 7 and 8 (framework mode) | First-class | The box's own Bun server; `ssr: false` is built to files. See [React Router](apps.md#react-router). |
 | Astro, static | First-class | Built to files and served by the edge. |
-| Astro with `@astrojs/node` | Detected | Runs `dist/server/entry.mjs` as a server. |
+| Astro with `@astrojs/node` | First-class | `framework: "astro"` (or detected under `bun`): the box starts `<outDir>/server/entry.mjs` on Node.js (Bun with `runtime: "bun"`) with `HOST=0.0.0.0` and a kept `ASTRO_KEY`; the edge serves prerendered pages and `/_astro/`. See [Astro](apps.md#astro). |
 | Vite + React (SPA), plain HTML | First-class | Static site; client-side routers get an `index.html` fallback. |
-| Any other Bun or Node.js server (Express, Elysia, Fastify...) | Detected | Must listen on `$PORT`. |
+| Any other Bun or Node.js server (Express, Elysia, Fastify...) | Detected | Must listen on `$PORT`. The box sets `HOST=0.0.0.0`; your own `HOST` wins. |
 | Flask, Django, Litestar and other Python servers | Detected (`python`) | Started by your `command`, or Railpack's guess. |
 | Go, Rust, anything else | Dockerfile only | |
 | Remix 2, SolidStart, TanStack Start for Solid | Not yet | Planned. |
 | Astro with the Vercel, Netlify or Cloudflare adapter | Not yet | Switch to `@astrojs/node`, or build it static. |
 
-**Bun by default.** JavaScript apps build and run on Bun. Some things only work on Node.js;
-set `runtime: "node"` for them:
+**Bun by default.** JavaScript apps build and run on Bun, except Astro with `@astrojs/node`,
+which runs on Node.js unless it sets `runtime: "bun"` (the adapter lists no Bun support).
+Some things only work on Node.js; set `runtime: "node"` for them:
 
 - native modules built for Node.js, and libraries that lean on Node internals;
 - React Router's own server (`react-router-serve`, on Express) is slow on Bun (about 340
   requests a second): the box starts its own Bun server instead, but a custom server or a
   Dockerfile that runs `react-router-serve` should run on Node.js.
 
-**SvelteKit, Nuxt and React Router** (what the box sets up is in [Apps](apps.md#sveltekit)):
+**SvelteKit, Nuxt, React Router and Astro** (what the box sets up is in [Apps](apps.md#sveltekit)):
 
 - SvelteKit with `adapter-auto` installs `adapter-node` during every build (it knows no
   box). Use `@sveltejs/adapter-bun` (SvelteKit 3) for the leaner server. `adapter-bun` needs
@@ -55,6 +56,18 @@ set `runtime: "node"` for them:
 - Nuxt with a `nitro.preset` in `nuxt.config` builds that preset; `bun` (Nitro 2) is not
   recommended (no graceful shutdown, buffered request bodies).
 - React Router's RSC framework mode (unstable) isn't tested.
+- Astro: the adapter and `outDir` are read the same way, for the server and for the files
+  the edge serves (`<outDir>/client`); `build.client` and `build.server` other than
+  `./client` and `./server` aren't read. SvelteKit's `out` likewise moves both its
+  `client` and `prerendered` folders. Node's 5-second keep-alive applies (Astro's adapter
+  has no setting for it); the switchboard drops idle connections after 4 seconds, so a
+  POST after a quiet spell doesn't land on a closing one.
+- Astro's `security.allowedDomains` isn't set by the box: the app's config sets it, from
+  `TIFFIN_HOSTS` (build time). It holds the app's hosts as of the build: a new own domain
+  needs a deploy, and deploy addresses (`d-<id>--…`) aren't in it.
+- Astro sessions use the adapter's default (files in the container): lost on every deploy
+  and not shared between instances. Point `session.driver` at Valkey (`REDIS_URL`) to keep
+  them.
 - Hashed asset folders (`/assets/` of React Router and TanStack Start, `/_app/immutable/`,
   `/_nuxt/`, `/_astro/`) are cached for a year, except what the app's own `public/` (SvelteKit
   `static/`) puts there, which is revalidated. A Vite `publicDir` other than `public/` isn't
@@ -236,8 +249,13 @@ rollback, or a change to the app's env or settings while it sleeps makes the nex
 a fresh container.
 
 Prerendered pages of Astro, SvelteKit, Nuxt, React Router and TanStack Start are
-answered by the box while the app sleeps, without waking it (see Caching below). Not yet:
-Next.js pages, pages rendered on request, and Early Hints during a wake.
+answered by the box while the app sleeps, without waking it (see Caching below), and
+don't count as use: only requests that reach the app keep it awake. Not yet:
+Next.js pages, pages rendered on request, and Early Hints during a wake. A request for a
+path with no file (a missing page, a bot probing `/wp-admin`) goes to the app and wakes
+it, even when the build wrote a `404.html`: the box can't yet tell from the build which
+paths the app renders on request (Astro's route list is in its server code, not in a file
+the box can read safely).
 
 ## Isolation between apps
 
@@ -267,6 +285,9 @@ is a network namespace per app, with box services on an address of their own):
 
 - **Sending** goes through a mail provider you bring (Resend, Postmark, SES, SendGrid,
   Mailgun, Brevo or any SMTP relay). Without one, mail goes to the dev inbox.
+- **Previews:** mail a preview's code sends always stays in the dev inbox, but the sign-in
+  mail auth sends for a preview (verification, magic links, codes, invites) goes out
+  through the relay like production's. See [Email](email.md#previews).
 - **Port 25 is blocked for apps:** their mail goes through the box (`SMTP_URL`).
 - **Hetzner blocks outbound port 465** on new servers (and 25). Use a relay on port 587
   with STARTTLS; Cloudflare Email Service's SMTP is on 465, so it doesn't work there.
@@ -616,6 +637,19 @@ Both are planned.
 - **Next.js cache:** a page `next build` prerendered more than 30 days ago is rendered
   anew on its first request rather than served from the build, since the box keeps a tag's
   revalidations for 30 days only.
+- **Next.js security warning:** the deploy warns when the installed `next` is older than
+  the latest security release the box knows of (a list dated 2026-11-09 that ships with
+  the box). A release Next.js publishes after that date is not known until the box is
+  updated; past 60 days the warning and the deploy log say the list may be behind. The
+  version is read from a text lockfile or an exact version in package.json, so `bun.lockb`
+  or a bare range is not checked.
+- **Next.js November 2026 advisories:** the box keeps one of them from reaching visitors on
+  an unpatched app (a forwarded response's stray bytes, GHSA-pc58-hwjq-p385: a new
+  connection per request, which costs a little latency). The others are fixed only by
+  upgrading `next`: the `use cache` leaks across tenants, root params and binary arguments,
+  the HttpOnly cookie header on Edge routes, the image optimizer's SVG check, and the
+  shared shell poisoning with Cache Components under `next start` (16.4.0 to 16.4.4; setting
+  `partialPrefetching: true` also avoids it).
 - **Next.js image cache:** `images.maximumDiskCacheSize` is enforced by each instance from
   its view of the shared directory, refreshed at most a minute old; instances together may
   overshoot it by what they write in that minute.

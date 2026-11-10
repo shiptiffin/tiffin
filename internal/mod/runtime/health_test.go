@@ -1,6 +1,9 @@
 package runtime
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The default "/" passes on anything below 500 (no page at / is fine); a
 // health path the app names must answer 2xx or 3xx.
@@ -20,5 +23,18 @@ func TestHealthOK(t *testing.T) {
 	}
 	if healthWant("/") != " with a status below 500" || healthWant("/up") != " with a 2xx or 3xx status" {
 		t.Error("hint wording")
+	}
+}
+
+// A port where nothing answered says to listen on 0.0.0.0; an app that
+// answered with the wrong status gets no such hint.
+func TestBindHint(t *testing.T) {
+	if h := bindHint(notAnswering); !strings.Contains(h, "0.0.0.0") || !strings.Contains(h, "not localhost") {
+		t.Errorf("bindHint(not answering) = %q", h)
+	}
+	for _, s := range []string{"HTTP 500", "HTTP 404", "the box could not tell who answers: x", ""} {
+		if h := bindHint(s); h != "" {
+			t.Errorf("bindHint(%q) = %q, want none", s, h)
+		}
 	}
 }

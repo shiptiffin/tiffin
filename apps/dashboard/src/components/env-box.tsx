@@ -140,11 +140,11 @@ export function boxGroups(project: string, man?: Manifest): Group[] {
   if ("auth" in svc)
     g.push({
       id: "auth",
-      from: `Because ${project} has auth: where sign-ins go and how apps check a session.`,
+      from: `Because ${project} has auth: where sign-ins go, how apps check a session, and the server key that finds and creates ${project}’s users from server code.`,
       label: PARTS.auth.name,
       sub: "Sign-in for your users",
       to: "/projects/$project/users",
-      vars: [{ name: "TIFFIN_AUTH_URL" }, { name: "TIFFIN_AUTH_INTERNAL_URL" }, { name: "TIFFIN_AUTH_JWKS_URL" }, { name: "TIFFIN_AUTH_HOST" }],
+      vars: [{ name: "TIFFIN_AUTH_URL" }, { name: "TIFFIN_AUTH_INTERNAL_URL" }, { name: "TIFFIN_AUTH_JWKS_URL" }, { name: "TIFFIN_AUTH_HOST" }, { name: "TIFFIN_AUTH_KEY" }],
     });
   if ("analytics" in svc)
     g.push({

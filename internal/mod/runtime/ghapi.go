@@ -126,7 +126,7 @@ type GitHubCommit struct {
 // RepoRoot is a folder of a repository that looks like an app.
 type RepoRoot struct {
 	Path      string `json:"path" doc:"Folder inside the repository; empty for the top"`
-	Framework string `json:"framework" enum:"next,hono,bun,static,fastapi,python" doc:"How the box would build it"`
+	Framework string `json:"framework" enum:"next,hono,bun,static,astro,fastapi,python" doc:"How the box would build it"`
 	// Preset is the framework as people know it, for a picker to show and
 	// let them override (Vercel's Framework Preset).
 	Preset    string `json:"preset,omitempty" example:"astro" doc:"The framework as people know it, with the same ids as templates list: nextjs, tanstack-start, sveltekit, nuxt, react-router, astro, vite-react, vite, hono, html; empty for any other server or static build"`
@@ -1051,7 +1051,7 @@ func guessFramework(raw []byte, hasHTML bool) RepoRoot {
 	}
 	if has("astro") {
 		if has("@astrojs/node") {
-			return is(manifest.FrameworkBun, "astro", "Astro with server rendering (@astrojs/node): its standalone server runs on Bun")
+			return is(manifest.FrameworkAstro, "astro", "Astro with server rendering (@astrojs/node): its standalone server runs on Node.js, and the box serves its prerendered pages")
 		}
 		for _, a := range astroServer {
 			if has(a) {

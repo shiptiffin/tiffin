@@ -27,9 +27,9 @@ var pythonVersionFiles = []string{".python-version", ".tool-versions", "mise.tom
 //   - --proxy-headers from 127.0.0.1 only: the box's edge connects from
 //     there and sets X-Forwarded-For and -Proto, so request.client and
 //     url_for see the visitor and https.
-//   - --timeout-keep-alive 75: longer than the edge keeps an idle
-//     connection to the app (60 s), so the app never closes one the edge is
-//     about to reuse (a 502 for a POST, which is not retried).
+//   - --timeout-keep-alive 75: far longer than the edge keeps an idle
+//     connection to the app (upstreamIdle, 4 s), so the app never closes one
+//     the edge is about to reuse (a 502 for a POST, which is not retried).
 //   - --timeout-graceful-shutdown 25: the box sends SIGTERM once requests in
 //     flight are done and kills 30 s later; work after a response
 //     (background tasks) gets 25 s, then the app's lifespan shutdown runs.

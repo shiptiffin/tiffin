@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,10 +127,20 @@ func (b *Board) ServeAsset(w http.ResponseWriter, req *http.Request, st *Env, pr
 			releases = append(releases, rt.Deploy)
 		}
 	}
-	for i, id := range releases {
+	// Next.js asks for files of a build with ?dpl=<deploymentId>, which the
+	// box sets to the deploy's ID: that release answers first. Some keep
+	// their names across builds (/_next/static/<build id>/_buildManifest.js,
+	// whose build id is the same for every deploy once deploymentId is set),
+	// so a page of the previous release gets its own copy, not the live one.
+	if dpl := req.URL.Query().Get("dpl"); dpl != "" {
+		if i := slices.Index(releases, dpl); i > 0 {
+			releases = append([]string{dpl}, slices.Delete(releases, i, i+1)...)
+		}
+	}
+	for _, id := range releases {
 		dir := filepath.Join(st.Assets, id)
 		hashed, bridged := assetClass(b.assetMeta(dir).dirs, p)
-		if i > 0 && !bridged {
+		if id != st.Live && !bridged {
 			continue // only hashed files outlive their release
 		}
 		if serveFile(w, req, filepath.Join(dir, "www"), p, hashed) {
@@ -166,10 +177,13 @@ func assetClass(meta []AssetDir, p string) (hashed, bridged bool) {
 
 // Text assets are compressed once, when they are copied out, at the highest
 // levels (too slow for the edge to do per response): a zstd and a gzip copy
-// next to each file (.zst, .gz). There is no Brotli encoder in the box.
+// next to each file (.zst, .gz). There is no Brotli encoder in the box, but a
+// .br copy the build wrote (SvelteKit's precompress, Vite compression
+// plugins) is served to clients that take Brotli and not zstd, which would
+// otherwise get the larger gzip copy.
 var (
 	compressible   = map[string]bool{".js": true, ".mjs": true, ".cjs": true, ".css": true, ".html": true, ".htm": true, ".json": true, ".map": true, ".svg": true, ".txt": true, ".xml": true, ".webmanifest": true, ".wasm": true, ".ttf": true, ".otf": true, ".ico": true}
-	encodings      = []struct{ name, ext string }{{"zstd", ".zst"}, {"gzip", ".gz"}}
+	encodings      = []struct{ name, ext string }{{"zstd", ".zst"}, {"br", ".br"}, {"gzip", ".gz"}}
 	minCompressLen = int64(1024)
 )
 

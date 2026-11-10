@@ -507,6 +507,181 @@ describe('"use cache" handlers', () => {
     await h.set("k", Promise.reject(new Error("render failed")));
     expect(await h.get("k", [])).toBeUndefined();
   });
+
+  test("a stream that errors partway is consumed and not stored", async () => {
+    const h = createUseCacheHandler(app()(instance()));
+    let sent = 0;
+    const value = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (sent++ === 0) c.enqueue(new TextEncoder().encode("half a page"));
+        else c.error(new Error("render aborted"));
+      },
+    });
+    await h.set("k", Promise.resolve({ ...entry("", []), value }));
+    expect(await h.get("k", [])).toBeUndefined();
+  });
+
+  test("the entry stream is consumed once in set; every get builds a new one", async () => {
+    const h = createUseCacheHandler(app()(instance()));
+    const e = entry("once", []);
+    await h.set("k", Promise.resolve(e));
+    expect(e.value.locked || (await e.value.getReader().read()).done).toBe(true);
+    const [x, y] = await Promise.all([h.get("k", []), h.get("k", [])]);
+    expect(x!.value).not.toBe(y!.value);
+    expect(await read(x!.value)).toBe("once");
+    expect(await read(y!.value)).toBe("once");
+    expect(await read((await h.get("k", []))!.value)).toBe("once");
+  });
+
+  test("an entry allowed under a second keeps a one-second TTL, not the 30-day cap", async () => {
+    const mem = memoryRedis();
+    const sets: string[][] = [];
+    const rec: RedisLike = {
+      send: (cmd, args) => {
+        if (cmd === "SET") sets.push(args.slice(2).map(String));
+        return mem.send(cmd, args);
+      },
+    };
+    const h = createUseCacheHandler(app()(rec));
+    await h.set("short", Promise.resolve(entry("v", [], { expire: 0.5 })));
+    await h.set("long", Promise.resolve(entry("v", [], { expire: 90.2 })));
+    expect(sets).toEqual([
+      ["EX", "1"],
+      ["EX", "91"],
+    ]);
+  });
+});
+
+// Two instances of one app, each its own process-level Store over its own
+// connection, sharing one Valkey: what Next.js's multi-instance contract asks
+// of refreshTags / updateTags / revalidateTag.
+describe("two instances sharing one Valkey", () => {
+  const entry = (text: string, tags: string[]) => ({
+    value: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(text));
+        c.close();
+      },
+    }),
+    tags,
+    stale: 30,
+    timestamp: Date.now(),
+    expire: 3600,
+    revalidate: 900,
+  });
+  const read = async (s: ReadableStream<Uint8Array>) => new Response(s).text();
+  // One instance: its "use cache" handler and its cacheHandler share a Store,
+  // as they do inside one `next start` process.
+  const node = (o: (c: RedisLike, more?: Partial<StoreOptions>) => StoreOptions) => {
+    const c = instance();
+    return { useCache: createUseCacheHandler(o(c)), isr: () => req(o(c)) };
+  };
+
+  test("updateTag on instance A is a miss on instance B after B's next refreshTags", async () => {
+    const o = app();
+    const a = node(o);
+    const b = node(o);
+    await a.useCache.set("k", Promise.resolve(entry("v1", ["posts"])));
+    await b.useCache.refreshTags();
+    expect(await read((await b.useCache.get("k", []))!.value)).toBe("v1"); // B now holds an in-memory copy
+    await sleep(2);
+    await a.useCache.updateTags(["posts"]); // updateTag("posts") / revalidateTag("posts")
+    await b.useCache.refreshTags(); // Next.js: once per request, before the first read
+    expect(await b.useCache.get("k", [])).toBeUndefined();
+  });
+
+  test("revalidateTag through A's cacheHandler reaches B's \"use cache\" entries and ISR pages", async () => {
+    const o = app();
+    const a = node(o);
+    const b = node(o);
+    await b.useCache.set("k", Promise.resolve(entry("v1", ["posts"])));
+    await b.isr().set("/posts", page("posts", "posts"), {});
+    expect(await b.isr().get("/posts", { kind: "APP_PAGE" })).not.toBeNull();
+    await sleep(2);
+    await a.isr().revalidateTag("posts");
+    await b.useCache.refreshTags();
+    expect(await b.useCache.get("k", [])).toBeUndefined();
+    expect(await b.isr().get("/posts", { kind: "APP_PAGE" })).toBeNull();
+  });
+
+  test('revalidateTag(tag, "max") on A: B serves its entry once more with revalidate -1', async () => {
+    const o = app();
+    const a = node(o);
+    const b = node(o);
+    await a.useCache.set("k", Promise.resolve(entry("v1", ["posts"])));
+    await sleep(2);
+    await a.useCache.updateTags(["posts"], { expire: 365 * 24 * 3600 });
+    await b.useCache.refreshTags();
+    const got = await b.useCache.get("k", []);
+    expect(got!.revalidate).toBe(-1);
+    expect(await read(got!.value)).toBe("v1");
+  });
+
+  test("revalidatePath on A (soft tags) reaches B", async () => {
+    const o = app();
+    const a = node(o);
+    const b = node(o);
+    await b.useCache.set("k", Promise.resolve(entry("v1", [])));
+    await sleep(2);
+    await a.useCache.updateTags(["_N_T_/blog/hello"]);
+    await b.useCache.refreshTags();
+    expect(await b.useCache.get("k", ["_N_T_/layout", "_N_T_/blog/layout", "_N_T_/blog/hello"])).toBeUndefined();
+    expect(await b.useCache.get("k", ["_N_T_/layout", "_N_T_/about"])).toBeDefined();
+  });
+});
+
+describe("a storage failure is a cache miss, never an error", () => {
+  const stream = () =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode("v"));
+        c.close();
+      },
+    });
+  const e = () => ({ value: stream(), tags: ["t"], stale: 30, timestamp: Date.now(), expire: 3600, revalidate: 60 });
+
+  test('"use cache": refused, failing and silent Valkey; a bad URL; a corrupt entry', async () => {
+    const failing: RedisLike = { send: async () => Promise.reject(new Error("ECONNRESET")) };
+    for (const client of [failing, instance("redis://127.0.0.1:1"), instance("not a url")]) {
+      const h = createUseCacheHandler({ client, prefix: `x${n++}:`, buildId: "b", tagsManifest: null });
+      await h.refreshTags(); // must not throw
+      await h.set("k", Promise.resolve(e())); // must not throw
+      expect(await h.get("k", ["_N_T_/"])).toBeUndefined();
+      await h.updateTags(["t"]); // must not throw
+      await h.updateTags(["t"], { expire: 60 });
+      expect(await h.getExpiration(["_N_T_/"])).toBe(Infinity);
+    }
+
+    const o = app();
+    const quiet = instance(fake.url);
+    const h = createUseCacheHandler(o(quiet));
+    fake.mute = true;
+    try {
+      const t = Date.now();
+      await h.refreshTags();
+      expect(await h.get("k", [])).toBeUndefined();
+      expect(Date.now() - t).toBeLessThan(2500);
+    } finally {
+      fake.mute = false;
+    }
+
+    const c = instance();
+    const corrupt = app();
+    await c.send("SET", [`${corrupt(c).prefix}prod:d1:u:k`, "\u0009garbage"]);
+    expect(await createUseCacheHandler(corrupt(c)).get("k", [])).toBeUndefined();
+  });
+
+  test("cacheHandler: a corrupt entry and a bad URL are misses", async () => {
+    const c = instance();
+    const o = app();
+    await c.send("SET", [`${o(c).prefix}prod:d1:e:/`, "\u0009garbage"]);
+    expect(await req(o(c)).get("/", { kind: "APP_PAGE" })).toBeNull();
+    const bad = new TiffinCacheHandler({}, { client: instance("not a url"), prefix: "y:", buildId: "b" });
+    expect(await bad.get("/", { kind: "APP_PAGE" })).toBeNull();
+    await bad.set("/", page("x"), {});
+    await bad.revalidateTag(["x"], { expire: 60 });
+    await sleep(20); // the tag sync the failed read raced finishes in the background
+  });
 });
 
 describe("clients", () => {
