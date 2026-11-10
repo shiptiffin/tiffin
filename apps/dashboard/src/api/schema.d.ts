@@ -12644,6 +12644,8 @@ export interface components {
             liveAt?: string;
             /** @description The commit's message (first line), for deploys from GitHub */
             message?: string;
+            /** @description Next.js apps: the next version the build installed (from its lockfile, or an exact version in package.json); empty when the box could not tell */
+            nextVersion?: string;
             /** @description Production: the app's other addresses that answer too, such as <project>.<apps domain> once its own domain is appUrl. An own domain still waiting for DNS is not listed. */
             otherUrls?: string[] | null;
             /** @description Preview name, empty for production */
@@ -13041,6 +13043,7 @@ export interface components {
         };
         RuntimeInstance: {
             deploy: string;
+            freshConns?: boolean;
             /** @description Container name */
             name: string;
             /**
@@ -13051,6 +13054,7 @@ export interface components {
         };
         RuntimeInstanceStatus: {
             deploy: string;
+            freshConns?: boolean;
             /** @description Container name */
             name: string;
             /**
