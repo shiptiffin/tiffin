@@ -43,7 +43,7 @@ The box pins both runtimes: Bun to the release it ships with, and Node.js to maj
 its own version keeps it: `engines` or `packageManager` in `package.json`, `.nvmrc`,
 `.node-version`, `.bun-version`, `mise.toml` or `.tool-versions`.
 
-After a Next.js, SvelteKit, Nuxt, React Router or Astro (`@astrojs/node`) app passes its health check, the box also
+After a Next.js, SvelteKit, Nuxt, React Router, Astro (`@astrojs/node`) or TanStack Start app passes its health check, the box also
 asks it for `/` and for a page that doesn't exist; a 5xx on either stops the deploy before
 it takes traffic.
 
@@ -51,10 +51,10 @@ A static build whose `package.json` uses a client-side router (react-router, vue
 TanStack Router, wouter…) serves `index.html` for paths without a file, so a refresh on
 `/about` works; `index_fallback: false` in a Staticfile turns that off.
 
-SvelteKit, Nuxt, React Router (framework mode) and Astro are started by the box itself, with the
-settings their servers need behind its proxy: see [SvelteKit](#sveltekit), [Nuxt](#nuxt),
-[React Router](#react-router) and [Astro](#astro). TanStack Start runs as a server on Bun: its `start` script (Nitro's
-`node .output/server/index.mjs`), or Railpack's default when there is none. Which frameworks are first-class, which are only
+SvelteKit, Nuxt, React Router (framework mode), Astro and TanStack Start are started by
+the box itself, with the settings their servers need behind its proxy: see
+[SvelteKit](#sveltekit), [Nuxt](#nuxt), [React Router](#react-router), [Astro](#astro) and
+[TanStack Start](#tanstack-start). Which frameworks are first-class, which are only
 detected and which aren't supported yet: [What works and what doesn't](limits.md#frameworks).
 Any of them runs from its own Dockerfile (`builder: "dockerfile"`, see
 [Build settings](#build-settings)).
@@ -142,7 +142,9 @@ failed build or health check leaves the old version serving.
   copies the build's browser files (JS, CSS, images) out of the image and serves them
   itself: hashed files with a year-long immutable cache, others with revalidation. Hashed files of the
   previous releases stay served for a day, so a page loaded before a deploy keeps
-  finding its chunks. The box serves these files without running the app's middleware.
+  finding its chunks. The box compresses them once at deploy (zstd and gzip); a `.br` copy the
+  build wrote (SvelteKit's `precompress`, a Vite compression plugin) goes to browsers that take
+  Brotli but not zstd. The box serves these files without running the app's middleware.
   For another framework, name the directory: `assets: { dir: "dist/client", path: "/" }`
   (path defaults to `/`; files there are kept for old pages too, revalidated).
 - **Prerendered pages:** for Astro (`@astrojs/node`), SvelteKit (`build/prerendered`),
@@ -850,7 +852,10 @@ refuses ordinary uploads); `SHUTDOWN_TIMEOUT=25`; and `CONNECTION_IDLE_TIMEOUT=0
 (adapter-bun) or `KEEP_ALIVE_TIMEOUT=65` (adapter-node), so the switchboard's kept
 connections are not closed under it. Files under `/_app/immutable/` are served by the box
 for a year; `_app/version.json` is revalidated. Prerendered pages come from
-`build/prerendered`.
+`build/prerendered`. `ORIGIN` and `PORT_HEADER` are left unset on purpose: the box serves an
+app under several hosts (its address, previews, your domains), so a fixed `ORIGIN` would
+refuse the others, and `X-Forwarded-Host` already carries the port the browser used, which
+`PORT_HEADER` would add a second time.
 
 Measured on the live box (2 vCPU x86, Hetzner cx23) with the `sveltekit` starter (a server
 `load` with two Postgres queries, 32 connections for 20 s): 2,300 requests a second at
@@ -981,6 +986,26 @@ recognized and launched the same way, on Node.js unless it sets `runtime`; `fram
 An app declared `framework: "static"` whose `astro.config` uses `@astrojs/node` (or whose
 build writes `dist/server/entry.mjs` and no `index.html`) fails with a hint to set
 `framework: "astro"` and remove `output`.
+
+## TanStack Start
+
+TanStack Start (React) on Nitro (`nitro/vite` for Nitro 3, `nitropack` for 2) writes its server
+to `.output/server/index.mjs` and its client files to `.output/public`, which runs on Bun and
+on Node.js. The box starts `exec bun .output/server/index.mjs` (`node` with `runtime: "node"`),
+and replaces a `start` script that only starts that file (`bun .output/server/index.mjs`,
+`node .output/server/index.mjs`) with the same command, exec'd so the server gets SIGTERM. A
+`start` script that does anything else (the Bun reference server, `srvx`) runs as written.
+
+- `SERVER_SHUTDOWN_TIMEOUT=25` (Nitro 3, seconds; its default is 5) and
+  `NITRO_SHUTDOWN_TIMEOUT=25000` (Nitro 2), inside the box's 30 seconds.
+- `PORT` is the instance's; Nitro and srvx listen on every interface without `HOST`, and the
+  box sets `HOST=0.0.0.0` like for any Bun or Node.js server.
+- The box asks the new version for `/` and a page that doesn't exist before it takes traffic,
+  as for the other frameworks.
+- `/assets/` is served by the box for a year, and prerendered pages (`.output/public` or
+  `dist/client`) without waking the app.
+- Without Nitro and without a `start` script the build writes no server the box can start:
+  the deploy warns. Add `nitro` and `nitro()` after `tanstackStart()` in `vite.config`.
 
 ## FastAPI and Python
 

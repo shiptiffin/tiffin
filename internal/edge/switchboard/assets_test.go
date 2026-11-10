@@ -400,3 +400,66 @@ func TestActivityCountsRequestsThatReachTheApp(t *testing.T) {
 		t.Fatalf("a request that reached the app is not activity: %v %v", at, ok)
 	}
 }
+
+// A .br copy the build wrote is served to a client that takes Brotli and not
+// zstd; a client that takes zstd keeps getting the box's zstd copy, and a
+// file with no .br copy falls back as before.
+func TestBuildBrotliCopyIsServed(t *testing.T) {
+	b := New(nil, nil)
+	base := t.TempDir()
+	dir := filepath.Join(base, "dep_1")
+	js := strings.Repeat("console.log('hello from a chunk');\n", 200)
+	writeRelease(t, dir, `[{"dir":"build/client","path":"/","immutable":["/_app/immutable/"]}]`,
+		map[string]string{"_app/immutable/a.js": js, "_app/immutable/b.js": js})
+	if _, err := Precompress(filepath.Join(dir, "www")); err != nil {
+		t.Fatal(err)
+	}
+	// The build's own Brotli copy: marker bytes stand in for a Brotli stream.
+	if err := os.WriteFile(filepath.Join(dir, "www", "_app/immutable/a.js.br"), []byte("BROTLI-BYTES"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &Env{Project: "shop", App: "web", Live: "dep_1", Assets: base}
+	get := func(file, ae string, rng string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/_app/immutable/"+file, nil)
+		req.Header.Set("Accept-Encoding", ae)
+		if rng != "" {
+			req.Header.Set("Range", rng)
+		}
+		w := httptest.NewRecorder()
+		if !b.ServeAsset(w, req, st, "") {
+			t.Fatal("not served")
+		}
+		return w
+	}
+	for _, c := range []struct{ file, ae, enc string }{
+		{"a.js", "gzip, deflate, br", "br"},
+		{"a.js", "gzip, deflate, br, zstd", "zstd"},
+		{"a.js", "br;q=0, gzip", "gzip"},
+		{"b.js", "gzip, br", "gzip"}, // no .br copy
+	} {
+		w := get(c.file, c.ae, "")
+		if got := w.Header().Get("Content-Encoding"); got != c.enc || w.Header().Get("Vary") != "Accept-Encoding" {
+			t.Errorf("%s with %q: encoding %q vary %q, want %q", c.file, c.ae, got, w.Header().Get("Vary"), c.enc)
+		}
+	}
+	w := get("a.js", "br", "")
+	if w.Body.String() != "BROTLI-BYTES" || !strings.HasSuffix(w.Header().Get("ETag"), `-br"`) || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Errorf("br response: body %q etag %q cache %q", w.Body.String(), w.Header().Get("ETag"), w.Header().Get("Cache-Control"))
+	}
+	etag := w.Header().Get("ETag")
+	if etag == get("a.js", "zstd", "").Header().Get("ETag") {
+		t.Error("the br and zstd representations share an ETag")
+	}
+	// Ranges address the encoded bytes, as for the other copies.
+	if r := get("a.js", "br", "bytes=0-5"); r.Code != http.StatusPartialContent || r.Body.String() != "BROTLI" || r.Header().Get("Content-Encoding") != "br" {
+		t.Errorf("range: %d %q %q", r.Code, r.Body.String(), r.Header().Get("Content-Encoding"))
+	}
+	req := httptest.NewRequest("GET", "/_app/immutable/a.js", nil)
+	req.Header.Set("Accept-Encoding", "br")
+	req.Header.Set("If-None-Match", etag)
+	w2 := httptest.NewRecorder()
+	b.ServeAsset(w2, req, st, "")
+	if w2.Code != http.StatusNotModified {
+		t.Errorf("If-None-Match: %d, want 304", w2.Code)
+	}
+}

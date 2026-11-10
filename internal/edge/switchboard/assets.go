@@ -166,10 +166,13 @@ func assetClass(meta []AssetDir, p string) (hashed, bridged bool) {
 
 // Text assets are compressed once, when they are copied out, at the highest
 // levels (too slow for the edge to do per response): a zstd and a gzip copy
-// next to each file (.zst, .gz). There is no Brotli encoder in the box.
+// next to each file (.zst, .gz). There is no Brotli encoder in the box, but a
+// .br copy the build wrote (SvelteKit's precompress, Vite compression
+// plugins) is served to clients that take Brotli and not zstd, which would
+// otherwise get the larger gzip copy.
 var (
 	compressible   = map[string]bool{".js": true, ".mjs": true, ".cjs": true, ".css": true, ".html": true, ".htm": true, ".json": true, ".map": true, ".svg": true, ".txt": true, ".xml": true, ".webmanifest": true, ".wasm": true, ".ttf": true, ".otf": true, ".ico": true}
-	encodings      = []struct{ name, ext string }{{"zstd", ".zst"}, {"gzip", ".gz"}}
+	encodings      = []struct{ name, ext string }{{"zstd", ".zst"}, {"br", ".br"}, {"gzip", ".gz"}}
 	minCompressLen = int64(1024)
 )
 

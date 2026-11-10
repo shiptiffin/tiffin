@@ -13,19 +13,19 @@ import (
 )
 
 // Full-stack frameworks the box knows by their build output: SvelteKit,
-// Nuxt, React Router (framework mode) and Astro. Each one builds with Railpack like
-// any Bun or Node app; what the box adds is in its launch: the start command
-// (exec'd, so the server gets SIGTERM and drains), the env its server reads
-// behind the box's proxy, a smoke test after the health check, and, when
-// the app's build writes only files (SvelteKit's adapter-static, Nuxt's
-// `nuxt generate`, React Router with ssr: false), serving those files from
-// the edge instead of running a server. Next.js keeps its own path
-// (nextjs.go); TanStack Start starts from its start script.
+// Nuxt, React Router (framework mode), Astro and TanStack Start. Each one
+// builds with Railpack like any Bun or Node app; what the box adds is in its
+// launch: the start command (exec'd, so the server gets SIGTERM and drains),
+// the env its server reads behind the box's proxy, a smoke test after the
+// health check, and, when the app's build writes only files (SvelteKit's
+// adapter-static, Nuxt's `nuxt generate`, React Router with ssr: false),
+// serving those files from the edge instead of running a server. Next.js
+// keeps its own path (nextjs.go).
 
 // launch is what the box does for one app's framework, read from its
 // source before the build.
 type launch struct {
-	ID   string // the preset id: sveltekit, nuxt, react-router, astro
+	ID   string // the preset id: sveltekit, nuxt, react-router, astro, tanstack-start
 	Name string // as people know it
 	// Start is the start command, run in the app's folder; "" leaves the
 	// app's own start script.
@@ -82,22 +82,23 @@ var (
 		"BODY_SIZE_LIMIT":  "Infinity",
 		"SHUTDOWN_TIMEOUT": "25",
 	}
-	// adapter-bun: Bun.serve's idle timeout (10 s by default) would close
-	// connections the switchboard keeps for reuse (60 s).
+	// adapter-bun: no Bun.serve idle timeout (10 s by default); the
+	// switchboard drops connections it pools for reuse after 4 s unused
+	// (upstreamIdle) itself, so the server never closes one first.
 	kitBunRun = map[string]string{"CONNECTION_IDLE_TIMEOUT": "0"}
-	// adapter-node: Node's 5 s keep-alive is shorter than the switchboard's
-	// 60 s, so a POST after a quiet spell could land on a closing socket.
+	// adapter-node: a keep-alive well above the switchboard's pool idle time
+	// (upstreamIdle, 4 s), so a POST after a quiet spell never lands on a
+	// socket the server is closing.
 	kitNodeRun = map[string]string{"KEEP_ALIVE_TIMEOUT": "65", "HEADERS_TIMEOUT": "66"}
 	// Nuxt (Nitro's node-server output).
 	nuxtRun = map[string]string{"NITRO_SHUTDOWN_TIMEOUT": "25000"}
 	// React Router on the box's Bun server.
 	rrRun = map[string]string{"SHUTDOWN_TIMEOUT": "25"}
-	// Astro's @astrojs/node standalone server listens on localhost unless
-	// HOST says otherwise, which Node may bind to ::1 alone, while the box
-	// reaches instances at 127.0.0.1:$PORT. All interfaces is how every app
-	// listens (the runtime firewall keeps app ports off the network). It
-	// reads PORT, which every instance gets.
-	astroRun = map[string]string{"HOST": "0.0.0.0"}
+	// Astro's @astrojs/node standalone server needs no env of its own: it
+	// reads PORT, which every instance gets, and HOST, which every
+	// Railpack-built JavaScript server gets (withBindHost, bindenv.go);
+	// without it the server listens on localhost, which Node may bind to
+	// ::1 alone while the box reaches instances at 127.0.0.1:$PORT.
 )
 
 // nuxtSecretEnv is Nuxt's key for sessions and deriveSecret (4.6): never
@@ -144,6 +145,8 @@ func launchFor(appDir string, onNode bool, build string) *launch {
 		return reactRouterLaunch(appDir, deps, start, onNode)
 	case deps["astro"]:
 		return astroLaunch(appDir, deps, start, onNode)
+	case deps["@tanstack/react-start"] || deps["@tanstack/solid-start"]:
+		return tanstackLaunch(deps, start, onNode)
 	}
 	return nil
 }
@@ -394,7 +397,6 @@ func astroLaunch(appDir string, deps map[string]bool, start string, onNode bool)
 		l.Files = &launchFiles{Dirs: []string{out}, Why: "Astro without a server adapter writes the site to " + out + "/"}
 		return l
 	}
-	l.Run = astroRun
 	l.Secret, l.SecretAtBuild = astroKeyEnv, true
 	if m := astroStartRe.FindStringSubmatch(start); ownStart && (m == nil || !safeRel(m[1])) {
 		l.Why = "the app's start script"

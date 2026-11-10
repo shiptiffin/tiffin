@@ -20,14 +20,14 @@ Three levels:
 | Next.js | First-class | 16.2 or later gets the box's adapter (shared cache, client assets served by the edge). Older versions build and run without it. |
 | Hono (Bun) | First-class | |
 | FastAPI | First-class | One Uvicorn process per instance. See [FastAPI and Python](https://shiptiffin.com/docs/apps.md#fastapi-and-python). |
-| TanStack Start (React) | First-class | Runs its Nitro server on Bun; the edge serves its client assets. |
+| TanStack Start (React) | First-class | Runs its Nitro server on Bun, started and drained by the box; the edge serves its client assets. See [TanStack Start](https://shiptiffin.com/docs/apps.md#tanstack-start). |
 | SvelteKit 2 and 3 | First-class | adapter-bun, adapter-node or adapter-auto run as a server on Bun; adapter-static is built to files. See [SvelteKit](https://shiptiffin.com/docs/apps.md#sveltekit). |
 | Nuxt 3 and 4 | First-class | Nitro's `node-server` output, on Bun; `nuxt generate` is built to files. See [Nuxt](https://shiptiffin.com/docs/apps.md#nuxt). |
 | React Router 7 and 8 (framework mode) | First-class | The box's own Bun server; `ssr: false` is built to files. See [React Router](https://shiptiffin.com/docs/apps.md#react-router). |
 | Astro, static | First-class | Built to files and served by the edge. |
 | Astro with `@astrojs/node` | Detected | Runs `dist/server/entry.mjs` as a server. |
 | Vite + React (SPA), plain HTML | First-class | Static site; client-side routers get an `index.html` fallback. |
-| Any other Bun or Node.js server (Express, Elysia, Fastify...) | Detected | Must listen on `$PORT`. |
+| Any other Bun or Node.js server (Express, Elysia, Fastify...) | Detected | Must listen on `$PORT`. The box sets `HOST=0.0.0.0`; your own `HOST` wins. |
 | Flask, Django, Litestar and other Python servers | Detected (`python`) | Started by your `command`, or Railpack's guess. |
 | Go, Rust, anything else | Dockerfile only | |
 | Remix 2, SolidStart, TanStack Start for Solid | Not yet | Planned. |

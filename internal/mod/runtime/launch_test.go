@@ -109,23 +109,23 @@ sveltekit({ adapter: adapter({ fallback: '200.html' }) })`,
 		{name: "Astro with @astrojs/node on Bun", files: map[string]string{
 			"package.json":     `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11"},"scripts":{"build":"astro build","preview":"astro preview"}}`,
 			"astro.config.mjs": `import node from '@astrojs/node'; export default defineConfig({ adapter: node({ mode: 'standalone' }) })`,
-		}, id: "astro", start: "bun ./dist/server/entry.mjs", env: "HOST"},
+		}, id: "astro", start: "bun ./dist/server/entry.mjs"},
 		{name: "Astro with @astrojs/node on Node.js", files: map[string]string{
 			"package.json": `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11"},"scripts":{"build":"astro build"}}`,
-		}, node: true, id: "astro", start: "node ./dist/server/entry.mjs", env: "HOST"},
+		}, node: true, id: "astro", start: "node ./dist/server/entry.mjs"},
 		{name: "Astro with its own outDir", files: map[string]string{
 			"package.json":    `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11"}}`,
 			"astro.config.ts": "export default defineConfig({\n  // outDir: './old',\n  outDir: './build',\n})",
-		}, id: "astro", start: "bun ./build/server/entry.mjs", env: "HOST"},
+		}, id: "astro", start: "bun ./build/server/entry.mjs"},
 		{name: "Astro, its usual start script runs the entry", files: map[string]string{
 			"package.json": `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11"},"scripts":{"start":"node ./dist/server/entry.mjs"}}`,
-		}, node: true, id: "astro", start: "node ./dist/server/entry.mjs", env: "HOST"},
+		}, node: true, id: "astro", start: "node ./dist/server/entry.mjs"},
 		{name: "Astro, a dev-server start script is not a server", files: map[string]string{
 			"package.json": `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11"},"scripts":{"start":"astro dev"}}`,
-		}, id: "astro", start: "bun ./dist/server/entry.mjs", env: "HOST"},
+		}, id: "astro", start: "bun ./dist/server/entry.mjs"},
 		{name: "Astro, a custom server keeps its start script", files: map[string]string{
 			"package.json": `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11","express":"5"},"scripts":{"start":"node server.mjs"}}`,
-		}, id: "astro", start: "", env: "HOST"},
+		}, id: "astro", start: ""},
 		{name: "Astro without an adapter is files", files: map[string]string{
 			"package.json": `{"dependencies":{"astro":"7.4.7"},"scripts":{"build":"astro build","start":"astro preview"}}`,
 		}, id: "astro", files_: "dist"},
@@ -136,6 +136,27 @@ sveltekit({ adapter: adapter({ fallback: '200.html' }) })`,
 		{name: "Astro with another host's adapter fails", files: map[string]string{
 			"package.json": `{"dependencies":{"astro":"7.4.7","@astrojs/vercel":"9"},"scripts":{"build":"astro build"}}`,
 		}, id: "astro", err: true},
+		{name: "TanStack Start on Nitro 3, Bun", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4","nitro":"3.0.260903-beta"},"scripts":{"build":"vite build","start":"bun .output/server/index.mjs"}}`,
+		}, id: "tanstack-start", start: "bun .output/server/index.mjs", env: "SERVER_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start on Nitro 3, Node.js, no start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4"},"devDependencies":{"nitro":"3.0.260903-beta"},"scripts":{"build":"vite build"}}`,
+		}, node: true, id: "tanstack-start", start: "node .output/server/index.mjs", env: "NITRO_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start on Nitro 2 (nitropack), node start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.120.0","nitropack":"2.12.0"},"scripts":{"start":"node .output/server/index.mjs"}}`,
+		}, id: "tanstack-start", start: "bun .output/server/index.mjs", env: "NITRO_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start for Solid", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/solid-start":"1.169.4","nitro":"3.0.260903-beta"}}`,
+		}, id: "tanstack-start", start: "bun .output/server/index.mjs", env: "SERVER_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start, its own server keeps its start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4"},"scripts":{"start":"bun run server.ts"}}`,
+		}, id: "tanstack-start", start: ""},
+		{name: "TanStack Start, Nitro and its own server script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4","nitro":"3.0.260903-beta"},"scripts":{"start":"bun run server.ts"}}`,
+		}, id: "tanstack-start", start: "", env: "SERVER_SHUTDOWN_TIMEOUT"},
+		{name: "TanStack Start with neither Nitro nor a start script", files: map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4"},"scripts":{"build":"vite build"}}`,
+		}, id: "tanstack-start", start: "", warn: true},
 		{name: "a Hono app is none of them", files: map[string]string{"package.json": `{"dependencies":{"hono":"4"}}`}},
 	} {
 		dir := t.TempDir()
@@ -195,6 +216,9 @@ func TestLaunchRailpackBuild(t *testing.T) {
 		{"Nuxt", map[string]string{
 			"package.json": `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt build"}}`,
 		}, "exec bun .output/server/index.mjs", "NITRO_PRESET=node-server", "NITRO_SHUTDOWN_TIMEOUT"},
+		{"TanStack Start", map[string]string{
+			"package.json": `{"dependencies":{"@tanstack/react-start":"1.169.4","nitro":"3.0.260903-beta"},"scripts":{"build":"vite build","start":"bun .output/server/index.mjs"}}`,
+		}, "exec bun .output/server/index.mjs", "RAILPACK_BUILD_CMD=bun --bun run build", "SERVER_SHUTDOWN_TIMEOUT"},
 		{"React Router", map[string]string{
 			"package.json": `{"dependencies":{"react-router":"8.4.0"},"devDependencies":{"@react-router/dev":"8.4.0"},"scripts":{"build":"react-router build"}}`,
 		}, "exec bun " + rrRunnerPath + " ./build/server/index.js", "RAILPACK_BUILD_CMD=bun --bun run build", "SHUTDOWN_TIMEOUT"},
@@ -263,7 +287,7 @@ func TestLaunchFilesFromAServerApp(t *testing.T) {
 
 func TestSmokeName(t *testing.T) {
 	bun := &manifest.App{Framework: manifest.FrameworkBun}
-	if smokeName(bun, &Deploy{}) != "" || smokeName(bun, &Deploy{Launch: "nuxt"}) != "Nuxt" ||
+	if smokeName(bun, &Deploy{}) != "" || smokeName(bun, &Deploy{Launch: "nuxt"}) != "Nuxt" || smokeName(bun, &Deploy{Launch: "tanstack-start"}) != "TanStack Start" ||
 		smokeName(&manifest.App{Framework: manifest.FrameworkAstro}, &Deploy{Launch: "astro"}) != "Astro" ||
 		smokeName(&manifest.App{Framework: manifest.FrameworkNext}, &Deploy{}) != "Next.js" {
 		t.Error("smoke tests: Next.js and the launched frameworks only")
