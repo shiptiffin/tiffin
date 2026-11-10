@@ -80,6 +80,22 @@ function read(context: AstroAuthContext, opts: SessionOpts = {}): Promise<Read> 
   return p;
 }
 
+/**
+ * The forms of a request's path a protect rule is checked against: as sent,
+ * and percent-decoded with repeated slashes folded, which is how Astro's
+ * router reads it (so "/%61pp/x" or "//app/x" can't reach /app/x
+ * unprotected). A path that doesn't decode counts as protected.
+ */
+function guarded(rules: RegExp[], pathname: string): boolean {
+  let decoded: string;
+  try {
+    decoded = decodeURI(pathname).replace(/\/{2,}/g, "/");
+  } catch {
+    return rules.length > 0;
+  }
+  return rules.some((r) => r.test(pathname) || r.test(decoded));
+}
+
 const isApi = (context: AstroAuthContext) => context.url.pathname === "/api" || context.url.pathname.startsWith("/api/");
 
 function signedOut(context: AstroAuthContext, signIn: string | false): Response {
@@ -115,7 +131,7 @@ export function authMiddleware(opts: { protect?: string[]; signIn?: string } = {
     locals.session = session;
     locals.user = session?.user ?? null;
     locals.organization = session?.organization ?? null;
-    if (!session && rules.some((r) => r.test(context.url.pathname))) return signedOut(context, signIn);
+    if (!session && guarded(rules, context.url.pathname)) return signedOut(context, signIn);
     const res = await next();
     if (setCookie.length && !context.request.headers.has("x-api-key")) {
       try {

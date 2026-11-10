@@ -64,6 +64,17 @@ describe("authMiddleware", () => {
     expect(e.sessionCalls()).toBe(0); // no cookie: the engine isn't asked
   });
 
+  test("signed out: an encoded or doubled-slash path to a protected page is still protected", async () => {
+    const e = await fakeEngine(null);
+    const mw = authMiddleware({ protect: ["/app/:path*"] });
+    for (const p of ["/%61pp/exam", "//app/exam", "/%E0%A4%A"]) {
+      const ctx = await context(e, p);
+      ctx.url.pathname = p; // as sent, not normalized by the test's URL
+      expect((await mw(ctx, ok)).status).toBe(302);
+    }
+    expect((await mw(await context(e, "/pricing/%61"), ok)).status).toBe(200);
+  });
+
   test("prerendered pages are left alone (no request at build time)", async () => {
     const e = await fakeEngine();
     const ctx = await context(e, "/app/", { prerendered: true });
