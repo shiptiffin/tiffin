@@ -84,7 +84,7 @@ func (r *rt) table() switchboard.Table {
 		e := &switchboard.Env{Project: st.Project, App: st.App, Preview: st.Preview, Live: st.Live, Stopped: st.Stopped, Sleeping: st.Sleeping,
 			Assets: r.assetsDir(st.Project, st.App, st.Preview), Timeout: r.requestTimeout(r.ctx, st.Project, st.App), Cgroup: r.peerDir(st.Project)}
 		for _, in := range st.Instances {
-			e.Instances = append(e.Instances, switchboard.Instance{Name: in.Name, Port: in.Port})
+			e.Instances = append(e.Instances, switchboard.Instance{Name: in.Name, Port: in.Port, FreshConns: in.FreshConns})
 		}
 		for _, rt := range st.Retired {
 			e.Retired = append(e.Retired, switchboard.Retired{Deploy: rt.Deploy, At: rt.At})

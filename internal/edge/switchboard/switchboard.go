@@ -45,6 +45,11 @@ import (
 type Instance struct {
 	Name string `json:"name"`
 	Port int    `json:"port"`
+	// FreshConns: every request gets a new connection, never one from the
+	// pool. For an app that may send more bytes than its response declares
+	// (Next.js before the fix for GHSA-pc58-hwjq-p385): on a reused
+	// connection they would be read as the next request's response.
+	FreshConns bool `json:"freshConns,omitempty"`
 }
 
 // Retired is an earlier release whose hashed client assets are still served.
@@ -132,6 +137,7 @@ type Board struct {
 	inflight map[string]*atomic.Int64 // instance name → requests in flight
 	rr       atomic.Uint64            // rotates ties between instances
 	proxy    *http.Transport
+	fresh    *http.Transport // no keep-alive (Instance.FreshConns)
 
 	seenMu sync.Mutex
 	seen   map[string]time.Time // env → last request
@@ -165,6 +171,8 @@ func New(ctl Control, log *slog.Logger) *Board {
 		ResponseHeaderTimeout: 0, // apps may stream
 		ForceAttemptHTTP2:     false,
 	}
+	b.fresh = b.proxy.Clone()
+	b.fresh.DisableKeepAlives = true
 	return b
 }
 
@@ -443,6 +451,10 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 	}
 	req = req.WithContext(ctx)
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(in.Port)}
+	transport := b.proxy
+	if in.FreshConns {
+		transport = b.fresh
+	}
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
@@ -462,7 +474,7 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 			// passes through as it is.
 			pr.Out.Header.Set("Accept-Encoding", "identity")
 		},
-		Transport:  b.proxy,
+		Transport:  transport,
 		BufferPool: &copyBuffers,
 
 		FlushInterval: -1,

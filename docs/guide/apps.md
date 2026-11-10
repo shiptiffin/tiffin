@@ -762,7 +762,9 @@ with Next.js 16.2 or later, the box adds its adapter to every build
 (`NEXT_ADAPTER_PATH`), which sets what next.config leaves unset:
 
 - `deploymentId`: the deploy's ID. A browser still on an older release reloads the page
-  instead of mixing builds.
+  instead of mixing builds. Files a page asks for with `?dpl=<deploy>` come from that
+  deploy's release while the box keeps it (a day), so files that keep their names across
+  builds (`/_next/static/<build id>/_buildManifest.js`) match the page that loads them.
 - With the project's KV (every project has it): `cacheHandler` and
   `cacheHandlers` (`default`, `remote`) from `@shiptiffin/sdk/next`, and `cacheMaxMemorySize: 0`,
   so the instances of an app share one cache and `revalidatePath`, `revalidateTag` and
@@ -820,6 +822,23 @@ build and run time, so Server Actions in a page from the previous release still 
 after a deploy. Previews share it; a duplicated or imported project gets its own. Set
 the variable (or `NEXT_ADAPTER_PATH`) yourself to use your own. Older Next.js versions
 ignore the adapter and build as before.
+
+**Security releases.** Each deploy reads the `next` version the build installs (from
+`bun.lock`, `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`, in the app's folder or
+a workspace's above it, else an exact version in package.json) and warns, on the deploy
+and in its log, when it is older than the latest security release of its major line
+(16.4.5 for Next.js 16 and 15.5.29 for Next.js 15, as of 2026-11-09), or when its major
+no longer gets security fixes (14 and older; 15 after 2027-01-31). The deploy still goes
+ahead. The box's list is dated: once it is over 60 days old, its warnings and the deploy
+log say newer releases may exist, and it never reports a version as safe. With only a
+range and no text lockfile (`bun.lockb`), the log says the version could not be checked.
+Until an app moves past 16.4.5 (15.5.29 on 15), its instances get a new connection from
+the box for every request instead of reused ones: such a version can forward a fetched
+response with more bytes than it declares (GHSA-pc58-hwjq-p385), and on a reused
+connection those bytes would be read as another visitor's response. A Next.js 16 app that
+pins a Bun older than 1.4.0 (`.bun-version`, `packageManager`, `engines.bun`, mise or
+asdf) is warned too: those Bun versions fail `next build` for it. The box's own Bun is
+newer; `runtime: "node"` builds and runs Next.js on Node.js instead.
 
 Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project's
 Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).

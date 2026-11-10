@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,10 +127,20 @@ func (b *Board) ServeAsset(w http.ResponseWriter, req *http.Request, st *Env, pr
 			releases = append(releases, rt.Deploy)
 		}
 	}
-	for i, id := range releases {
+	// Next.js asks for files of a build with ?dpl=<deploymentId>, which the
+	// box sets to the deploy's ID: that release answers first. Some keep
+	// their names across builds (/_next/static/<build id>/_buildManifest.js,
+	// whose build id is the same for every deploy once deploymentId is set),
+	// so a page of the previous release gets its own copy, not the live one.
+	if dpl := req.URL.Query().Get("dpl"); dpl != "" {
+		if i := slices.Index(releases, dpl); i > 0 {
+			releases = append([]string{dpl}, slices.Delete(releases, i, i+1)...)
+		}
+	}
+	for _, id := range releases {
 		dir := filepath.Join(st.Assets, id)
 		hashed, bridged := assetClass(b.assetMeta(dir).dirs, p)
-		if i > 0 && !bridged {
+		if id != st.Live && !bridged {
 			continue // only hashed files outlive their release
 		}
 		if serveFile(w, req, filepath.Join(dir, "www"), p, hashed) {

@@ -812,7 +812,7 @@ func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *mani
 			}
 		}
 		if err = r.eng.Run(ctx, spec); err == nil {
-			return Instance{Name: name, Port: port, Deploy: d.ID}, nil
+			return Instance{Name: name, Port: port, Deploy: d.ID, FreshConns: nextFreshConns(d.NextVersion)}, nil
 		}
 		// A run that failed may still have created the container.
 		r.removeInstances(ctx, []Instance{{Name: name, Port: port}})

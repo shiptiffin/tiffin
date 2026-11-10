@@ -616,6 +616,19 @@ Both are planned.
 - **Next.js cache:** a page `next build` prerendered more than 30 days ago is rendered
   anew on its first request rather than served from the build, since the box keeps a tag's
   revalidations for 30 days only.
+- **Next.js security warning:** the deploy warns when the installed `next` is older than
+  the latest security release the box knows of (a list dated 2026-11-09 that ships with
+  the box). A release Next.js publishes after that date is not known until the box is
+  updated; past 60 days the warning and the deploy log say the list may be behind. The
+  version is read from a text lockfile or an exact version in package.json, so `bun.lockb`
+  or a bare range is not checked.
+- **Next.js November 2026 advisories:** the box keeps one of them from reaching visitors on
+  an unpatched app (a forwarded response's stray bytes, GHSA-pc58-hwjq-p385: a new
+  connection per request, which costs a little latency). The others are fixed only by
+  upgrading `next`: the `use cache` leaks across tenants, root params and binary arguments,
+  the HttpOnly cookie header on Edge routes, the image optimizer's SVG check, and the
+  shared shell poisoning with Cache Components under `next start` (16.4.0 to 16.4.4; setting
+  `partialPrefetching: true` also avoids it).
 - **Next.js image cache:** `images.maximumDiskCacheSize` is enforced by each instance from
   its view of the shared directory, refreshed at most a minute old; instances together may
   overshoot it by what they write in that minute.
