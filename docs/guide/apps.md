@@ -1048,15 +1048,14 @@ repository finds them by `fastapi` (or Flask, Django...) in `pyproject.toml`,
     check and memory, and a deploy replaces them without dropping requests.
   - The edge connects from 127.0.0.1 and sets `X-Forwarded-For` and `X-Forwarded-Proto`,
     so `request.client.host` is the visitor and `request.url` and `url_for` are `https`.
-  - Keep-alive 75 s: longer than the edge keeps an idle connection to the app (60 s), so
-    the app never closes one the edge is about to reuse. With Uvicorn's default (5 s) a
-    POST can get a `502` now and then.
+  - Keep-alive 75 s: far longer than the edge keeps an idle connection to the app (4 s),
+    so the app never closes one the edge is about to reuse.
   - Shutdown: `SIGTERM` comes once the requests in flight are done; background tasks get
     25 s, then the app's lifespan shutdown runs (close pools there), inside the box's 30 s.
   - `fastapi run` can set neither timeout, so the box does not use it. A `command` of your
     own replaces all of this (a factory needs one:
     `uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT`); keep the
-    keep-alive above 60 s.
+    keep-alive above 4 s (Uvicorn's default, 5 s, is enough).
 
   A `python` app starts with its `command`, or Railpack's guess: `gunicorn main:app` for
   Flask with gunicorn, `uvicorn main:app` for FastHTML, else `python main.py` (which must

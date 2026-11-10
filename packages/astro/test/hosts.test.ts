@@ -35,6 +35,22 @@ describe("appHosts", () => {
       { hostname: "web-p.box.shiptiffin.app", protocol: "https" },
     ]);
   });
+  // What the box writes at build (internal/mod/runtime/hosts.go, envHosts):
+  // bare lowercase hosts joined by commas, the port only in TIFFIN_URL.
+  test("the box's own format: production and a preview on a local box", () => {
+    const prod = appHosts({ TIFFIN_HOSTS: "shop.tiffin.localhost,shop.example.com", TIFFIN_URL: "https://shop.tiffin.localhost:8443" });
+    expect(prod.url).toBe("https://shop.tiffin.localhost:8443");
+    expect(prod.domains).toEqual([
+      { hostname: "shop.tiffin.localhost", protocol: "https" },
+      { hostname: "shop.example.com", protocol: "https" },
+    ]);
+    const pv = appHosts({ TIFFIN_HOSTS: "pr-7--shop.tiffin.localhost", TIFFIN_URL: "https://pr-7--shop.tiffin.localhost:8443" });
+    expect(pv.domains).toEqual([{ hostname: "pr-7--shop.tiffin.localhost", protocol: "https" }]);
+    // Without TIFFIN_HOSTS (a non-Astro launch) the URL's host, with its port.
+    expect(appHosts({ TIFFIN_URL: "https://pr-7--shop.tiffin.localhost:8443" }).domains).toEqual([
+      { hostname: "pr-7--shop.tiffin.localhost", protocol: "https", port: "8443" },
+    ]);
+  });
   test("bare TIFFIN_HOSTS entries take TIFFIN_URL's scheme", () => {
     expect(appHosts({ TIFFIN_HOSTS: "a.test", TIFFIN_URL: "http://a.test" }).domains).toEqual([{ hostname: "a.test", protocol: "http" }]);
   });

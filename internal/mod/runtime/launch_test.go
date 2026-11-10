@@ -554,3 +554,28 @@ func TestAstroAppsGetAKeyAndTheirURLs(t *testing.T) {
 		t.Errorf("own key at run time: %q %v", env[astroKeyEnv], err)
 	}
 }
+
+// @shiptiffin/astro's graceful shutdown has Astro write the adapter's entry
+// as server/astro-entry.mjs and writes server/entry.mjs itself, a wrapper
+// that imports it. The box still starts <outDir>/server/entry.mjs (the
+// wrapper, so SIGTERM drains), and still knows the build for a server.
+func TestAstroIntegrationShutdownLayout(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"package.json":                `{"dependencies":{"astro":"7.4.7","@astrojs/node":"11.1.11","@shiptiffin/astro":"0.1.0"},"scripts":{"build":"astro build","start":"node ./dist/server/entry.mjs"}}`,
+		"astro.config.mjs":            `import tiffin from "@shiptiffin/astro"; export default defineConfig({ integrations: [tiffin()] })`,
+		"dist/server/entry.mjs":       "// Written by @shiptiffin/astro\nconst app = await import(\"./astro-entry.mjs\");\n",
+		"dist/server/astro-entry.mjs": "export const options = { mode: \"standalone\" };\n",
+		"dist/client/index.html":      "<h1>prerendered</h1>",
+	})
+	for _, onNode := range []bool{true, false} {
+		l := launchFor(dir, onNode, "")
+		want := map[bool]string{true: "node", false: "bun"}[onNode] + " ./dist/server/entry.mjs"
+		if l == nil || l.ID != "astro" || l.Files != nil || l.Start != want {
+			t.Fatalf("onNode %v: launch %+v, want start %q", onNode, l, want)
+		}
+	}
+	if !astroServerBuilt(dir, []string{"dist"}) {
+		t.Error("a build with the integration's entry.mjs wrapper is not seen as a server build")
+	}
+}
