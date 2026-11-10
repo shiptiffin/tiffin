@@ -52,6 +52,13 @@ func (e Endpoints) web(path string) string { return strings.TrimRight(e.Web, "/"
 // RepoURL is a repository's page (and, with ".git", its clone URL).
 func (e Endpoints) RepoURL(fullName string) string { return e.web("/" + fullName) }
 
+// RepoFullName is the owner/name of a repository given as RepoURL wrote it
+// or already as owner/name. Deploys record the URL; app specs the name.
+func (e Endpoints) RepoFullName(repo string) string {
+	name := strings.TrimSuffix(strings.TrimPrefix(repo, strings.TrimRight(e.Web, "/")+"/"), ".git")
+	return strings.Trim(name, "/")
+}
+
 // Credentials are what GitHub hands back when an app is created from a
 // manifest. Everything but the private key, the client secret and the
 // webhook secret is public.

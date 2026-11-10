@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -368,8 +369,15 @@ func (r *rt) recover(ctx context.Context) error {
 // repository is left as it is.
 func (r *rt) retryInterrupted(ctx context.Context) {
 	for _, d := range r.interrupted {
+		// The deploy records the repository's URL, the spec its owner/name.
+		repo := r.ghEndpoints().RepoFullName(d.Repo)
 		spec, perr := r.checkDeployable(ctx, d.Project, d.App, "", false)
-		if perr != nil || spec.Git == nil || spec.Git.Repo != d.Repo {
+		if perr != nil || spec.Git == nil || !strings.EqualFold(spec.Git.Repo, repo) {
+			why := "the app is no longer connected to " + repo
+			if perr != nil {
+				why = perr.Error()
+			}
+			r.p.Log.Warn("runtime: not deploying again after a restart", "deploy", d.ID, "project", d.Project, "app", d.App, "why", why)
 			continue
 		}
 		c, err := r.github(ctx)
@@ -377,9 +385,9 @@ func (r *rt) retryInterrupted(ctx context.Context) {
 			r.p.Log.Warn("runtime: deploy again after a restart", "deploy", d.ID, "err", err)
 			return
 		}
-		inst, err := r.repoInstallation(ctx, c, d.Repo)
+		inst, err := r.repoInstallation(ctx, c, repo)
 		if err == nil {
-			_, err = r.enqueue(ctx, &ghJob{Project: d.Project, App: d.App, Repo: d.Repo, SHA: d.Commit, Branch: cmp.Or(d.Ref, spec.Git.Branch),
+			_, err = r.enqueue(ctx, &ghJob{Project: d.Project, App: d.App, Repo: repo, SHA: d.Commit, Branch: cmp.Or(d.Ref, spec.Git.Branch),
 				Message: d.Message, Author: d.Author, Installation: inst, Trigger: "redeploy", By: "box", Path: spec.Git.Path})
 		}
 		if err != nil {
