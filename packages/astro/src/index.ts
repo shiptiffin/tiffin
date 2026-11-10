@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AstroIntegration, AstroIntegrationLogger } from "astro";
 import type { ValkeyCacheConfig } from "./cache-provider";
+import { BUILDING } from "./building";
 import { appHosts, missingDomains, type AllowedDomain } from "./hosts";
 import { scanProject, type ProjectScan } from "./scan";
 import { DEFAULT_SESSION_TTL } from "./defaults";
@@ -315,7 +316,11 @@ export default function tiffin(options: TiffinAstroOptions = {}): AstroIntegrati
       "astro:config:done": ({ config }) => {
         serverDir = config.build.server;
       },
+      "astro:build:start": () => {
+        (globalThis as Record<symbol, unknown>)[BUILDING] = true;
+      },
       "astro:build:done": () => {
+        delete (globalThis as Record<symbol, unknown>)[BUILDING];
         if (shutdown === undefined || !serverDir) return;
         const dir = fileURLToPath(serverDir);
         const inner = join(dir, ADAPTER_ENTRY);

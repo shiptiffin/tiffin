@@ -34,6 +34,7 @@
  * because a silent failure would keep serving the content it meant to remove.
  */
 import { createHash } from "node:crypto";
+import { BUILDING } from "./building";
 import { boxStore, appScope, type Store } from "./store";
 
 export interface ValkeyCacheConfig {
@@ -85,6 +86,8 @@ const DEFAULT_EXCLUDED_PARAMS = [
 ];
 
 const PATH_TAG = "astro-path:";
+
+const building = () => Boolean((globalThis as Record<symbol, unknown>)[BUILDING]);
 const REROUTABLE = new Set([404, 500]);
 
 function globRe(p: string): RegExp {
@@ -239,6 +242,9 @@ export function createValkeyCache(store: Store | undefined, config: ValkeyCacheC
     async onRequest(ctx, next) {
       const req = ctx.request;
       if (req.method !== "GET") return next();
+      // Prerendering at build time: never bake a cached copy into a page, nor
+      // write with the build's read-only Valkey user.
+      if (building()) return next();
       if (!store) {
         if (!warnedNoStore) {
           warnedNoStore = true;
