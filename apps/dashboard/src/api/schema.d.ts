@@ -12631,10 +12631,10 @@ export interface components {
             /** @description Image reference in the box's containerd store */
             image?: string;
             /**
-             * @description The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt or react-router; empty for any other app
+             * @description The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt, react-router, astro or tanstack-start; empty for any other app
              * @enum {string}
              */
-            launch?: "sveltekit" | "nuxt" | "react-router" | "";
+            launch?: "sveltekit" | "nuxt" | "react-router" | "astro" | "tanstack-start" | "";
             /** @description Web apps, once live: what a shared link to the home page shows, in brief (title, share image), each problem the box found and what changed since the version before. deploys link-preview has the whole report. */
             linkPreview?: components["schemas"]["LinkSummary"];
             /**
@@ -13145,7 +13145,7 @@ export interface components {
              * @description How the box would build it
              * @enum {string}
              */
-            framework: "next" | "hono" | "bun" | "static" | "fastapi" | "python";
+            framework: "next" | "hono" | "bun" | "static" | "astro" | "fastapi" | "python";
             /** @description The package name, if any */
             name?: string;
             /** @description Folder inside the repository; empty for the top */
