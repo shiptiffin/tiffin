@@ -37,6 +37,14 @@ type nextSecurityTable struct {
 	Release string             `json:"release"`
 	URL     string             `json:"url"`
 	Lines   []nextSecurityLine `json:"lines"`
+	// ProxyFraming: the versions that fixed GHSA-pc58-hwjq-p385, per major.
+	ProxyFraming struct {
+		Advisory string `json:"advisory"`
+		Fixed    []struct {
+			Major   int    `json:"major"`
+			Version string `json:"version"`
+		} `json:"fixed"`
+	} `json:"proxyFraming"`
 }
 
 func loadNextSecurity(raw []byte) (nextSecurityTable, error) {
@@ -61,7 +69,45 @@ func loadNextSecurity(raw []byte) (nextSecurityTable, error) {
 			}
 		}
 	}
+	if len(t.ProxyFraming.Fixed) == 0 {
+		return t, fmt.Errorf("proxyFraming: no fixed versions")
+	}
+	for _, f := range t.ProxyFraming.Fixed {
+		v, err := semver.StrictNewVersion(f.Version)
+		if err != nil || v.Major() != uint64(f.Major) {
+			return t, fmt.Errorf("proxyFraming: %d %q", f.Major, f.Version)
+		}
+	}
 	return t, nil
+}
+
+// nextFreshConns reports whether instances of a build with Next.js version
+// (as installed; "" when unknown) get a fresh connection for every request:
+// a version that can send a fetched Response's body with the framing of
+// the compressed original (GHSA-pc58-hwjq-p385). On a reused keep-alive
+// connection the bytes past the declared length are read as the next
+// request's response, another client's. Unknown versions keep their pool.
+func nextFreshConns(version string) bool {
+	t, err := loadNextSecurity(nextSecurityJSON)
+	if err != nil || version == "" {
+		return false
+	}
+	return t.framingUnsafe(version)
+}
+
+func (t nextSecurityTable) framingUnsafe(version string) bool {
+	v, err := semver.NewVersion(version)
+	if err != nil {
+		return false
+	}
+	lowest := t.ProxyFraming.Fixed[0].Major
+	for _, f := range t.ProxyFraming.Fixed {
+		if uint64(f.Major) == v.Major() {
+			return v.LessThan(semver.MustParse(f.Version))
+		}
+		lowest = min(lowest, f.Major)
+	}
+	return v.Major() < uint64(lowest)
 }
 
 // nextSecurityCheck says what to tell a deploy of Next.js version (as
@@ -226,6 +272,9 @@ func warnOutdatedNext(req BuildRequest, log io.Writer, now time.Time) {
 		return // a broken table is caught by its test, not by deploys
 	}
 	v, from := nextInstalledVersion(req.SrcDir, req.appDir())
+	if req.Deploy != nil {
+		req.Deploy.NextVersion = v
+	}
 	if v == "" {
 		fmt.Fprintf(log, "==> Next.js: no lockfile or exact version says which next installs, so the box could not check it against Next.js security releases\n")
 		return
@@ -239,5 +288,8 @@ func warnOutdatedNext(req BuildRequest, log io.Writer, now time.Time) {
 		}
 	} else if note != "" {
 		fmt.Fprintf(log, "==> Next.js %s: %s\n", v, note)
+	}
+	if t.framingUnsafe(v) {
+		fmt.Fprintf(log, "==> Next.js %s: its instances get a fresh connection for every request until next is upgraded (%s: a forwarded response could otherwise reach another client)\n", v, t.ProxyFraming.Advisory)
 	}
 }

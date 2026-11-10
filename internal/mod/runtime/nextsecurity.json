@@ -3,6 +3,14 @@
   "asOf": "2026-11-09",
   "release": "November 2026 security release (2026-11-03)",
   "url": "https://nextjs.org/blog/november-2026-security-release",
+  "_proxyFraming": "Next.js versions that can forward a fetched Response with the compressed response's framing (GHSA-pc58-hwjq-p385). The switchboard gives their instances a fresh connection per request, so stray bytes never reach another client's response. A major below every entry counts as affected, one above them all as fixed. Change only if Next.js reopens this advisory.",
+  "proxyFraming": {
+    "advisory": "GHSA-pc58-hwjq-p385",
+    "fixed": [
+      { "major": 16, "version": "16.4.5" },
+      { "major": 15, "version": "15.5.29" }
+    ]
+  },
   "lines": [
     {
       "major": 16,

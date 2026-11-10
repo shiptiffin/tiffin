@@ -23,6 +23,8 @@ func TestNextSecurityTableLoads(t *testing.T) {
 		`{"asOf":"2026-11-09","lines":[]}`,
 		`{"asOf":"2026-11-09","lines":[{"major":16,"patched":"15.5.29"}]}`,
 		`{"asOf":"2026-11-09","lines":[{"major":15,"patched":"15.5.29","securityUntil":"soon"}]}`,
+		`{"asOf":"2026-11-09","lines":[{"major":16,"patched":"16.4.5"}]}`, // no proxyFraming
+		`{"asOf":"2026-11-09","lines":[{"major":16,"patched":"16.4.5"}],"proxyFraming":{"fixed":[{"major":16,"version":"15.5.29"}]}}`,
 	} {
 		if _, err := loadNextSecurity([]byte(bad)); err == nil {
 			t.Errorf("accepted %s", bad)
@@ -32,7 +34,8 @@ func TestNextSecurityTableLoads(t *testing.T) {
 
 func TestNextSecurityCheck(t *testing.T) {
 	tab, err := loadNextSecurity([]byte(`{"asOf":"2026-11-09","url":"https://nextjs.org/blog/x","lines":[
-		{"major":16,"patched":"16.4.5"},{"major":15,"patched":"15.5.29","securityUntil":"2027-01-31"}]}`))
+		{"major":16,"patched":"16.4.5"},{"major":15,"patched":"15.5.29","securityUntil":"2027-01-31"}],
+		"proxyFraming":{"advisory":"GHSA-x","fixed":[{"major":16,"version":"16.4.5"},{"major":15,"version":"15.5.29"}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,5 +223,29 @@ func TestPrepareNextWarnsOnOutdatedNext(t *testing.T) {
 	prepareNext(BuildRequest{Deploy: d, SrcDir: src, Log: &log, Env: map[string]string{nextAdapterEnv: "./mine.js"}}, map[string]string{})
 	if len(d.Warnings) != 0 || strings.Contains(strings.ToLower(log.String()), "safe") || strings.Contains(log.String(), "up to date") {
 		t.Fatalf("warnings %q\nlog %s", d.Warnings, log.String())
+	}
+}
+
+// Next.js versions with GHSA-pc58-hwjq-p385 get a fresh connection per
+// request; fixed and unknown versions keep the pool.
+func TestNextFreshConns(t *testing.T) {
+	for v, want := range map[string]bool{
+		"16.4.4": true, "16.0.0": true, "16.3.9": true, "15.5.28": true, "15.1.0": true, "14.2.35": true, "13.5.11": true,
+		"16.4.5": false, "16.4.6": false, "16.5.0-canary.46": false, "15.5.29": false, "17.0.0": false, "": false, "latest": false,
+	} {
+		if got := nextFreshConns(v); got != want {
+			t.Errorf("%q: %v, want %v", v, got, want)
+		}
+	}
+	// The build records the version, and says when the box works around it.
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "package.json"), []byte(`{"dependencies":{"next":"16.4.4"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	d := &Deploy{ID: "dep_1"}
+	warnOutdatedNext(BuildRequest{Deploy: d, SrcDir: src, Log: &log}, &log, time.Now())
+	if d.NextVersion != "16.4.4" || !strings.Contains(log.String(), "fresh connection for every request") {
+		t.Fatalf("version %q, log %s", d.NextVersion, log.String())
 	}
 }

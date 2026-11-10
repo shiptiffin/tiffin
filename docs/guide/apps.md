@@ -804,6 +804,10 @@ no longer gets security fixes (14 and older; 15 after 2027-01-31). The deploy st
 ahead. The box's list is dated: once it is over 60 days old, its warnings and the deploy
 log say newer releases may exist, and it never reports a version as safe. With only a
 range and no text lockfile (`bun.lockb`), the log says the version could not be checked.
+Until an app moves past 16.4.5 (15.5.29 on 15), its instances get a new connection from
+the box for every request instead of reused ones: such a version can forward a fetched
+response with more bytes than it declares (GHSA-pc58-hwjq-p385), and on a reused
+connection those bytes would be read as another visitor's response.
 
 Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project's
 Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).
