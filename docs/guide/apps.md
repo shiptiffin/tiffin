@@ -970,7 +970,8 @@ What the box gives an Astro server app, besides the env every app gets:
   ```
 
   It is read at build time, so a new domain needs a new deploy, and deploy addresses
-  (`d-<id>--…`) are not in it.
+  (`d-<id>--…`) are not in it. The [`@shiptiffin/astro` integration](#the-shiptiffinastro-integration)
+  does this for you.
 
 The edge sends every request to the app with `Host` as the visitor sent it,
 `X-Forwarded-Proto: https`, `X-Forwarded-Host` (the same host, with a port only when the
@@ -986,6 +987,51 @@ recognized and launched the same way, on Node.js unless it sets `runtime`; `fram
 An app declared `framework: "static"` whose `astro.config` uses `@astrojs/node` (or whose
 build writes `dist/server/entry.mjs` and no `index.html`) fails with a hint to set
 `framework: "astro"` and remove `output`.
+
+### The `@shiptiffin/astro` integration
+
+One line in `astro.config.mjs` sets up the rest:
+
+```sh
+npm i @shiptiffin/astro @astrojs/node @shiptiffin/sdk
+```
+
+```js
+import { defineConfig } from "astro/config";
+import tiffin from "@shiptiffin/astro";
+
+export default defineConfig({ integrations: [tiffin()] });
+```
+
+At build it turns on, leaving alone anything your config already sets:
+
+- **The adapter**: `@astrojs/node` (standalone) when a page has `prerender = false`,
+  `output` is `"server"`, or the site uses server islands or Actions. A fully prerendered
+  site stays static.
+- **Proxy trust and `site`**: the app's hosts (`TIFFIN_HOSTS`, else the host of
+  `TIFFIN_URL`) go in `security.allowedDomains`, after your own entries, so `Astro.url`,
+  redirects and the origin check see the visitor's address; `site` comes from `TIFFIN_URL`
+  when unset. Both are fixed at build: redeploy after adding a domain.
+- **Sessions and the route cache on Valkey**: Astro sessions in the project's Valkey
+  (`VALKEY_PREFIX` + `sess:`, 30 days since last use, or your `session.ttl`) instead of
+  `@astrojs/node`'s files on the container's disk, which a deploy loses and instances don't
+  share. When the site uses `Astro.cache` or `routeRules`, cached pages go in Valkey too,
+  shared by every instance and invalidated on all of them; previews have their own.
+- **A health route**: `/_health` (`/_health/` with `trailingSlash: "always"`) answers 200
+  JSON from the Astro server; `health: { database: true }` also checks Postgres. The box
+  doesn't use it on its own: add `healthcheck: "/_health"` to the app in
+  `tiffin.config.ts`, so a deploy waits for the server to render a route (the default `/`
+  passes on any status below 500).
+- **Graceful shutdown**: `dist/server/entry.mjs` becomes a wrapper around the adapter's
+  entry (`astro-entry.mjs`), which the box starts as before; on `SIGTERM` requests in flight
+  finish, for up to 25 s.
+- A warning when the site uses server islands and `ASTRO_KEY` is not set (the box sets it).
+
+Each feature has an option (`tiffin({ cache: false, health: { path: "/healthz" } })`) and
+logs one line. Away from the box (`astro dev`, a build on your laptop) the box's variables
+are missing, so the features that need them do nothing. For sign-in use `authMiddleware`
+from `@shiptiffin/sdk/astro`. Every option:
+[the package's README](https://github.com/shiptiffin/tiffin/tree/main/packages/astro#readme).
 
 ## TanStack Start
 
