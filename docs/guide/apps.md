@@ -734,7 +734,9 @@ with Next.js 16.2 or later, the box adds its adapter to every build
 (`NEXT_ADAPTER_PATH`), which sets what next.config leaves unset:
 
 - `deploymentId`: the deploy's ID. A browser still on an older release reloads the page
-  instead of mixing builds.
+  instead of mixing builds. Files a page asks for with `?dpl=<deploy>` come from that
+  deploy's release while the box keeps it (a day), so files that keep their names across
+  builds (`/_next/static/<build id>/_buildManifest.js`) match the page that loads them.
 - With the project's KV (every project has it): `cacheHandler` and
   `cacheHandlers` (`default`, `remote`) from `@shiptiffin/sdk/next`, and `cacheMaxMemorySize: 0`,
   so the instances of an app share one cache and `revalidatePath`, `revalidateTag` and

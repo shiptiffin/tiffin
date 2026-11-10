@@ -112,6 +112,45 @@ func TestServeAssetAcrossReleases(t *testing.T) {
 	}
 }
 
+// With deploymentId set, every Next.js build has the same build id, so
+// /_next/static/<build id>/_buildManifest.js keeps its path across deploys
+// while its content changes; pages ask for it with ?dpl=<deploy>. Each
+// release answers for its own deploy, and a dpl the box does not know (or a
+// public file, the live release's only) falls back to the usual order.
+func TestServeAssetFollowsDeploymentID(t *testing.T) {
+	b := New(nil, nil)
+	base := t.TempDir()
+	next := `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]},{"dir":"public","path":"/","liveOnly":true}]`
+	man := "_next/static/build-TfctsWXpff2fKS/_buildManifest.js"
+	writeRelease(t, filepath.Join(base, "dep_1"), next, map[string]string{man: "routes of 1", "robots.txt": "v1"})
+	writeRelease(t, filepath.Join(base, "dep_2"), next, map[string]string{man: "routes of 2", "robots.txt": "v2"})
+	st := &Env{Project: "shop", App: "web", Live: "dep_2", Assets: base, Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
+	get := func(p string) string {
+		w := httptest.NewRecorder()
+		if !b.ServeAsset(w, httptest.NewRequest("GET", p, nil), st, "") {
+			return "-"
+		}
+		return w.Body.String()
+	}
+	for p, want := range map[string]string{
+		"/" + man + "?dpl=dep_1":   "routes of 1",
+		"/" + man + "?dpl=dep_2":   "routes of 2",
+		"/" + man:                  "routes of 2",
+		"/" + man + "?dpl=mine":    "routes of 2", // an app's own deploymentId
+		"/robots.txt?dpl=dep_1":    "v2",          // public/ stays live-only
+		"/_next/static/x.js?dpl=a": "-",
+	} {
+		if got := get(p); got != want {
+			t.Errorf("%s: %q, want %q", p, got, want)
+		}
+	}
+	// Past the day an earlier release is kept, its dpl gets the live copy.
+	st.Retired[0].At = time.Now().Add(-AssetsKept - time.Minute)
+	if got := get("/" + man + "?dpl=dep_1"); got != "routes of 2" {
+		t.Errorf("expired release: %q", got)
+	}
+}
+
 // Next.js 16.3+ immutable assets load without ?dpl from one shared path: a
 // chunk two releases have is the live one's, a chunk only the retired
 // release has is still found for a day; build manifests (with ?dpl) too.
