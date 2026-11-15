@@ -235,7 +235,7 @@ go.opentelemetry.io/auto/sdk v1.2.1                           Apache-2.0  [text 
 go.opentelemetry.io/contrib/bridges/prometheus v0.71.0        Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/contrib/exporters/autoexport v0.71.0      Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0  Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel v1.46.0                              Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel v1.47.0                              Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.22.0  Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.22.0  Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0  Apache-2.0, BSD-3-Clause  [text 132]
@@ -247,12 +247,12 @@ go.opentelemetry.io/otel/exporters/prometheus v0.68.0         Apache-2.0, BSD-3-
 go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.22.0   Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.46.0  Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.46.0  Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel/log v0.22.0                          Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel/metric v1.46.0                       Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel/sdk v1.46.0                          Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel/sdk/log v0.22.0                      Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel/sdk/metric v1.46.0                   Apache-2.0, BSD-3-Clause  [text 132]
-go.opentelemetry.io/otel/trace v1.46.0                        Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel/log v1.47.0                          Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel/metric v1.47.0                       Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel/sdk v1.47.0                          Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel/sdk/log v1.47.0                      Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel/sdk/metric v1.47.0                   Apache-2.0, BSD-3-Clause  [text 132]
+go.opentelemetry.io/otel/trace v1.47.0                        Apache-2.0, BSD-3-Clause  [text 132]
 go.opentelemetry.io/proto/otlp v1.11.1                        Apache-2.0  [text 2]
 go.step.sm/crypto v0.91.0                                     Apache-2.0  [text 2]
 go.step.sm/crypto/internal/bcrypt_pbkdf v0.91.0               BSD-2-Clause  [text 133]
@@ -262,16 +262,16 @@ go.uber.org/multierr v1.11.0                                  MIT  [text 136]
 go.uber.org/zap v1.28.0                                       MIT  [text 137]
 go.uber.org/zap/exp/zapslog v0.3.0                            MIT  [text 137]
 go.yaml.in/yaml/v3 v3.0.5                                     MIT  [text 138]
-golang.org/x/crypto v0.58.0                                   BSD-3-Clause  [text 6]
+golang.org/x/crypto v0.59.0                                   BSD-3-Clause  [text 6]
 golang.org/x/crypto/x509roots/fallback v0.0.0-20261030153154-30a33513ff6d  BSD-3-Clause  [text 6]
 golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba           BSD-3-Clause  [text 6]
 golang.org/x/image v0.47.0                                    BSD-3-Clause  [text 6]
 golang.org/x/net v0.62.0                                      BSD-3-Clause  [text 6]
 golang.org/x/oauth2 v0.37.0                                   BSD-3-Clause  [text 6]
-golang.org/x/sync v0.24.0                                     BSD-3-Clause  [text 6]
-golang.org/x/sys v0.49.0                                      BSD-3-Clause  [text 6]
-golang.org/x/term v0.47.0                                     BSD-3-Clause  [text 6]
-golang.org/x/text v0.43.0                                     BSD-3-Clause  [text 6]
+golang.org/x/sync v0.25.0                                     BSD-3-Clause  [text 6]
+golang.org/x/sys v0.50.0                                      BSD-3-Clause  [text 6]
+golang.org/x/term v0.48.0                                     BSD-3-Clause  [text 6]
+golang.org/x/text v0.44.0                                     BSD-3-Clause  [text 6]
 golang.org/x/time/rate v0.16.0                                BSD-3-Clause  [text 6]
 google.golang.org/api v0.298.0                                BSD-3-Clause  [text 139]
 google.golang.org/api/internal/third_party/uritemplates v0.298.0  BSD-3-Clause  [text 140]
@@ -415,12 +415,12 @@ world-atlas 2.0.2                               ISC  [text 173]
 Bundled into the auth engine (internal/mod/auth/engine/tiffin-auth.js.gz),
 which the binary embeds and runs on the box with Bun.
 
-@better-auth/api-key 1.7.14         MIT  [text 174]
-@better-auth/core 1.7.14            MIT  [text 174]
-@better-auth/kysely-adapter 1.7.14  MIT  [text 174]
-@better-auth/memory-adapter 1.7.14  MIT  [text 174]
-@better-auth/passkey 1.7.14         MIT  [text 174]
-@better-auth/telemetry 1.7.14       MIT  [text 174]
+@better-auth/api-key 1.7.22         MIT  [text 174]
+@better-auth/core 1.7.22            MIT  [text 174]
+@better-auth/kysely-adapter 1.7.22  MIT  [text 174]
+@better-auth/memory-adapter 1.7.22  MIT  [text 174]
+@better-auth/passkey 1.7.22         MIT  [text 174]
+@better-auth/telemetry 1.7.22       MIT  [text 174]
 @better-auth/utils 0.5.1            MIT  [text 175]
 @better-fetch/fetch 1.3.3           MIT  [text 176]
 @hexagon/base64 1.1.28              MIT  [text 177]
@@ -443,8 +443,8 @@ which the binary embeds and runs on the box with Bun.
 @simplewebauthn/server 13.3.3       MIT  [text 184]
 altcha-lib 2.6.0                    MIT  [text 185]
 asn1js 3.0.10                       BSD-3-Clause  [text 186]
-better-auth 1.7.14                  MIT  [text 174]
-better-call 1.4.4                   MIT  [text 187]
+better-auth 1.7.22                  MIT  [text 174]
+better-call 1.4.5                   MIT  [text 187]
 defu 6.1.7                          MIT  [text 188]
 jose 6.2.12                         MIT  [text 189]
 kysely 0.29.6                       MIT  [text 190]
@@ -1237,7 +1237,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 6] filippo.io/hpke v0.4.0, github.com/smallstep/pkcs7/internal/cryptobyte v0.2.3, golang.org/x/crypto v0.58.0, golang.org/x/crypto/x509roots/fallback v0.0.0-20261030153154-30a33513ff6d, golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba, golang.org/x/image v0.47.0, golang.org/x/net v0.62.0, golang.org/x/oauth2 v0.37.0, golang.org/x/sync v0.24.0, golang.org/x/sys v0.49.0, golang.org/x/term v0.47.0, golang.org/x/text v0.43.0, golang.org/x/time/rate v0.16.0 ----
+---- [text 6] filippo.io/hpke v0.4.0, github.com/smallstep/pkcs7/internal/cryptobyte v0.2.3, golang.org/x/crypto v0.59.0, golang.org/x/crypto/x509roots/fallback v0.0.0-20261030153154-30a33513ff6d, golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba, golang.org/x/image v0.47.0, golang.org/x/net v0.62.0, golang.org/x/oauth2 v0.37.0, golang.org/x/sync v0.25.0, golang.org/x/sys v0.50.0, golang.org/x/term v0.48.0, golang.org/x/text v0.44.0, golang.org/x/time/rate v0.16.0 ----
 
 Copyright 2009 The Go Authors.
 
@@ -7219,7 +7219,7 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----- [text 132] go.opentelemetry.io/contrib/bridges/prometheus v0.71.0, go.opentelemetry.io/contrib/exporters/autoexport v0.71.0, go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0, go.opentelemetry.io/otel v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.22.0, go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.22.0, go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0, go.opentelemetry.io/otel/exporters/prometheus v0.68.0, go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.22.0, go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.46.0, go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.46.0, go.opentelemetry.io/otel/log v0.22.0, go.opentelemetry.io/otel/metric v1.46.0, go.opentelemetry.io/otel/sdk v1.46.0, go.opentelemetry.io/otel/sdk/log v0.22.0, go.opentelemetry.io/otel/sdk/metric v1.46.0, go.opentelemetry.io/otel/trace v1.46.0 ----
+---- [text 132] go.opentelemetry.io/contrib/bridges/prometheus v0.71.0, go.opentelemetry.io/contrib/exporters/autoexport v0.71.0, go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0, go.opentelemetry.io/otel v1.47.0, go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.22.0, go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.22.0, go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0, go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0, go.opentelemetry.io/otel/exporters/prometheus v0.68.0, go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.22.0, go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.46.0, go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.46.0, go.opentelemetry.io/otel/log v1.47.0, go.opentelemetry.io/otel/metric v1.47.0, go.opentelemetry.io/otel/sdk v1.47.0, go.opentelemetry.io/otel/sdk/log v1.47.0, go.opentelemetry.io/otel/sdk/metric v1.47.0, go.opentelemetry.io/otel/trace v1.47.0 ----
 
 Apache License
                            Version 2.0, January 2004
@@ -8870,7 +8870,7 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
----- [text 174] @better-auth/api-key 1.7.14, @better-auth/core 1.7.14, @better-auth/kysely-adapter 1.7.14, @better-auth/memory-adapter 1.7.14, @better-auth/passkey 1.7.14, @better-auth/telemetry 1.7.14, better-auth 1.7.14 ----
+---- [text 174] @better-auth/api-key 1.7.22, @better-auth/core 1.7.22, @better-auth/kysely-adapter 1.7.22, @better-auth/memory-adapter 1.7.22, @better-auth/passkey 1.7.22, @better-auth/telemetry 1.7.22, better-auth 1.7.22 ----
 
 The MIT License (MIT)
 Copyright (c) 2024 - present, Bereket Engida
@@ -9188,7 +9188,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----- [text 187] better-call 1.4.4 ----
+---- [text 187] better-call 1.4.5 ----
 
 MIT License
 

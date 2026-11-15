@@ -13,7 +13,7 @@ import (
 // (packages/auth-engine pins it; a test keeps the two equal). Apps install
 // the same better-auth for their browser client: `tiffin auth show` prints it
 // and the engine reports it at /api/auth/tiffin/config.
-const BetterAuthVersion = "1.7.14"
+const BetterAuthVersion = "1.7.22"
 
 // ServerKey is a project's server key, TIFFIN_AUTH_KEY: "tak_<project>_<mac>",
 // an HMAC of the project's name under its engine secret. The project's apps
