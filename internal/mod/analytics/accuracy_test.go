@@ -39,8 +39,9 @@ func accuracyFixture(t *testing.T) *Module {
 	return m
 }
 
-// Cloud addresses, requests without Accept-Language and referrer spam are
-// bots; homes, loopback and private networks are people.
+// Cloud addresses, requests without Accept-Language, referrer spam and
+// page requests the edge saw no browser send are bots; homes, loopback and
+// private networks are people.
 func TestBotChecks(t *testing.T) {
 	ctx := context.Background()
 	m := accuracyFixture(t)
@@ -65,6 +66,7 @@ func TestBotChecks(t *testing.T) {
 		"server event, cloud":  {cloudServer, false},
 		"script, no language":  {Hit{Project: "shop", App: "web", Kind: "pageview", URL: "https://shop.box.test/a", IP: "81.2.69.142", UA: human(1), Src: "script"}, false},
 		"script with language": {Hit{Project: "shop", App: "web", Kind: "pageview", URL: "https://shop.box.test/a", IP: "81.2.69.142", UA: human(1), Src: "script", Lang: true}, true},
+		"edge, not a browser":  {Hit{Project: "shop", App: "web", Kind: "pageview", URL: "https://shop.box.test/", IP: "81.2.69.142", UA: human(1), Src: "edge", Lang: true, NotBrowser: "bot: HTTP/1.x over HTTPS"}, false},
 	} {
 		if ok, why := m.pipe.Add(ctx, c.h); ok != c.want {
 			t.Errorf("%s: accepted %v (%s), want %v", name, ok, why, c.want)

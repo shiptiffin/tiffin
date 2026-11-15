@@ -728,9 +728,15 @@ automatic events from deploys.
   events while the store catches up.
 - Your own visits are counted, like anyone's.
 - Bots that drive a real browser from a home or mobile IP address (residential
-  proxies) with a normal user agent count as people. The other way round, people
+  proxies) with a normal user agent count as people when they land on a page
+  directly (no `Referer`, or one from another site). Those that follow the site's
+  links from a new address for each page, or speak HTTP like a library, are dropped
+  at the edge (see [Analytics](analytics.md)). The other way round, people
   behind a VPN or proxy hosted at a cloud provider are not counted: their address
-  looks like a server's.
+  looks like a server's; nor, at the edge, are people behind a corporate proxy or
+  antivirus that rewrites HTTPS as HTTP/1.1.
+- Page views dropped as bots are not stored, so they cannot be counted back later.
+  Days already stored keep the bots counted under older rules.
 - Browsers that send no `Sec-Fetch-*` headers (Safari before 16.4, older browsers)
   are not counted at the edge.
 - A page the browser prerendered and the visitor then opened is not counted at the
