@@ -37,6 +37,9 @@ type Hit struct {
 	Lang bool
 	// FirstVisit is the first-visit cookie's id the edge named, if any.
 	FirstVisit string
+	// NotBrowser is why the edge saw that the request did not come from a
+	// browser (edge hits only; see edgeNotBrowser), or "".
+	NotBrowser string
 }
 
 // SessionIdle ends a session after this much inactivity.
@@ -82,7 +85,7 @@ func touchOf(e *Event) Touch {
 // Stats count what the pipeline did since start.
 type Stats struct {
 	Accepted int64 `json:"accepted"`
-	Bots     int64 `json:"bots" doc:"Hits dropped as bots, crawlers, monitors, scripts, cloud servers or referrer spam"`
+	Bots     int64 `json:"bots" doc:"Hits dropped as bots, crawlers, monitors, scripts, cloud servers, referrer spam, or page requests no browser sends (HTTP/1.x, an HTTP library's Accept-Encoding, a link followed from a page never loaded)"`
 	OptedOut int64 `json:"optedOut" doc:"Hits not counted because the browser sent Global Privacy Control"`
 	Invalid  int64 `json:"invalid"`
 	Buffered int   `json:"buffered"`
@@ -387,6 +390,8 @@ func (pl *Pipeline) bot(h Hit) string {
 		return "bot: cloud server IP"
 	case h.Referrer != "" && enrich.SpamReferrer(h.Referrer):
 		return "referrer spam"
+	case h.NotBrowser != "":
+		return h.NotBrowser
 	}
 	return ""
 }
