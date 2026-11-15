@@ -55,6 +55,7 @@ type Module struct {
 	vit      *Vitals
 	attr     *attrStore
 	settings settingsCache
+	recent   *recent // who requested what lately, for the edge's bot check
 	started  atomic.Bool
 	listErr  atomic.Value
 }
@@ -164,6 +165,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 func (m *Module) setup(p *platform.Platform, st Store, geo *enrich.Geo) {
 	m.p, m.store, m.geo = p, st, geo
 	m.rt = &Realtime{}
+	m.recent = &recent{}
 	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
 	if m.attr == nil {
 		m.attr, _ = openAttrStore(":memory:")

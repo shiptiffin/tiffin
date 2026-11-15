@@ -30,6 +30,20 @@ connected, of each payment: see [Marketing attribution](#marketing-attribution).
   sites on [Matomo's referrer spam list](https://github.com/matomo-org/referrer-spam-list)
   are dropped too. The script sends nothing from browsers driven by test tools
   (WebDriver, Selenium, Cypress). `tiffin status` shows how many were dropped.
+- **Scrapers dressed as browsers are dropped at the edge.** Some send a browser's
+  user agent and headers from home IP addresses, a new one for each page. How
+  they speak HTTP gives them away, so an edge page view is not counted when:
+  it came over HTTP/1.0 or 1.1 on HTTPS (every browser uses HTTP/2 or 3 there;
+  not checked when a proxy or CDN sits in front of the edge); its
+  `Accept-Encoding` is written without spaces (`gzip,deflate,br`), as HTTP
+  libraries do and browsers never do; or it followed a link on the project's
+  pages (its `Referer` is one of them) from an IP address and browser that had
+  loaded nothing from the project in the last 6 to 12 hours. The last check is
+  off for the first half hour after the box starts. A person whose IP address
+  changes in the middle of a visit (a phone switching networks, iCloud Private
+  Relay) loses the page views after the change, but was already counted as a
+  visitor. People behind a corporate proxy or antivirus that rewrites HTTPS
+  traffic as HTTP/1.1 are not counted from the edge.
 - **Visitors** are a hash of the project, the IP address and the user agent with
   a salt that changes every day and is deleted after 48 hours, so a person on two
   apps of a project is one visitor of the project. The IP and user agent are
