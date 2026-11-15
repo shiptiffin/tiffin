@@ -28,6 +28,24 @@ func TestRuntime(t *testing.T) {
 	}
 }
 
+// Astro is a framework of its own: on Bun or Node.js, with its own
+// command if it likes, written back as it was declared.
+func TestFrameworkAstro(t *testing.T) {
+	m, err := Parse([]byte(`{"project":"shop","apps":{"web":{"framework":"astro","runtime":"node","command":"node dist/server/entry.mjs"},"docs":{"framework":"astro"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := m.Apps["web"]; w.Framework != FrameworkAstro || w.Runtime != RuntimeNode || w.Healthcheck != DefaultHealthcheck {
+		t.Fatalf("web: %+v", w)
+	}
+	if got := string(RenderConfig(m, "")); strings.Count(got, `framework: "astro"`) != 2 {
+		t.Fatalf("framework astro is written:\n%s", got)
+	}
+	if _, err := Parse([]byte(`{"project":"shop","apps":{"web":{"framework":"astro","output":"dist"}}}`)); err == nil || !strings.Contains(err.Error(), "/apps/web/output") {
+		t.Errorf("output on an astro app: %v", err)
+	}
+}
+
 // Every project has Database, KV, Files (with the private bucket "files"),
 // Email and Analytics, whatever its config says; their settings still come
 // from the config.

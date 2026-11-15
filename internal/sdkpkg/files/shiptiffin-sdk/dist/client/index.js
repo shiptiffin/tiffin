@@ -8,7 +8,8 @@
  * - authConfig / errorText: which sign-in methods the app has, and errors in words
  *
  * Sign-in, sign-up and sessions use Better Auth's own client against the
- * box's /api/auth (see docs/guide/auth.md).
+ * box's /api/auth: createAuthClient from @shiptiffin/sdk/client/auth (its own
+ * entry, so better-auth loads only where it is used; see docs/guide/auth.md).
  */
 export { UploadError, abortUpload, uploadFile } from "./upload.js";
 export { subscribeRun } from "./run.js";

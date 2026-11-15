@@ -51,35 +51,52 @@ func (r *rt) touchAt(key string, at time.Time) {
 }
 
 // NoteActivity counts a request the edge served on an app's production
-// host at at, whoever answered it (the observe module reads the access log).
+// host at at (the observe module reads the access log), for a static site:
+// the edge serves its files itself. An app behind the switchboard counts
+// only the requests that reach its instances, which the switchboard
+// reports (pullActivity): files the box answers for it (prerendered pages,
+// client assets) never need it awake, so they do not keep it from sleeping.
 func (m *Module) NoteActivity(project, app string, at time.Time) {
 	if r, err := m.rt(); err == nil {
+		key := envKey(project, app, "")
+		r.mu.Lock()
+		switched := r.switched[key]
+		r.mu.Unlock()
+		if switched {
+			return
+		}
 		if now := time.Now(); at.After(now) {
 			at = now
 		}
-		r.touchAt(envKey(project, app, ""), at)
+		r.touchAt(key, at)
 	}
 }
 
 // NoteHostActivity counts a request the edge served on host at at, when
 // host is a static preview's: the edge serves those files itself, so this
 // (the observe module reads the access log) is how such a preview counts
-// as used and does not expire. Other hosts are ignored.
+// as used and does not expire. On the host of a preview behind the
+// switchboard it only notes the visit (visited), which keeps the preview
+// from expiring but not awake. Other hosts are ignored.
 func (m *Module) NoteHostActivity(host string, at time.Time) {
 	r, err := m.rt()
 	if err != nil {
 		return
 	}
-	r.mu.Lock()
-	env, ok := r.previewFiles[host]
-	r.mu.Unlock()
-	if !ok {
-		return
-	}
 	if now := time.Now(); at.After(now) {
 		at = now
 	}
-	r.touchAt(env, at)
+	r.mu.Lock()
+	env, ok := r.previewFiles[host]
+	if !ok {
+		if app, ok := r.previewApps[host]; ok && at.After(r.visited[app]) {
+			r.visited[app] = at
+		}
+	}
+	r.mu.Unlock()
+	if ok {
+		r.touchAt(env, at)
+	}
 }
 
 // lastActive is when s last had a request or delivery. Unknown since the
@@ -143,6 +160,13 @@ func (r *rt) saveActivity(ctx context.Context) {
 	for _, s := range states {
 		live[envKey(s.Project, s.App, s.Preview)] = true
 	}
+	r.mu.Lock()
+	for k := range r.visited {
+		if !live[k] {
+			delete(r.visited, k)
+		}
+	}
+	r.mu.Unlock()
 	saved, err := r.p.DB.KVList(ctx, nsActivity)
 	if err != nil {
 		return
@@ -348,7 +372,7 @@ func (r *rt) unpark(ctx context.Context, d *Deploy, spec *manifest.App, ins []In
 		go func() {
 			defer wg.Done()
 			if errs[i] = r.eng.Start(ctx, in.Name); errs[i] == nil {
-				errs[i] = r.waitHealthy(ctx, in, spec, r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name)))
+				errs[i] = r.waitHealthy(ctx, in, hintSpec(spec, d), r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name)))
 			}
 		}()
 	}

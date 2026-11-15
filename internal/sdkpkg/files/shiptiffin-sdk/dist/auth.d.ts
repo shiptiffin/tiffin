@@ -65,6 +65,8 @@ export type SessionOptions = AuthOptions & {
  * The signed-in user for a request (cookie or x-api-key), with their role in
  * the active organization, or null. Pass organizationId to check another
  * organization the user belongs to (API keys have no active organization).
+ * Without an auth endpoint (running locally, away from the box) it answers
+ * null, signed out, and warns once.
  *
  * Fast: a browser session is read from the engine's signed session cookie
  * (verified here with the engine's public key, no request), else asked of the
@@ -120,6 +122,50 @@ export declare function roleAtLeast(have: string | null | undefined, need: Role)
  */
 export declare function requireRole(request: Request, role: Role, opts?: SessionOptions): Promise<AuthSession & {
     organization: AuthOrganization;
+}>;
+/** An account as getUserByEmail and createUser return it. */
+export type ServerUser = {
+    id: string;
+    /** Lowercased, as the engine stores it. */
+    email: string;
+    name: string;
+    image: string | null;
+    emailVerified: boolean;
+    banned: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
+export type ServerAuthOptions = {
+    /** The engine on the box. Default TIFFIN_AUTH_INTERNAL_URL (never the public URL: these calls don't go through the edge). */
+    url?: string;
+    /** This app's host, which names the project. Default TIFFIN_AUTH_HOST. */
+    host?: string;
+    /** The project's server key. Default TIFFIN_AUTH_KEY. */
+    key?: string;
+    fetch?: typeof fetch;
+};
+/**
+ * The project's account with this email (any case), or null. For server code
+ * of the project's own apps on the box, e.g. a payment webhook matching a
+ * buyer to an account. Another project's apps can't read these users.
+ */
+export declare function getUserByEmail(email: string, opts?: ServerAuthOptions): Promise<ServerUser | null>;
+/**
+ * The project's account with this email, made now if there is none
+ * (`created: true`), else the one already there, unchanged. It makes only
+ * the account: nobody is signed in, no cookie is set and no email is sent.
+ * The address stays unconfirmed unless you pass `emailVerified: true`, which
+ * you should only do when you know the person controls it (a checkout form's
+ * email isn't proof). Unconfirmed, the first magic link or one-time code to
+ * that address confirms it and signs them in.
+ */
+export declare function createUser(input: {
+    email: string;
+    name?: string;
+    emailVerified?: boolean;
+}, opts?: ServerAuthOptions): Promise<{
+    user: ServerUser;
+    created: boolean;
 }>;
 type BeginSQL<T> = {
     begin: (fn: (tx: any) => Promise<T>) => Promise<T>;

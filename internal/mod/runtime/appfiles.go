@@ -47,18 +47,40 @@ func (r *rt) readApp(d *Deploy, spec *manifest.App, req *BuildRequest, log io.Wr
 		return &BuildError{Msg: err.Error(), Hint: "Fix vercel.json (or remove it): the box reads its build settings, crons, headers, redirects and rewrites."}
 	}
 	d.Launch = ""
-	if req.Dockerfile == "" && spec.Role != manifest.RoleWorker && (spec.Framework == manifest.FrameworkBun || spec.Framework == manifest.FrameworkStatic) {
+	server := spec.Framework == manifest.FrameworkBun || spec.Framework == manifest.FrameworkAstro
+	if req.Dockerfile == "" && spec.Role != manifest.RoleWorker && (server || spec.Framework == manifest.FrameworkStatic) {
 		// The framework's output follows the build command that runs: the
 		// app's settings win over vercel.json, which wins over package.json.
 		build := spec.Build
 		if build == "" && v != nil {
 			build = v.BuildCommand
 		}
-		if l := launchFor(appDir, spec.Runtime == manifest.RuntimeNode, build); l != nil && (l.Files != nil || spec.Framework == manifest.FrameworkBun) {
+		if spec.Framework == manifest.FrameworkStatic {
+			if deps, inConfig := astroNodeServer(appDir); deps && inConfig {
+				return staticAstroServerError(orDefaultStr(d.Dir, "."))
+			}
+		}
+		onNode := spec.Runtime == manifest.RuntimeNode
+		l := launchFor(appDir, onNode, build)
+		if server && spec.Runtime == "" && l != nil && l.ID == "astro" && l.Err == nil && l.Files == nil && packageDeps(appDir)["@astrojs/node"] {
+			// @astrojs/node supports Node.js only (Astro lists no Bun
+			// adapter): its server builds and runs on Node.js unless the app
+			// asks for Bun. The rest of the build reads req.Spec.
+			req.Spec.Runtime = manifest.RuntimeNode
+			l = launchFor(appDir, true, build)
+			fmt.Fprintf(log, "==> runtime: Node.js, as Astro's @astrojs/node adapter supports it (runtime: \"bun\" in tiffin.config.ts runs it on Bun)\n")
+		}
+		if l != nil && (l.Files != nil || server) {
+			if spec.Command != "" && l.Files == nil && l.Start != "" {
+				l.Start, l.Why = "", "the app's command ("+spec.Command+")"
+			}
 			req.Launch = l
 			if l.Files == nil && l.Err == nil {
 				d.Launch = l.ID
 			}
+		}
+		if spec.Framework == manifest.FrameworkAstro && (l == nil || l.ID != "astro") {
+			fmt.Fprintf(log, "==> note: framework is \"astro\" but %s/package.json does not list astro: building it like any Bun or Node server\n", orDefaultStr(d.Dir, "."))
 		}
 	}
 	if v == nil {
@@ -86,6 +108,16 @@ func (r *rt) readApp(d *Deploy, spec *manifest.App, req *BuildRequest, log io.Wr
 	}
 	req.Vercel, d.Vercel = v, v
 	return nil
+}
+
+// staticAstroServerError is the deploy error for an Astro app declared
+// static whose config uses @astrojs/node: the adapter builds a server
+// (<outDir>/server/entry.mjs, the pages in <outDir>/client), not a site of
+// files, so a static build finds no index.html to serve.
+func staticAstroServerError(dir string) *BuildError {
+	return &BuildError{Msg: "the app is declared framework \"static\", but " + dir + " is an Astro app with the @astrojs/node adapter, which builds a server (dist/server/entry.mjs), not a site of files",
+		Hint: "Set framework: \"astro\" in tiffin.config.ts (the app's Framework setting) and remove output, so the box runs the server and serves its prerendered pages itself. " +
+			"Or, for a site of files only, remove @astrojs/node and the adapter line from astro.config."}
 }
 
 // appCronSetter is the queue module: it replaces the crons an app's own

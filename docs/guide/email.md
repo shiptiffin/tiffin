@@ -4,10 +4,11 @@ Every app of every project can send mail: email is always there (list it in
 `services` only to set `from`).
 Until the box owner configures an SMTP relay, **nothing leaves the box**: every
 message is captured in the project's dev inbox, where you (and your agents) can
-read it, click its sign-in link and check how it looks. Preview deployments always
-use the dev inbox, even with a relay, and so does mail addressed only to domains
+read it, click its sign-in link and check how it looks. Mail a preview deployment's code
+sends stays in the dev inbox even with a relay, but the sign-in mail the box sends for a
+preview does not (see [Previews](#previews)). Mail addressed only to domains
 reserved for examples and tests (`example.com`, `.test`, `.invalid`, `.localhost`...),
-which no mail can reach: test sign-ups and invites never bounce off your relay.
+which no mail can reach, is captured too: test sign-ups and invites never bounce off your relay.
 
 ```ts
 // tiffin.config.ts
@@ -107,6 +108,22 @@ Cloudflare, new accounts start with a small daily quota, and messages are limite
 
 Each provider only sends from domains you have verified with it. The project's
 **Email settings** page checks the SPF, DKIM and DMARC records for its sender address.
+
+## Previews
+
+A preview deployment sends mail two ways, and they go to different places:
+
+| Mail | From a preview | Why |
+| --- | --- | --- |
+| What the app sends: its `SMTP_URL`, the SDK's `send`, any SMTP library | Always the dev inbox, even with a relay | The preview's `SMTP_URL` logs in as `<project>+<preview>`, and that mail is never relayed |
+| Sign-in mail the box's auth sends: verification, magic links, one-time codes, password resets, email changes, organization invites | Like production's: through the relay when there is one, so it reaches the real address; the dev inbox when there is none | Auth sends for every host of the project with the project's own mail settings; the people signing in on a preview are the app's real users |
+
+So a magic link asked for on a preview arrives in the user's real inbox once a relay is
+connected (it links back to the preview). Without a relay it lands in the dev inbox, and
+email sign-in still works on previews while production refuses it (`EMAIL_NOT_SET_UP`, see
+[Auth](auth.md)). An earlier version at [its own address](apps.md#every-versions-own-address)
+keeps all of its app's mail in the dev inbox, like a preview; mail to the reserved test
+domains above is captured whoever sends it.
 
 ## Mail from the box
 
@@ -291,7 +308,7 @@ change it: `tiffin email rate-limit set shop --per-hour 2000` (0 = unlimited).
 ## Under the hood
 
 Tiffin runs its own SMTP submission server on `127.0.0.1:2525` (go-smtp; AUTH
-PLAIN with the project's credentials; preview deployments log in as
-`<project>+<preview>`). Captured messages are stored as raw `.eml` files under
+PLAIN with the project's credentials; preview deployments' apps log in as
+`<project>+<preview>`, whose mail is always captured; the auth engine logs in as the project). Captured messages are stored as raw `.eml` files under
 `/var/lib/tiffin/email/messages/<project>/` with their metadata in the box's state
 database; both are in every backup set.

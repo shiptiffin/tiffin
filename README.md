@@ -292,6 +292,7 @@ What ends up inside your apps is [Apache-2.0](packages/sdk/LICENSE), so your app
 yours under whatever licence you choose:
 
 - the SDK: `packages/sdk` and its embedded copy in `internal/sdkpkg/files/shiptiffin-sdk`
+- the Astro integration: `packages/astro`
 - the starters, templates and examples: `internal/starters/files`, `templates`, `examples`
 - the analytics tracker: `packages/tracker` and `internal/mod/analytics/script.js`
 - the build glue the box writes into builds: `nextadapter.js`, `reactrouterserve.js`,

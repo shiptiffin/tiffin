@@ -394,7 +394,8 @@ export class Store {
     const k = this.entryKey(kind, key);
     this.lru.delete(k);
     const frame = encode(meta, value);
-    const ttl = Math.max(1, Math.min(Math.floor(ttlSeconds) || this.maxTtl, this.maxTtl));
+    // Rounded up: an entry that may live 0.5 s keeps 1 s, not the 30-day cap.
+    const ttl = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? Math.max(1, Math.min(Math.ceil(ttlSeconds), this.maxTtl)) : this.maxTtl;
     const args: Arg[] = [k, this.binary ? frame : frame.toString("base64"), "EX", String(ttl)];
     if (ifAbsent) args.push("NX");
     const p = this.send("SET", args).then(() => {});

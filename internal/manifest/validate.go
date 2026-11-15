@@ -436,7 +436,7 @@ func quoteList(ss []string) string {
 
 // boxEnv are variables the box sets for apps; prefixes end in "_".
 var boxEnv = []string{"PORT", "DATABASE_URL", "DIRECT_DATABASE_URL", "DATABASE_POOL_MAX", "REDIS_URL", "VALKEY_PREFIX", "SMTP_URL", "EMAIL_FROM", "SENTRY_DSN",
-	"S3_", "AWS_", "TIFFIN_", "OTEL_", "UPSTASH_REDIS_REST_", "KV_REST_API_", "NEXT_PUBLIC_SENTRY_DSN", "NEXT_PUBLIC_TIFFIN_"}
+	"S3_", "AWS_", "TIFFIN_", "OTEL_", "UPSTASH_REDIS_REST_", "KV_REST_API_", "NEXT_PUBLIC_SENTRY_DSN", "NEXT_PUBLIC_TIFFIN_", "PUBLIC_TIFFIN_URL"}
 
 // buildInlined are prefixes of env names that frameworks write into an
 // app's browser code at build time: Next.js (NEXT_PUBLIC_), Vite (VITE_),

@@ -1,0 +1,47 @@
+{
+  "name": "@shiptiffin/astro",
+  "version": "0.1.0",
+  "description": "One-line Astro integration for a ShipTiffin box: Node adapter, proxy trust, site URL, sessions and route cache on Valkey, a health route and graceful shutdown.",
+  "license": "Apache-2.0",
+  "author": "ShipTiffin <hello@shiptiffin.com> (https://shiptiffin.com)",
+  "homepage": "https://shiptiffin.com",
+  "repository": { "type": "git", "url": "git+https://github.com/shiptiffin/tiffin.git", "directory": "packages/astro" },
+  "bugs": { "url": "https://github.com/shiptiffin/tiffin/issues", "email": "hello@shiptiffin.com" },
+  "keywords": [
+    "tiffin", "shiptiffin", "self-hosted", "astro", "astro-integration", "withastro", "valkey", "redis", "sessions", "cache"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=22.12.0" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./session-driver": { "types": "./dist/session-driver.d.ts", "default": "./dist/session-driver.js" },
+    "./cache-provider": { "types": "./dist/cache-provider.d.ts", "default": "./dist/cache-provider.js" },
+    "./health": { "types": "./dist/health.d.ts", "default": "./dist/health.js" },
+    "./health-db": { "types": "./dist/health-db.d.ts", "default": "./dist/health-db.js" },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "check:pack": "bun run build && npm pack --dry-run",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@astrojs/node": "^11.1.11",
+    "astro": "^7.4.7"
+  },
+  "peerDependencies": {
+    "@astrojs/node": ">=11",
+    "@shiptiffin/sdk": ">=0.2.1",
+    "astro": "^7.2.1"
+  },
+  "peerDependenciesMeta": {
+    "@astrojs/node": { "optional": true },
+    "@shiptiffin/sdk": { "optional": true }
+  }
+}

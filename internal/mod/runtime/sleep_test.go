@@ -418,3 +418,104 @@ func TestSleepNeverCutsARequestUnderWay(t *testing.T) {
 		t.Fatalf("an app busy with a request went to sleep: %+v", st)
 	}
 }
+
+// Only requests that reach the app keep it awake: pages and files the box
+// serves itself never need it. The access log (NoteActivity) no longer
+// counts for an app behind the switchboard; it still does for a static site.
+func TestOnlyRequestsThatReachTheAppKeepItAwake(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.sleepy("1h")
+	h.deploy("api", "", map[string]string{
+		"package.json":                    `{"dependencies":{"@tanstack/react-start":"1"}}`,
+		".output/public/about/index.html": "<p>about</p>",
+	})
+	h.deploy("site", "", map[string]string{"index.html": "<h1>site</h1>"})
+	h.r.pullActivity()
+	h.idle("api", 2*time.Hour)
+	if code, body := h.get("shop.tiffin.localhost", "/api/about"); code != 200 || body != "<p>about</p>" {
+		t.Fatalf("page: %d %q", code, body)
+	}
+	h.m.NoteActivity("shop", "api", time.Now()) // the access log saw it
+	h.r.sleepIdle(ctx)
+	if st := h.state("api", ""); !st.Sleeping {
+		t.Fatalf("a page the box served kept the app awake: %+v", st)
+	}
+
+	// The access log is how a static site counts as used.
+	key := envKey("shop", "site", "")
+	h.r.mu.Lock()
+	h.r.lastSeen[key] = time.Now().Add(-time.Hour)
+	h.r.mu.Unlock()
+	h.m.NoteActivity("shop", "site", time.Now())
+	h.r.mu.Lock()
+	seen := h.r.lastSeen[key]
+	h.r.mu.Unlock()
+	if time.Since(seen) > time.Minute {
+		t.Fatalf("a static site's request is not activity: %v", seen)
+	}
+}
+
+// A visit to a sleeping preview's box-served files keeps the preview from
+// expiring, without counting as the app being used.
+func TestPreviewFilesVisitedKeepThePreview(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.deploy("api", "pr-1", map[string]string{"index.ts": "v1"})
+	h.r.sleep(ctx, "shop", "api", "pr-1", 0)
+	if !h.state("api", "pr-1").Sleeping {
+		t.Fatal("preview not asleep")
+	}
+	spec, _ := h.r.appSpec(ctx, "shop", "api")
+	host := previewHost("pr-1", "shop", "api", spec, h.p.AppsDomain())
+	key := envKey("shop", "api", "pr-1")
+	h.r.mu.Lock()
+	before := h.r.lastSeen[key]
+	h.r.mu.Unlock()
+	h.r.opt.PreviewExpire = 50 * time.Millisecond
+	time.Sleep(60 * time.Millisecond)
+	h.m.NoteHostActivity(host, time.Now())
+	h.r.mu.Lock()
+	after, visited := h.r.lastSeen[key], h.r.visited[key]
+	h.r.mu.Unlock()
+	if !after.Equal(before) || visited.IsZero() {
+		t.Fatalf("lastSeen %v → %v, visited %v", before, after, visited)
+	}
+	h.r.expirePreviews(ctx)
+	if h.state("api", "pr-1").Live == "" {
+		t.Fatal("a preview visited within PreviewExpire was deleted")
+	}
+	time.Sleep(60 * time.Millisecond)
+	h.r.expirePreviews(ctx)
+	if st := h.state("api", "pr-1"); st.Live != "" {
+		t.Fatalf("unused preview kept: %+v", st)
+	}
+}
+
+// Stop and preview delete let requests under way finish, up to a bound.
+func TestWaitDrained(t *testing.T) {
+	h := newHarness(t)
+	h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	ins := h.state("api", "").Instances
+	done := make(chan int, 1)
+	go func() {
+		code, _ := h.get("shop.tiffin.localhost", "/api/x?sleep=600ms")
+		done <- code
+	}()
+	waitFor(t, func() bool { return h.r.busy(ins) > 0 })
+	start := time.Now()
+	h.r.waitDrained(ins, 5*time.Second)
+	if h.r.busy(ins) != 0 || time.Since(start) > 3*time.Second {
+		t.Fatalf("not drained: busy %d after %v", h.r.busy(ins), time.Since(start))
+	}
+	if code := <-done; code != 200 {
+		t.Fatalf("request: %d", code)
+	}
+	go h.get("shop.tiffin.localhost", "/api/x?sleep=3s")
+	waitFor(t, func() bool { return h.r.busy(ins) > 0 })
+	start = time.Now()
+	h.r.waitDrained(ins, 200*time.Millisecond)
+	if el := time.Since(start); el < 200*time.Millisecond || el > 2*time.Second {
+		t.Fatalf("bound not kept: %v", el)
+	}
+}

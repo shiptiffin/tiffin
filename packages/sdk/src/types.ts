@@ -15,10 +15,14 @@ export type Slug = string;
  * - `"hono"`: Hono on Bun
  * - `"bun"`: any Bun server listening on `$PORT`
  * - `"static"`: served straight by Caddy
+ * - `"astro"`: Astro. With `@astrojs/node` (standalone) its server runs (on
+ *   Bun, or Node.js with `runtime: "node"`) and the edge serves its
+ *   prerendered pages and assets; without a server adapter it is built to
+ *   files the edge serves
  * - `"fastapi"`: FastAPI (Python), one Uvicorn process on `$PORT`
  * - `"python"`: any Python server listening on `$PORT` (Flask, Django...)
  */
-export type Framework = "next" | "hono" | "bun" | "static" | "fastapi" | "python";
+export type Framework = "next" | "hono" | "bun" | "static" | "astro" | "fastapi" | "python";
 
 /**
  * What an app instance does.

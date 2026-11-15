@@ -21,7 +21,8 @@ export type BuildDraft = {
   output?: string;
   /** The start command (the manifest's `command`). */
   start?: string;
-  runtime: "" | "node";
+  /** "" is the framework's default runtime (defaultRuntime). */
+  runtime: "" | "node" | "bun";
   /** "" is the default ("/"). */
   healthcheck: string;
   release: string;
@@ -42,9 +43,14 @@ export const commandLabel: Record<Command, string> = {
 
 const PYTHON = new Set(["fastapi", "python"]);
 
-const NAMES: Record<string, string> = { next: "Next.js", hono: "Hono", bun: "a Bun or Node server", static: "a static site", fastapi: "FastAPI", python: "a Python server" };
+const NAMES: Record<string, string> = { next: "Next.js", hono: "Hono", bun: "a Bun or Node server", static: "a static site", astro: "Astro", fastapi: "FastAPI", python: "a Python server" };
 const frameworkName = (f: string) => NAMES[f] ?? f;
 export const isPython = (framework: string) => PYTHON.has(framework);
+
+/** The runtime an app builds and runs on when it sets none: Node.js for Astro (its Node adapter), else Bun. */
+export const defaultRuntime = (framework: string): "node" | "bun" => (framework === "astro" ? "node" : "bun");
+/** The runtime a draft builds and runs on. */
+export const runtimeOf = (d: Pick<BuildDraft, "framework" | "runtime">) => d.runtime || defaultRuntime(d.framework);
 
 export function draftOf(spec: ManifestApp): BuildDraft {
   const b = spec.builder === "dockerfile" || spec.builder === "prebuilt" ? spec.builder : "";
@@ -58,7 +64,7 @@ export function draftOf(spec: ManifestApp): BuildDraft {
     build: spec.build || undefined,
     output: spec.output || undefined,
     start: spec.command || undefined,
-    runtime: spec.runtime === "node" ? "node" : "",
+    runtime: spec.runtime === "node" || spec.runtime === "bun" ? spec.runtime : "",
     healthcheck: spec.healthcheck && spec.healthcheck !== "/" ? spec.healthcheck : "",
     release: spec.release ?? "",
     watch: (spec.watch ?? []).join("\n"),
@@ -87,7 +93,7 @@ export function rowsFor(d: BuildDraft, role?: string) {
 export function detected(d: BuildDraft): Record<Command, string> {
   if (d.builder === "dockerfile") return { install: "Set in the Dockerfile", build: "Set in the Dockerfile", output: "", start: "The image’s own command (CMD)" };
   if (d.builder === "prebuilt") return { install: "Built elsewhere", build: "Built elsewhere", output: "", start: "The image’s own command (CMD)" };
-  const node = d.runtime === "node";
+  const node = runtimeOf(d) === "node";
   if (isPython(d.framework))
     return { install: "uv sync, by your project files (Railpack)", build: "None", output: "", start: d.framework === "fastapi" ? "uvicorn, its app found for you, on $PORT" : "Detected from your project, on $PORT" };
   const install = node ? "npm install, or your lockfile’s" : "bun install, or your lockfile’s";
@@ -185,8 +191,13 @@ export function editsFor(app: string, spec: ManifestApp, d: BuildDraft): StagedE
   const outputOK = !image && (d.framework === "static" || d.framework === "next");
   if (!outputOK && spec.output) set(at("output"), spec.output, undefined, `Set ${app}’s output directory back to the detected one`, `${app} serves ${spec.output} again`);
 
-  const runtime = !image && d.framework !== "static" && d.framework !== "hono" && !isPython(d.framework) && d.runtime === "node" ? "node" : undefined;
-  set(at("runtime"), spec.runtime, runtime, runtime ? `Set ${app}’s runtime to Node.js` : `Set ${app}’s runtime to Bun`, `${app} goes back to ${spec.runtime === "node" ? "Node.js" : "Bun"}`);
+  // Only a runtime other than the framework's default is written; an app's
+  // explicit choice stays as it is until the form changes it.
+  const rtWords = (r: string) => (r === "node" ? "Node.js" : "Bun");
+  const canRuntime = !image && d.framework !== "static" && d.framework !== "hono" && !isPython(d.framework);
+  const runtime = canRuntime && d.runtime && (d.runtime !== defaultRuntime(d.framework) || d.runtime === spec.runtime) ? d.runtime : undefined;
+  const runtimeWas = spec.runtime || defaultRuntime(spec.framework);
+  set(at("runtime"), spec.runtime, runtime, `Set ${app}’s runtime to ${rtWords(runtime ?? defaultRuntime(d.framework))}`, `${app} goes back to ${rtWords(runtimeWas)}`);
   if (d.builder === "dockerfile" && spec.packages?.length) set(at("packages"), spec.packages, undefined, `Remove ${app}’s packages: its Dockerfile installs them`, `${app}’s image gets ${spec.packages.join(", ")} again`);
 
   const hc = d.framework === "static" ? "" : d.healthcheck.trim();

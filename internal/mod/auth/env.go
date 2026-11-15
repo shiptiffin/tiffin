@@ -27,6 +27,7 @@ func hasAuth(res map[string]change.Resource) bool {
 //	TIFFIN_AUTH_INTERNAL_URL  the engine on the box (server-side calls skip the edge)
 //	TIFFIN_AUTH_HOST          the app's host: internal calls name it in x-tiffin-auth-host, which holds them to this project
 //	TIFFIN_AUTH_JWKS_URL      keys for verifying the engine's JWTs
+//	TIFFIN_AUTH_KEY           the project's server key: finding and creating its users from server code (ServerKey)
 func (*Module) Env(ctx context.Context, p *platform.Platform, project, app string) (map[string]string, error) {
 	_, res, err := p.DB.Load(ctx, project)
 	if err != nil || !hasAuth(res) {
@@ -44,12 +45,18 @@ func (*Module) Env(ctx context.Context, p *platform.Platform, project, app strin
 		}
 	}
 	base := p.URL(host) + PathPrefix
-	return map[string]string{
+	env := map[string]string{
 		"TIFFIN_AUTH_URL":          base,
 		"TIFFIN_AUTH_INTERNAL_URL": "http://" + net.JoinHostPort(hostIP(ctx, p), enginePort) + PathPrefix,
 		"TIFFIN_AUTH_HOST":         host,
 		"TIFFIN_AUTH_JWKS_URL":     base + "/jwks",
-	}, nil
+	}
+	key, err := serverKeyFor(ctx, p, project)
+	if err != nil {
+		return nil, err
+	}
+	env["TIFFIN_AUTH_KEY"] = key
+	return env, nil
 }
 
 // PreviewEnv points a preview's auth env at the preview's own host (Env only

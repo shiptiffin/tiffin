@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 
@@ -85,4 +86,31 @@ func (r *rt) liveHosts(ctx context.Context) ([]LiveHost, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
 	return out, nil
+}
+
+// hostsEnv names the hosts an app environment answers on, comma-separated,
+// in its build env: an Astro app's config can allow them
+// (security.allowedDomains), so Astro trusts the edge's X-Forwarded-Host
+// and -Proto for them.
+const hostsEnv = "TIFFIN_HOSTS"
+
+// envHosts are the hosts an app environment is served on: a preview's own,
+// or production's routes (the box's names and the app's own domains,
+// whether or not they are live yet). Deploy addresses (d-<id>--...) are
+// left out: they change with every deploy, and the build env would too.
+func (r *rt) envHosts(project, app, preview string, spec *manifest.App) []string {
+	if spec.Role == manifest.RoleWorker {
+		return nil
+	}
+	if preview != "" {
+		return []string{strings.ToLower(previewHost(preview, project, app, spec, r.p.AppsDomain()))}
+	}
+	var out []string
+	for _, route := range appRoutes(project, app, spec) {
+		host, _ := r.splitRoute(route)
+		if !slices.Contains(out, host) {
+			out = append(out, host)
+		}
+	}
+	return out
 }

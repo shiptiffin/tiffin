@@ -621,9 +621,12 @@ func (a *app) buildOutput(prefix, text string) {
 	}
 }
 
-// previewNote is what a preview shares with production (the dashboard says
-// the same).
-const previewNote = "Previews use this project's live data. Email goes to the dev inbox."
+// previewNote is what a preview shares with production. Mail: the app's
+// own (its SMTP_URL names the preview) is captured in the dev inbox; the
+// sign-in mail the box's auth sends for it goes the project's way, like
+// production's (internal/mod/auth: one SMTP_URL for every host).
+const previewNote = "A preview gets its own database branch (unless postgres previews is \"shared\") and shares production's users, files and KV. " +
+	"Mail the app sends is kept in the dev inbox; sign-in mail (verification, magic links, codes, invites) is sent like production's, so it reaches real inboxes once the box has a mail relay."
 
 func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
 	preview := false

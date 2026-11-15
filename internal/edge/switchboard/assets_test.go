@@ -112,6 +112,45 @@ func TestServeAssetAcrossReleases(t *testing.T) {
 	}
 }
 
+// With deploymentId set, every Next.js build has the same build id, so
+// /_next/static/<build id>/_buildManifest.js keeps its path across deploys
+// while its content changes; pages ask for it with ?dpl=<deploy>. Each
+// release answers for its own deploy, and a dpl the box does not know (or a
+// public file, the live release's only) falls back to the usual order.
+func TestServeAssetFollowsDeploymentID(t *testing.T) {
+	b := New(nil, nil)
+	base := t.TempDir()
+	next := `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]},{"dir":"public","path":"/","liveOnly":true}]`
+	man := "_next/static/build-TfctsWXpff2fKS/_buildManifest.js"
+	writeRelease(t, filepath.Join(base, "dep_1"), next, map[string]string{man: "routes of 1", "robots.txt": "v1"})
+	writeRelease(t, filepath.Join(base, "dep_2"), next, map[string]string{man: "routes of 2", "robots.txt": "v2"})
+	st := &Env{Project: "shop", App: "web", Live: "dep_2", Assets: base, Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
+	get := func(p string) string {
+		w := httptest.NewRecorder()
+		if !b.ServeAsset(w, httptest.NewRequest("GET", p, nil), st, "") {
+			return "-"
+		}
+		return w.Body.String()
+	}
+	for p, want := range map[string]string{
+		"/" + man + "?dpl=dep_1":   "routes of 1",
+		"/" + man + "?dpl=dep_2":   "routes of 2",
+		"/" + man:                  "routes of 2",
+		"/" + man + "?dpl=mine":    "routes of 2", // an app's own deploymentId
+		"/robots.txt?dpl=dep_1":    "v2",          // public/ stays live-only
+		"/_next/static/x.js?dpl=a": "-",
+	} {
+		if got := get(p); got != want {
+			t.Errorf("%s: %q, want %q", p, got, want)
+		}
+	}
+	// Past the day an earlier release is kept, its dpl gets the live copy.
+	st.Retired[0].At = time.Now().Add(-AssetsKept - time.Minute)
+	if got := get("/" + man + "?dpl=dep_1"); got != "routes of 2" {
+		t.Errorf("expired release: %q", got)
+	}
+}
+
 // Next.js 16.3+ immutable assets load without ?dpl from one shared path: a
 // chunk two releases have is the live one's, a chunk only the retired
 // release has is still found for a day; build manifests (with ?dpl) too.
@@ -359,5 +398,142 @@ func TestReleaseMetaKeptOnlyWhileServed(t *testing.T) {
 	read(&Env{Live: "dep_1", Assets: base})
 	if c := cached(); c["dep_1"] {
 		t.Fatalf("a release the table does not serve was cached: %v", c)
+	}
+}
+
+// Only requests that reach an instance are activity: a prerendered page or
+// a client asset the board answers itself never needs the app awake, so it
+// must not keep the app from sleeping.
+func TestActivityCountsRequestsThatReachTheApp(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "app") }))
+	t.Cleanup(app.Close)
+	base := t.TempDir()
+	meta := `[{"dir":"dist/client","path":"/","immutable":["/_astro/"],"pages":true}]`
+	writeRelease(t, filepath.Join(base, "dep_1"), meta, map[string]string{"about/index.html": "about", "_astro/a.js": "js"})
+	os.WriteFile(filepath.Join(base, "dep_1", PagesFile), []byte(`{"/about":"about/index.html","/about/":"about/index.html"}`), 0o644)
+	b := New(nil, nil)
+	b.Set(Table{
+		Hosts: map[string][]Route{"app.test": {{Env: "p/a"}}},
+		Envs: map[string]*Env{"p/a": {Project: "p", App: "a", Live: "dep_1", Assets: base,
+			Instances: []Instance{{Name: "p-a-1", Port: portOf(t, app.Listener.Addr().String())}}}},
+	})
+	get := func(p string) string {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "http://app.test"+p, nil)
+		b.ServeHTTP(w, req)
+		return w.Body.String()
+	}
+	for _, p := range []string{"/about", "/_astro/a.js"} {
+		if got := get(p); got == "app" || got == "" {
+			t.Fatalf("%s: %q, want the board's file", p, got)
+		}
+		if _, ok := b.Activity()["p/a"]; ok {
+			t.Fatalf("%s, answered by the board, counted as activity", p)
+		}
+	}
+	before := time.Now()
+	if got := get("/contact"); got != "app" {
+		t.Fatalf("/contact: %q", got)
+	}
+	if at, ok := b.Activity()["p/a"]; !ok || at.Before(before) {
+		t.Fatalf("a request that reached the app is not activity: %v %v", at, ok)
+	}
+}
+
+// A .br copy the build wrote is served to a client that takes Brotli and not
+// zstd; a client that takes zstd keeps getting the box's zstd copy, and a
+// file with no .br copy falls back as before.
+func TestBuildBrotliCopyIsServed(t *testing.T) {
+	b := New(nil, nil)
+	base := t.TempDir()
+	dir := filepath.Join(base, "dep_1")
+	js := strings.Repeat("console.log('hello from a chunk');\n", 200)
+	writeRelease(t, dir, `[{"dir":"build/client","path":"/","immutable":["/_app/immutable/"]}]`,
+		map[string]string{"_app/immutable/a.js": js, "_app/immutable/b.js": js})
+	if _, err := Precompress(filepath.Join(dir, "www")); err != nil {
+		t.Fatal(err)
+	}
+	// The build's own Brotli copy: marker bytes stand in for a Brotli stream.
+	if err := os.WriteFile(filepath.Join(dir, "www", "_app/immutable/a.js.br"), []byte("BROTLI-BYTES"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &Env{Project: "shop", App: "web", Live: "dep_1", Assets: base}
+	get := func(file, ae string, rng string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/_app/immutable/"+file, nil)
+		req.Header.Set("Accept-Encoding", ae)
+		if rng != "" {
+			req.Header.Set("Range", rng)
+		}
+		w := httptest.NewRecorder()
+		if !b.ServeAsset(w, req, st, "") {
+			t.Fatal("not served")
+		}
+		return w
+	}
+	for _, c := range []struct{ file, ae, enc string }{
+		{"a.js", "gzip, deflate, br", "br"},
+		{"a.js", "gzip, deflate, br, zstd", "zstd"},
+		{"a.js", "br;q=0, gzip", "gzip"},
+		{"b.js", "gzip, br", "gzip"}, // no .br copy
+	} {
+		w := get(c.file, c.ae, "")
+		if got := w.Header().Get("Content-Encoding"); got != c.enc || w.Header().Get("Vary") != "Accept-Encoding" {
+			t.Errorf("%s with %q: encoding %q vary %q, want %q", c.file, c.ae, got, w.Header().Get("Vary"), c.enc)
+		}
+	}
+	w := get("a.js", "br", "")
+	if w.Body.String() != "BROTLI-BYTES" || !strings.HasSuffix(w.Header().Get("ETag"), `-br"`) || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Errorf("br response: body %q etag %q cache %q", w.Body.String(), w.Header().Get("ETag"), w.Header().Get("Cache-Control"))
+	}
+	etag := w.Header().Get("ETag")
+	if etag == get("a.js", "zstd", "").Header().Get("ETag") {
+		t.Error("the br and zstd representations share an ETag")
+	}
+	// Ranges address the encoded bytes, as for the other copies.
+	if r := get("a.js", "br", "bytes=0-5"); r.Code != http.StatusPartialContent || r.Body.String() != "BROTLI" || r.Header().Get("Content-Encoding") != "br" {
+		t.Errorf("range: %d %q %q", r.Code, r.Body.String(), r.Header().Get("Content-Encoding"))
+	}
+	req := httptest.NewRequest("GET", "/_app/immutable/a.js", nil)
+	req.Header.Set("Accept-Encoding", "br")
+	req.Header.Set("If-None-Match", etag)
+	w2 := httptest.NewRecorder()
+	b.ServeAsset(w2, req, st, "")
+	if w2.Code != http.StatusNotModified {
+		t.Errorf("If-None-Match: %d, want 304", w2.Code)
+	}
+}
+
+// ?dpl= reorders releases only; it never changes where a release's files
+// are. An Astro app with its own outDir (build/client) and a SvelteKit app
+// (build/client, /_app/immutable/) still get their hashed files and
+// prerendered pages with any dpl, the deploy's own, another or none.
+func TestServeAssetDplWithOwnOutDir(t *testing.T) {
+	b := New(nil, nil)
+	for _, c := range []struct{ name, meta, hashed string }{
+		{"astro", `[{"dir":"build/client","path":"/","immutable":["/_astro/"],"pages":true}]`, "_astro/a.js"},
+		{"sveltekit", `[{"dir":"build/client","path":"/","immutable":["/_app/immutable/"],"pages":true}]`, "_app/immutable/a.js"},
+	} {
+		base := t.TempDir()
+		writeRelease(t, filepath.Join(base, "dep_1"), c.meta, map[string]string{c.hashed: "old chunk"})
+		writeRelease(t, filepath.Join(base, "dep_2"), c.meta, map[string]string{c.hashed: "new chunk", "favicon.svg": "icon"})
+		st := &Env{Project: "shop", App: "web", Live: "dep_2", Assets: base, Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
+		get := func(p string) string {
+			w := httptest.NewRecorder()
+			if !b.ServeAsset(w, httptest.NewRequest("GET", p, nil), st, "") {
+				return "-"
+			}
+			return w.Body.String()
+		}
+		for p, want := range map[string]string{
+			"/" + c.hashed:                "new chunk",
+			"/" + c.hashed + "?dpl=dep_2": "new chunk",
+			"/" + c.hashed + "?dpl=dep_1": "old chunk",
+			"/" + c.hashed + "?dpl=nope":  "new chunk",
+			"/favicon.svg?dpl=dep_1":      "icon",
+		} {
+			if got := get(p); got != want {
+				t.Errorf("%s %s: %q, want %q", c.name, p, got, want)
+			}
+		}
 	}
 }

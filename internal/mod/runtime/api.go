@@ -978,8 +978,11 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 	if err := r.st.deleteState(ctx, st); err != nil {
 		return err
 	}
-	_ = r.refreshIfNeeded(ctx)
-	r.removeInstances(ctx, slices.Concat(st.Instances, st.Parked))
+	ins := slices.Concat(st.Instances, st.Parked)
+	if r.refreshIfNeeded(ctx) == nil {
+		r.waitDrained(ins, r.opt.StopGrace)
+	}
+	r.removeInstances(ctx, ins)
 	if d, err := r.st.getDeploy(ctx, project, app, st.Live); err == nil {
 		d.Status = StatusStopped
 		_ = r.st.putDeploy(ctx, d)

@@ -662,6 +662,38 @@ func TestGitHubLatePushNeverRollsBack(t *testing.T) {
 	}
 }
 
+// A push a restart cut short (a box update mid-build) is built again on
+// start. The deploy records the repository as its URL and the app spec as
+// owner/name; the retry must match the two, as on a real box.
+func TestGitHubRebuildsPushInterruptedByRestart(t *testing.T) {
+	g := newGHHarness(t)
+	ctx := context.Background()
+	g.connect()
+	if _, err := g.f.AddRepo("octo/shop", false, map[string]string{"web/index.html": "<h1>v1</h1>"}); err != nil {
+		t.Fatal(err)
+	}
+	g.connectSite(manifest.Git{Repo: "octo/shop", Branch: "main", Path: "web", Previews: manifest.PreviewsOff})
+	sha, _ := g.f.Commit("octo/shop", "main", map[string]string{"web/index.html": "<h1>v2</h1>"}, "v2")
+	spec, _ := g.r.appSpec(ctx, "shop", "site")
+	cut, _ := g.r.newDeploy(ctx, "shop", "site", "", SourceGit, "box", spec)
+	cut.Status, cut.Repo, cut.Ref, cut.Commit = StatusBuilding, g.r.ghEndpoints().RepoURL("octo/shop"), "main", sha
+	if !strings.HasPrefix(cut.Repo, "https://") {
+		t.Fatalf("deploys record the repository URL: %q", cut.Repo)
+	}
+	g.r.st.putDeploy(ctx, cut)
+	if err := g.r.recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	g.r.retryInterrupted(ctx)
+	d := g.waitFor("site", func(d *Deploy) bool { return d.ID != cut.ID && d.Commit == sha })
+	if d.Status != StatusLive || d.Trigger != "redeploy" {
+		t.Fatalf("rebuilt: %+v", d)
+	}
+	if _, body := g.get("shop.tiffin.localhost", "/"); body != "<h1>v2</h1>" {
+		t.Fatalf("live: %q", body)
+	}
+}
+
 // A final report GitHub refuses (rate limited, down) is kept and retried,
 // not dropped: the commit would stay "pending" for good.
 func TestGitHubRetriesFailedReports(t *testing.T) {

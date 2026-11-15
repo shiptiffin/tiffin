@@ -31,7 +31,8 @@ const maxBeacon = 8 << 10
 // loaded: a GET with a 2xx or 304 response for a top-level document that
 // is not a prefetch or prerender, and not a file like a script or an
 // image (scanners and people opening one in a tab send the same headers).
-// Bots are filtered later (user agent, Accept-Language, cloud IPs).
+// Bots are filtered later (user agent, Accept-Language, cloud IPs, and
+// edgeNotBrowser).
 func EdgePageview(e *edgelog.Entry) bool {
 	p, _, _ := strings.Cut(e.URI, "?")
 	if assetExt[strings.ToLower(path.Ext(p))] || strings.HasPrefix(p, "/_next/") {
@@ -62,10 +63,35 @@ var assetExt = map[string]bool{
 	".woff": true, ".woff2": true, ".ttf": true, ".otf": true, ".mp4": true, ".webm": true, ".mp3": true,
 }
 
+// edgeNotBrowser returns why a page request was not sent by a browser,
+// or "". Scrapers that send a browser's user agent and Sec-Fetch headers
+// from home IP addresses pass every other check; how they speak HTTP gives
+// them away:
+//   - HTTP/1.x over HTTPS: every browser speaks HTTP/2 or HTTP/3 to the
+//     edge, which offers both. Not checked when a proxy (a CDN) sits in
+//     front of the edge and may speak HTTP/1.1 itself.
+//   - Accept-Encoding written as "gzip,deflate,br": browsers separate the
+//     encodings with a comma and a space; HTTP libraries often do not.
+func edgeNotBrowser(e *edgelog.Entry) string {
+	if e.TLS && strings.HasPrefix(e.Proto, "HTTP/1.") && e.Header("Via") == "" && e.Header("Cf-Ray") == "" &&
+		e.Header("X-Forwarded-For") == "" && e.Header("Forwarded") == "" {
+		return "bot: HTTP/1.x over HTTPS"
+	}
+	if ae := e.Header("Accept-Encoding"); ae != "" {
+		for i := 0; i+1 < len(ae); i++ {
+			if ae[i] == ',' && ae[i+1] != ' ' {
+				return "bot: Accept-Encoding no browser sends"
+			}
+		}
+	}
+	return ""
+}
+
 // handleEdge turns one access log line into a pageview when it is one.
+// Every request to an analytics project's hosts is noted in m.recent first.
 func (m *Module) handleEdge(ctx context.Context, line []byte) {
 	e, ok := edgelog.Parse(line)
-	if !ok || !EdgePageview(&e) {
+	if !ok {
 		return
 	}
 	path, _, _ := strings.Cut(e.URI, "?")
@@ -73,9 +99,22 @@ func (m *Module) handleEdge(ctx context.Context, line []byte) {
 	if !ok || !site.Analytics {
 		return
 	}
+	ua := e.Header("User-Agent")
+	before, sure := m.recent.seen(site.Project, e.ClientIP, ua, e.Time)
+	if !EdgePageview(&e) {
+		return
+	}
+	ref := e.Header("Referer")
+	why := edgeNotBrowser(&e)
+	if why == "" && sure && !before && ref != "" && m.ownPage(ctx, site.Project, ref) {
+		// A click on a link of the site by someone who loaded nothing from
+		// it: a crawler that changes IP address on every request. (A
+		// person whose address changed mid-visit was counted at the old one.)
+		why = "bot: followed a link from a page it never loaded"
+	}
 	m.pipe.Add(ctx, Hit{At: e.Time, Project: site.Project, App: site.App, Kind: "pageview", URL: e.URI, Host: e.Host,
-		Referrer: e.Header("Referer"), IP: e.ClientIP, UA: e.Header("User-Agent"), Src: "edge", GPC: e.Header("Sec-GPC") == "1",
-		Lang: e.Header("Accept-Language") != "", FirstVisit: e.FirstVisit})
+		Referrer: ref, IP: e.ClientIP, UA: ua, Src: "edge", GPC: e.Header("Sec-GPC") == "1",
+		Lang: e.Header("Accept-Language") != "", FirstVisit: e.FirstVisit, NotBrowser: why})
 }
 
 // ownPage reports whether ref is a page served by one of project's apps.

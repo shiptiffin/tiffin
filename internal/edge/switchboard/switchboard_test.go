@@ -266,3 +266,100 @@ func TestCloseStreamsEndsWebSockets(t *testing.T) {
 		t.Fatal("the stream was not closed")
 	}
 }
+
+// An app that sends more than its response declares (Next.js before the fix
+// for GHSA-pc58-hwjq-p385 forwarding a fetched, decompressed body with the
+// compressed original's Content-Length): on a pooled connection the extra
+// bytes, a whole response, are taken as the next request's answer, another
+// client's. Go's client does not pipeline, but a request that picks up the
+// connection before the client notices the stray bytes still reads them.
+// An instance with FreshConns gets a connection per request, so they never
+// reach anyone.
+func TestFreshConnsKeepStrayBytesFromOtherClients(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	var conns atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conns.Add(1)
+			go func() {
+				defer c.Close()
+				r := bufio.NewReader(c)
+				for {
+					req, err := http.ReadRequest(r)
+					if err != nil {
+						return
+					}
+					io.Copy(io.Discard, req.Body)
+					if req.URL.Path == "/forward" {
+						io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 5\r\n\r\nhello"+
+							"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\ninjected")
+					} else {
+						io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nmine")
+					}
+					if req.Close {
+						return
+					}
+				}
+			}()
+		}
+	}()
+	port := portOf(t, ln.Addr().String())
+	run := func(fresh bool) (injected, total int) {
+		b := New(nil, nil)
+		b.Set(Table{
+			Hosts: map[string][]Route{"app.test": {{Env: "p/a"}}},
+			Envs:  map[string]*Env{"p/a": {Project: "p", App: "a", Live: "d1", Instances: []Instance{{Name: "p-a-1", Port: port, FreshConns: fresh}}}},
+		})
+		srv := httptest.NewServer(b)
+		defer srv.Close()
+		var bad, all atomic.Int32
+		done := make(chan struct{})
+		for w := 0; w < 32; w++ {
+			go func(w int) {
+				defer func() { done <- struct{}{} }()
+				for i := 0; i < 150; i++ {
+					p := "/mine"
+					if (i+w)%4 == 0 {
+						p = "/forward"
+					}
+					req, _ := http.NewRequest("GET", srv.URL+p, nil)
+					req.Host = "app.test"
+					res, err := srv.Client().Do(req)
+					if err != nil {
+						continue
+					}
+					body, _ := io.ReadAll(res.Body)
+					res.Body.Close()
+					if p == "/mine" {
+						all.Add(1)
+						if string(body) != "mine" {
+							bad.Add(1)
+						}
+					}
+				}
+			}(w)
+		}
+		for w := 0; w < 32; w++ {
+			<-done
+		}
+		return int(bad.Load()), int(all.Load())
+	}
+	before := conns.Load()
+	if bad, all := run(true); bad != 0 || all == 0 {
+		t.Fatalf("with FreshConns %d of %d responses were another request's", bad, all)
+	}
+	if n := conns.Load() - before; n < 32*150 {
+		t.Errorf("FreshConns: %d connections for %d requests", n, 32*150)
+	}
+	// Without it the pool is exposed; logged, not required (it is a race).
+	bad, all := run(false)
+	t.Logf("pooled connections: %d of %d responses were another request's", bad, all)
+}

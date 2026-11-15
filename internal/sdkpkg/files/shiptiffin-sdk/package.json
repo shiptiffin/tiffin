@@ -1,7 +1,7 @@
 {
   "name": "@shiptiffin/sdk",
-  "version": "0.2.1",
-  "description": "The SDK for apps on a ShipTiffin box: config, KV (Valkey), file storage, queues, durable workflows, auth, email, analytics and Next.js helpers, with nothing to set up.",
+  "version": "0.3.0",
+  "description": "The SDK for apps on a ShipTiffin box: config, KV (Valkey), file storage, queues, durable workflows, auth, email, analytics and Next.js and Astro helpers, with nothing to set up.",
   "license": "Apache-2.0",
   "author": "ShipTiffin <hello@shiptiffin.com> (https://shiptiffin.com)",
   "homepage": "https://shiptiffin.com",
@@ -19,6 +19,7 @@
     "shiptiffin",
     "self-hosted",
     "nextjs",
+    "astro",
     "bun",
     "valkey",
     "redis",
@@ -74,6 +75,10 @@
       "types": "./dist/client/index.d.ts",
       "default": "./dist/client/index.js"
     },
+    "./client/auth": {
+      "types": "./dist/client/auth-client.d.ts",
+      "default": "./dist/client/auth-client.js"
+    },
     "./email": {
       "types": "./dist/email.d.ts",
       "default": "./dist/email.js"
@@ -93,6 +98,10 @@
     "./auth": {
       "types": "./dist/auth.d.ts",
       "default": "./dist/auth.js"
+    },
+    "./astro": {
+      "types": "./dist/astro.d.ts",
+      "default": "./dist/astro.js"
     },
     "./next": {
       "types": "./dist/next/index.d.ts",

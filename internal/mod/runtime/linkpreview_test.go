@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -134,5 +135,59 @@ func TestLinkPreview(t *testing.T) {
 	}
 	if rep, _ := h.r.st.getLinkPreview(context.Background(), "shop", "site", d2.ID); rep != nil {
 		t.Fatal("report outlived its deploy")
+	}
+}
+
+// A preview's page names its share image on the project's production
+// address, which resolves to the box: the box reads it from production's
+// live version on the box, not over the network (whose client refuses the
+// box's own addresses). Only the project's own app routes map; anything
+// else is left to the outside client's refusals.
+func TestLinkPreviewImageOnProjectAddress(t *testing.T) {
+	h := newHarness(t)
+	prod := h.deploy("site", "", map[string]string{"public/index.html": "<title>Shop</title>", "public/og.png": ogPNG(t, 1200, 630)})
+	h.waitLinkPreview("site", prod.ID)
+	page := `<title>Shop preview</title><meta property="og:title" content="Shop – fresh bread daily">` +
+		`<meta property="og:image" content="https://shop.tiffin.localhost:8443/og.png"><meta name="twitter:card" content="summary_large_image">`
+	pv := h.deploy("site", "pr-1", map[string]string{"public/index.html": page})
+	rep := h.waitLinkPreview("site", pv.ID)
+	if im := rep.Image; im == nil || im.Error != "" || im.Status != 200 || im.Width != 1200 || !im.Thumb {
+		t.Fatalf("share image on production's address: %+v", rep.Image)
+	}
+
+	ctx := context.Background()
+	links := h.r.projectLinks("shop")
+	for _, raw := range []string{
+		"https://shop.tiffin.localhost:8443/og.png",
+		"https://SHOP.tiffin.localhost.:8443/og.png",
+		"http://shop.tiffin.localhost/og.png",
+	} {
+		u, _ := url.Parse(raw)
+		at, c, err := links(ctx, u)
+		if err != nil || at == nil || c == nil || at.Host != "static.invalid" || at.Path != "/og.png" {
+			t.Errorf("%s: mapped to %v (%v)", raw, at, err)
+		}
+	}
+	// The longest route wins: shop/api is the api app, asleep here (no instances).
+	if u, _ := url.Parse("https://shop.tiffin.localhost:8443/api/og.png"); true {
+		if _, _, err := links(ctx, u); err == nil || !strings.Contains(err.Error(), "api serves it") {
+			t.Errorf("shop/api: %v", err)
+		}
+	}
+	for _, raw := range []string{
+		"https://dashboard.tiffin.localhost:8443/og.png",  // the box's dashboard and API
+		"https://other.tiffin.localhost:8443/og.png",      // not this project's
+		"https://pr-1--shop.tiffin.localhost:8443/og.png", // a preview's address is no production route
+		"https://shop.tiffin.localhost:9999/og.png",       // not the edge's port
+		"https://shop.tiffin.localhost/og.png",            // nor 443 on a box on 8443
+		"https://127.0.0.1:8443/og.png",
+		"https://[::1]:8443/og.png",
+		"https://localhost:8443/og.png",
+		"https://example.com/og.png",
+	} {
+		u, _ := url.Parse(raw)
+		if at, c, err := links(ctx, u); at != nil || c != nil || err != nil {
+			t.Errorf("%s: mapped to %v (%v), want left alone", raw, at, err)
+		}
 	}
 }

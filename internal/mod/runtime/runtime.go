@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -137,6 +138,15 @@ type rt struct {
 	// previewFiles: the hosts of static previews (the edge serves their
 	// files, so the switchboard never sees their requests) → environment.
 	previewFiles map[string]string
+	// previewApps: the hosts of previews behind the switchboard →
+	// environment; visited: when the edge last served one of their files
+	// (not activity: only requests that reach an app keep it awake), which
+	// keeps the preview from expiring as unused.
+	previewApps map[string]string
+	visited     map[string]time.Time
+	// switched: production environments behind the switchboard, whose
+	// activity is the requests that reach their instances (Activity).
+	switched map[string]bool
 	// addrs: what routes found at deploy addresses (see deployaddr.go).
 	addrs deployAddrs
 	// gateKey signs the deploy-address gate's hand-off links and cookies;
@@ -203,7 +213,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{}, leftover: map[string]bool{},
-		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
+		lastSeen: map[string]time.Time{}, visited: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	if bb, ok := opt.Builder.(*boxBuilder); ok && bb.diskPressure == nil {
 		bb.diskPressure = r.diskPressure
 	}
@@ -359,8 +369,15 @@ func (r *rt) recover(ctx context.Context) error {
 // repository is left as it is.
 func (r *rt) retryInterrupted(ctx context.Context) {
 	for _, d := range r.interrupted {
+		// The deploy records the repository's URL, the spec its owner/name.
+		repo := r.ghEndpoints().RepoFullName(d.Repo)
 		spec, perr := r.checkDeployable(ctx, d.Project, d.App, "", false)
-		if perr != nil || spec.Git == nil || spec.Git.Repo != d.Repo {
+		if perr != nil || spec.Git == nil || !strings.EqualFold(spec.Git.Repo, repo) {
+			why := "the app is no longer connected to " + repo
+			if perr != nil {
+				why = perr.Error()
+			}
+			r.p.Log.Warn("runtime: not deploying again after a restart", "deploy", d.ID, "project", d.Project, "app", d.App, "why", why)
 			continue
 		}
 		c, err := r.github(ctx)
@@ -368,9 +385,9 @@ func (r *rt) retryInterrupted(ctx context.Context) {
 			r.p.Log.Warn("runtime: deploy again after a restart", "deploy", d.ID, "err", err)
 			return
 		}
-		inst, err := r.repoInstallation(ctx, c, d.Repo)
+		inst, err := r.repoInstallation(ctx, c, repo)
 		if err == nil {
-			_, err = r.enqueue(ctx, &ghJob{Project: d.Project, App: d.App, Repo: d.Repo, SHA: d.Commit, Branch: cmp.Or(d.Ref, spec.Git.Branch),
+			_, err = r.enqueue(ctx, &ghJob{Project: d.Project, App: d.App, Repo: repo, SHA: d.Commit, Branch: cmp.Or(d.Ref, spec.Git.Branch),
 				Message: d.Message, Author: d.Author, Installation: inst, Trigger: "redeploy", By: "box", Path: spec.Git.Path})
 		}
 		if err != nil {

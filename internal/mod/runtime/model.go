@@ -81,7 +81,7 @@ type Deploy struct {
 	SPAPage string `json:"spaPage,omitempty" doc:"The page a single-page app's paths without a file serve, when not /index.html (React Router's /__spa-fallback.html, Nuxt's /200.html)"`
 	// Launch is the full-stack framework the box started the build's server
 	// for (launch.go), when it knows it.
-	Launch string `json:"launch,omitempty" enum:"sveltekit,nuxt,react-router," doc:"The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt or react-router; empty for any other app"`
+	Launch string `json:"launch,omitempty" enum:"sveltekit,nuxt,react-router,astro,tanstack-start," doc:"The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt, react-router, astro or tanstack-start; empty for any other app"`
 	// Assets are the build's client-asset directories the box serves itself.
 	Assets []AssetDir `json:"assets,omitempty" doc:"Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day)"`
 	// Dir is the app's folder in its source when the source is a whole
@@ -100,6 +100,8 @@ type Deploy struct {
 	// PublicEnv identifies the browser-visible env the build had.
 	PublicEnv   string  `json:"publicEnv,omitempty" doc:"Hash of the env the build wrote into browser code (NEXT_PUBLIC_*, VITE_*, PUBLIC_*). When it changes, the box rebuilds the app from this deploy's source."`
 	ReleaseSecs float64 `json:"releaseSeconds,omitempty" doc:"Time the app's release command took"`
+	// NextVersion is the next version the build installed, as its lockfile says.
+	NextVersion string `json:"nextVersion,omitempty" doc:"Next.js apps: the next version the build installed (from its lockfile, or an exact version in package.json); empty when the box could not tell"`
 	// LinkPreview is filled in when the deploy is read, never stored with it.
 	LinkPreview *linkpreview.LinkSummary `json:"linkPreview,omitempty" doc:"Web apps, once live: what a shared link to the home page shows, in brief (title, share image), each problem the box found and what changed since the version before. deploys link-preview has the whole report."`
 }
@@ -123,6 +125,9 @@ type Instance struct {
 	Name   string `json:"name" doc:"Container name"`
 	Port   int    `json:"port" doc:"Localhost port the instance listens on"`
 	Deploy string `json:"deploy"`
+	// FreshConns: the switchboard opens a new connection for each request
+	// to it (a Next.js with GHSA-pc58-hwjq-p385, see nextFreshConns).
+	FreshConns bool `json:"freshConns,omitempty"`
 }
 
 // AppState is what runs for one app environment (production or a preview).

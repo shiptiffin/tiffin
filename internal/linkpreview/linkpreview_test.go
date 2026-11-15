@@ -3,6 +3,7 @@ package linkpreview
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -319,5 +320,78 @@ func TestRunLengthsAndXTags(t *testing.T) {
 		if c.Status == StatusBad {
 			t.Errorf("bad: %+v", c)
 		}
+	}
+}
+
+// A link Box maps (the project's production address, seen from a
+// preview) is read where Box says, with its own Host, following redirects
+// Box maps too; a link it doesn't map is left to the outside client, and a
+// mapped app that can't be read says why.
+func TestRunImageOnBox(t *testing.T) {
+	var prodHost string
+	prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prodHost = r.Host
+		switch r.URL.Path {
+		case "/og":
+			http.Redirect(w, r, "/og.png", http.StatusFound)
+		case "/og.png":
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(pngOf(t, 1200, 630))
+		case "/away":
+			http.Redirect(w, r, "https://elsewhere.example/og.png", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer prod.Close()
+	prodURL, _ := url.Parse(prod.URL)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var asked []string
+	box := func(_ context.Context, u *url.URL) (*url.URL, *http.Client, error) {
+		asked = append(asked, u.Host)
+		switch u.Hostname() {
+		case "shop.example":
+			at := *u
+			at.Scheme, at.Host = prodURL.Scheme, prodURL.Host
+			return &at, noFollow, nil
+		case "asleep.example":
+			return nil, nil, errors.New("web serves it, and is asleep now")
+		}
+		return nil, nil, nil
+	}
+	for _, c := range []struct{ image, err string }{
+		{"https://shop.example/og.png", ""},
+		{"https://shop.example/og", ""},
+		{"https://shop.example/away", "redirects away"},
+		{"https://asleep.example/og.png", "asleep"},
+		{"https://127.0.0.1/og.png", "doesn't fetch images from 127.0.0.1"},
+		{"https://localhost/og.png", "doesn't fetch images from localhost"},
+		{"https://10.0.0.4/og.png", "doesn't fetch images from 10.0.0.4"},
+	} {
+		prodHost, asked = "", nil
+		a := &app{files: map[string][]byte{"/": []byte(`<title>x</title><meta property="og:image" content="` + c.image + `">`)},
+			types: map[string]string{"/": "text/html"}}
+		tg := target(t, a, "https://pr-1--shop.shiptiffin.app/")
+		tg.Preview, tg.Box = true, box
+		r, th := Run(context.Background(), tg, "dep_1")
+		im := r.Image
+		if c.err == "" {
+			if im == nil || im.Error != "" || im.Width != 1200 || th == nil || prodHost != "shop.example" {
+				t.Errorf("%s: image %+v, production saw host %q", c.image, im, prodHost)
+			}
+			continue
+		}
+		if im == nil || !strings.Contains(im.Error, c.err) || im.Thumb {
+			t.Errorf("%s: image %+v, want error %q", c.image, im, c.err)
+		}
+	}
+	// The preview's own address is read from the preview, never through Box.
+	asked = nil
+	a := &app{files: map[string][]byte{"/": []byte(`<title>x</title><meta property="og:image" content="/og.png">`), "/og.png": pngOf(t, 1200, 630)},
+		types: map[string]string{"/": "text/html"}}
+	tg := target(t, a, "https://pr-1--shop.shiptiffin.app/")
+	tg.Box = box
+	if r, _ := Run(context.Background(), tg, "dep_1"); r.Image == nil || r.Image.Error != "" || len(asked) != 0 {
+		t.Errorf("own image: %+v, Box asked for %v", r.Image, asked)
 	}
 }

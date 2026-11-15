@@ -7042,6 +7042,8 @@ export interface components {
             organization: components["schemas"]["AuthOrg"];
         };
         AuthOverview: {
+            /** @description The Better Auth release the box's auth engine runs. Install the same better-auth version for the app's browser client */
+            betterAuthVersion: string;
             /** @description The box can't send email yet: in production, email + password sign-up, magic links, one-time codes and password resets are refused (EMAIL_NOT_SET_UP) until a mail service is connected. Previews use the dev inbox */
             emailBlocked: boolean;
             emailVerification: components["schemas"]["AuthEmailVerificationState"];
@@ -12629,10 +12631,10 @@ export interface components {
             /** @description Image reference in the box's containerd store */
             image?: string;
             /**
-             * @description The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt or react-router; empty for any other app
+             * @description The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt, react-router, astro or tanstack-start; empty for any other app
              * @enum {string}
              */
-            launch?: "sveltekit" | "nuxt" | "react-router" | "";
+            launch?: "sveltekit" | "nuxt" | "react-router" | "astro" | "tanstack-start" | "";
             /** @description Web apps, once live: what a shared link to the home page shows, in brief (title, share image), each problem the box found and what changed since the version before. deploys link-preview has the whole report. */
             linkPreview?: components["schemas"]["LinkSummary"];
             /**
@@ -12642,6 +12644,8 @@ export interface components {
             liveAt?: string;
             /** @description The commit's message (first line), for deploys from GitHub */
             message?: string;
+            /** @description Next.js apps: the next version the build installed (from its lockfile, or an exact version in package.json); empty when the box could not tell */
+            nextVersion?: string;
             /** @description Production: the app's other addresses that answer too, such as <project>.<apps domain> once its own domain is appUrl. An own domain still waiting for DNS is not listed. */
             otherUrls?: string[] | null;
             /** @description Preview name, empty for production */
@@ -13039,6 +13043,7 @@ export interface components {
         };
         RuntimeInstance: {
             deploy: string;
+            freshConns?: boolean;
             /** @description Container name */
             name: string;
             /**
@@ -13049,6 +13054,7 @@ export interface components {
         };
         RuntimeInstanceStatus: {
             deploy: string;
+            freshConns?: boolean;
             /** @description Container name */
             name: string;
             /**
@@ -13143,7 +13149,7 @@ export interface components {
              * @description How the box would build it
              * @enum {string}
              */
-            framework: "next" | "hono" | "bun" | "static" | "fastapi" | "python";
+            framework: "next" | "hono" | "bun" | "static" | "astro" | "fastapi" | "python";
             /** @description The package name, if any */
             name?: string;
             /** @description Folder inside the repository; empty for the top */

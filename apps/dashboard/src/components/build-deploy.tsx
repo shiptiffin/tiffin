@@ -12,7 +12,7 @@ import { Segmented } from "@/components/segmented";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchThumb } from "@/components/ui/switch";
-import { COMMANDS, commandLabel, detected, draftOf, editsFor, problems, rowsFor, type BuildDraft, type Builder, type Command } from "@/lib/build-config";
+import { COMMANDS, commandLabel, defaultRuntime, detected, draftOf, editsFor, problems, rowsFor, runtimeOf, type BuildDraft, type Builder, type Command } from "@/lib/build-config";
 import { cn } from "@/lib/cn";
 import { PRESETS } from "@/lib/frameworks";
 import { repoQuery } from "@/lib/github";
@@ -180,8 +180,8 @@ export function BuildAndDeploy({ project, app, spec, writer }: { project: string
           <Row label="Runtime" hint="Bun starts faster and uses less memory; Node.js if a library needs it.">
             <Segmented
               label="Runtime"
-              value={d.runtime || "bun"}
-              onChange={(v) => set({ runtime: v === "node" ? "node" : "" })}
+              value={runtimeOf(d)}
+              onChange={(v) => set({ runtime: v === defaultRuntime(d.framework) ? "" : v === "node" ? "node" : "bun" })}
               options={[
                 { value: "bun", label: "Bun" },
                 { value: "node", label: "Node.js" },

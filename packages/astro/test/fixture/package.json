@@ -1,0 +1,6 @@
+{
+  "name": "shiptiffin-astro-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "astro build" }
+}

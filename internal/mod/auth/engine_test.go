@@ -243,8 +243,39 @@ func TestEngineContract(t *testing.T) {
 	if st := call("GET", "/v1/projects/shop/auth", nil, &ov); st != 200 || ov.Stats.Users != 1 || ov.Endpoint != "https://shop.tiffin.localhost:8443/api/auth" {
 		t.Fatalf("overview: %d %+v", st, ov)
 	}
-	if !ov.Organizations || ov.Social["google"] || len(ov.Hosts) != 3 {
+	if !ov.Organizations || ov.Social["google"] || len(ov.Hosts) != 3 || ov.BetterAuthVersion != BetterAuthVersion {
 		t.Fatalf("overview settings: %+v", ov)
+	}
+
+	// An app's server code finds users with the key the box gives it, on the
+	// engine's internal address only.
+	env, err := m.Env(ctx, p, "shop", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := func(host, key string) (int, []byte) {
+		req, _ := http.NewRequestWithContext(ctx, "POST", pub+"/tiffin/server/find-user", strings.NewReader(`{"email":"ADA@example.com"}`))
+		req.Host = host
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tiffin-Auth-Host", env["TIFFIN_AUTH_HOST"])
+		req.Header.Set("X-Tiffin-Auth-Key", key)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		raw, _ := io.ReadAll(res.Body)
+		return res.StatusCode, raw
+	}
+	internalHost := fmt.Sprintf("127.0.0.1:%d", port)
+	if st, body := server(internalHost, env["TIFFIN_AUTH_KEY"]); st != 200 || !strings.Contains(string(body), `"email":"ada@example.com"`) {
+		t.Fatalf("find-user: %d %s", st, body)
+	}
+	if st, _ := server(internalHost, ServerKey("blog", "some-other-project-secret-0123456789")); st != 401 {
+		t.Fatalf("another key: %d", st)
+	}
+	if st, _ := server("shop.tiffin.localhost:8443", env["TIFFIN_AUTH_KEY"]); st != 404 {
+		t.Fatalf("through the edge: %d", st)
 	}
 	var users UserList
 	if st := call("GET", "/v1/projects/shop/auth/users?search=ADA", nil, &users); st != 200 || len(users.Items) != 1 || users.NextCursor != "" || users.Items[0].Email != "ada@example.com" {

@@ -28,7 +28,7 @@ func TestGuessFramework(t *testing.T) {
 		{`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt build"}}`, "bun", "", false},
 		{`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt generate"}}`, "static", "", false},
 		{`{"devDependencies":{"@remix-run/dev":"2"},"scripts":{"build":"remix vite:build"}}`, "bun", "Remix", false},
-		{`{"dependencies":{"astro":"7","@astrojs/node":"11"},"scripts":{"build":"astro build"}}`, "bun", "", false},
+		{`{"dependencies":{"astro":"7","@astrojs/node":"11"},"scripts":{"build":"astro build"}}`, "astro", "", false},
 		{`{"dependencies":{"astro":"7","@astrojs/vercel":"9"},"scripts":{"build":"astro build"}}`, "bun", "Astro with the @astrojs/vercel adapter", false},
 		{`{"dependencies":{"@tanstack/react-start":"1","nitro":"3"},"scripts":{"build":"vite build","start":"node .output/server/index.mjs"}}`, "bun", "", false},
 		{`{"dependencies":{"@tanstack/solid-start":"1"},"scripts":{"build":"vite build"}}`, "bun", "TanStack Start for Solid", false},

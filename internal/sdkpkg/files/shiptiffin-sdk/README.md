@@ -87,12 +87,14 @@ needs is already in the environment.
 | [`/queue`](#queues) | Background jobs the box pushes to your app, with retries, delays, dedupe and per-key limits |
 | [`/workflow`](#workflows) | Durable workflows: steps, sleeps, events and approvals that survive restarts and deploys |
 | [`/verify`](#verify) | Checks that a cron or queue call came from your box |
-| [`/auth`](#sign-in) | Sessions, roles and organization-scoped SQL on the server, for any framework |
+| [`/auth`](#sign-in) | Sessions, roles, users by email and organization-scoped SQL on the server, for any framework |
 | [`/next/auth`](#sign-in-with-nextjs) | Sign-in for the Next.js App Router: `proxy.ts`, `verifySession()`, Server Actions |
+| [`/astro`](#sign-in-with-astro) | Sign-in for Astro: middleware that fills `Astro.locals`, `requireSession()`, `requireRole()` |
 | [`/email`](#email) | Sends mail, React Email components included |
 | [`/analytics`](#analytics) | Server-side events for the box's cookieless analytics |
 | [`/vitals`, `/next/vitals`](#web-vitals) | Web Vitals from real visitors |
 | [`/client`](#in-the-browser) | Browser helpers: `uploadFile`, `subscribeRun`, the bot check |
+| [`/client/auth`](#sign-in) | Better Auth's browser client set up for the box (needs `better-auth`) |
 | [`/next/*`](#nextjs-cache-and-images) | Next.js cache handlers backed by Valkey, and an image loader |
 
 ## Config
@@ -292,21 +294,36 @@ export async function GET(request: Request) {
 
 Most requests are checked locally against a session cookie the engine signs, without a network
 call, so a revoked session can take up to 60 seconds to reach your code. Pass
-`{ fresh: true }` for sensitive actions.
+`{ fresh: true }` for sensitive actions. Away from the box (no `TIFFIN_AUTH_URL`), `getSession`
+answers `null` and warns once, so the app runs locally signed out.
+
+Server code can find or make the project's accounts by email, say in a payment webhook that
+sells access before the buyer has signed up. Nobody is signed in and no email is sent; the
+address stays unconfirmed until the buyer signs in with a magic link or code:
+
+```ts
+import { createUser, getUserByEmail } from "@shiptiffin/sdk/auth";
+
+const { user, created } = await createUser({ email: session.customer_details.email });
+const existing = await getUserByEmail("ana@example.com"); // or null
+```
 
 The forms are yours, built on Better Auth's client. When the app has the proof-of-work bot
 check on, sign-up and sign-in need a solved one; `prepareCaptcha()` solves it in the background
 and gives no headers when the check is off:
 
 ```ts
-import { createAuthClient } from "better-auth/client";
+import { createAuthClient } from "@shiptiffin/sdk/client/auth"; // basePath and the box's plugins set
 import { prepareCaptcha } from "@shiptiffin/sdk/client";
 
-const authClient = createAuthClient({ basePath: "/api/auth" });
+const authClient = createAuthClient();
 const captcha = prepareCaptcha();
 
 await authClient.signUp.email({ name, email, password }, { headers: await captcha() });
 ```
+
+Install the `better-auth` version the box runs: `(await authConfig()).betterAuthVersion`, or
+`tiffin auth show <project>`.
 
 ## Sign-in with Next.js
 
@@ -346,6 +363,33 @@ export async function signOutAction() {
 
 `requireRole("admin")` answers 403 when the role is too low. `attachCaptcha(form)` from
 `/client` adds the bot check to a plain form.
+
+## Sign-in with Astro
+
+`/astro` reads the session once per request into `Astro.locals` and keeps signed-out visitors
+out of the paths you protect. It needs nothing from `astro` at runtime.
+
+```ts
+// src/middleware.ts
+import { authMiddleware } from "@shiptiffin/sdk/astro";
+
+export const onRequest = authMiddleware({ protect: ["/app/:path*"], signIn: "/sign-in" });
+```
+
+```ts
+// src/pages/api/notes.ts
+import type { APIRoute } from "astro";
+import { requireRole } from "@shiptiffin/sdk/astro";
+
+export const GET: APIRoute = async (context) => {
+  const s = await requireRole(context, "member");
+  if (s instanceof Response) return s; // 401 or 403
+  return Response.json({ org: s.organization.name });
+};
+```
+
+Signed out on a protected page: a redirect to `/sign-in?next=...`; under `/api/`: 401.
+Prerendered pages are left alone.
 
 ## Email
 
@@ -489,7 +533,7 @@ images: { loader: "custom", loaderFile: "./image-loader.ts" },
 - **Next.js 16** with the App Router comes first: `/next/auth`, the cache handlers, the image
   loader and `<WebVitals />`. The peer range is `next >= 15`.
 - **Any framework with Web `Request` and `Response`**: Hono, `Bun.serve`, TanStack Start,
-  SvelteKit, Astro, React Router. Handlers such as `defineHandler`, `uploadRoute` and
+  SvelteKit, Astro (with `/astro`), React Router. Handlers such as `defineHandler`, `uploadRoute` and
   `workflow.handler()` are plain `(Request) => Promise<Response>` functions.
 - **Bun and Node.js 20+** on the server, and any modern browser for `/client` and `/vitals`.
 - **Outside the box** (tests, scripts, your laptop), the helpers read the same environment

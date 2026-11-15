@@ -25,7 +25,8 @@ type Entry struct {
 	Method   string
 	Host     string // lowercased, no port
 	URI      string // path and query as requested
-	Proto    string
+	Proto    string // HTTP/1.1, HTTP/2.0 or HTTP/3.0
+	TLS      bool   // the request came over HTTPS
 	Status   int
 	Duration float64 // seconds
 	Size     int64
@@ -57,6 +58,7 @@ type rawEntry struct {
 		Host     string              `json:"host"`
 		URI      string              `json:"uri"`
 		Headers  map[string][]string `json:"headers"`
+		TLS      json.RawMessage     `json:"tls"`
 	} `json:"request"`
 	Duration   float64 `json:"duration"`
 	Size       int64   `json:"size"`
@@ -80,6 +82,7 @@ func Parse(line []byte) (Entry, bool) {
 		Host:       stripPort(strings.ToLower(r.Request.Host)),
 		URI:        r.Request.URI,
 		Proto:      r.Request.Proto,
+		TLS:        len(r.Request.TLS) > 0 && string(r.Request.TLS) != "null",
 		Status:     r.Status,
 		Duration:   r.Duration,
 		Size:       r.Size,

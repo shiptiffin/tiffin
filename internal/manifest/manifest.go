@@ -94,6 +94,12 @@ const (
 	FrameworkHono   Framework = "hono"
 	FrameworkBun    Framework = "bun"    // any Bun server listening on $PORT
 	FrameworkStatic Framework = "static" // served straight by Caddy
+	// FrameworkAstro is Astro. With the @astrojs/node adapter (standalone)
+	// the box runs its server (dist/server/entry.mjs on the app's runtime,
+	// HOST=0.0.0.0) and the edge serves its prerendered pages and /_astro/
+	// files; without a server adapter the site is built to files the edge
+	// serves.
+	FrameworkAstro Framework = "astro"
 	// FrameworkFastAPI is a FastAPI app (Python), built by Railpack's Python
 	// provider and started as one Uvicorn process on $PORT.
 	FrameworkFastAPI Framework = "fastapi"

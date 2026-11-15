@@ -1,0 +1,27 @@
+{
+  "_update": "Edit this file when Next.js ships a security release (https://nextjs.org/blog, tag 'Security'; advisories at https://github.com/vercel/next.js/security/advisories). Set asOf to the day you checked, release/url to the newest security release, and each line's patched version. A major no longer listed under lines, or past its securityUntil, counts as unsupported. Majors newer than every line get no warning. See internal/mod/runtime/nextsecurity.go.",
+  "asOf": "2026-11-09",
+  "release": "November 2026 security release (2026-11-03)",
+  "url": "https://nextjs.org/blog/november-2026-security-release",
+  "_proxyFraming": "Next.js versions that can forward a fetched Response with the compressed response's framing (GHSA-pc58-hwjq-p385). The switchboard gives their instances a fresh connection per request, so stray bytes never reach another client's response. A major below every entry counts as affected, one above them all as fixed. Change only if Next.js reopens this advisory.",
+  "proxyFraming": {
+    "advisory": "GHSA-pc58-hwjq-p385",
+    "fixed": [
+      { "major": 16, "version": "16.4.5" },
+      { "major": 15, "version": "15.5.29" }
+    ]
+  },
+  "lines": [
+    {
+      "major": 16,
+      "patched": "16.4.5",
+      "advisories": ["GHSA-mfr8-8qww-v76h", "GHSA-vc7v-qv4w-wrv8", "GHSA-vvgp-ww4w-46vf", "GHSA-rhh4-g77r-r9qj", "GHSA-pc58-hwjq-p385", "GHSA-7qx7-33qx-rqx2", "GHSA-f3mh-rxg3-f5g2"]
+    },
+    {
+      "major": 15,
+      "patched": "15.5.29",
+      "securityUntil": "2027-01-31",
+      "advisories": ["GHSA-pc58-hwjq-p385", "GHSA-7qx7-33qx-rqx2", "GHSA-f3mh-rxg3-f5g2"]
+    }
+  ]
+}

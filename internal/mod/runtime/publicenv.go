@@ -28,20 +28,23 @@ import (
 // kept, for rebuilds.
 const sourceFile = "source.tgz"
 
-// nextPublicAliases are box values Next.js apps also get under a
-// NEXT_PUBLIC_ name, so browser code can read them.
-var nextPublicAliases = map[string]string{
-	"NEXT_PUBLIC_SENTRY_DSN": "TIFFIN_PUBLIC_SENTRY_DSN",
-	"NEXT_PUBLIC_TIFFIN_URL": "TIFFIN_URL",
+// publicAliases are box values apps of a framework also get under the
+// framework's browser prefix, so browser code can read them: Next.js's
+// NEXT_PUBLIC_, Astro's PUBLIC_.
+var publicAliases = map[manifest.Framework]map[string]string{
+	manifest.FrameworkNext: {
+		"NEXT_PUBLIC_SENTRY_DSN": "TIFFIN_PUBLIC_SENTRY_DSN",
+		"NEXT_PUBLIC_TIFFIN_URL": "TIFFIN_URL",
+	},
+	manifest.FrameworkAstro: {
+		"PUBLIC_TIFFIN_URL": "TIFFIN_URL",
+	},
 }
 
-// addNextAliases sets the NEXT_PUBLIC_ aliases of box values in env for a
-// Next.js app, unless the app sets them itself.
-func addNextAliases(env map[string]string, spec *manifest.App) {
-	if spec.Framework != manifest.FrameworkNext {
-		return
-	}
-	for alias, from := range nextPublicAliases {
+// addPublicAliases sets the browser aliases of box values in env for an
+// app of a framework that has them, unless the app sets them itself.
+func addPublicAliases(env map[string]string, spec *manifest.App) {
+	for alias, from := range publicAliases[spec.Framework] {
 		if env[alias] == "" && env[from] != "" {
 			env[alias] = env[from]
 		}
@@ -50,7 +53,8 @@ func addNextAliases(env map[string]string, spec *manifest.App) {
 
 // publicEnv is the browser-visible env a build of an app environment gets:
 // every build-inlined variable of the app's env (secrets included) and, for
-// Next.js, the aliases of the box's public values. all is ProjectEnv.
+// Next.js and Astro, the aliases of the box's public values. all is
+// ProjectEnv.
 func (r *rt) publicEnv(project, app, preview string, spec *manifest.App, all map[string]string) map[string]string {
 	env := map[string]string{}
 	for k, v := range all {
@@ -58,9 +62,9 @@ func (r *rt) publicEnv(project, app, preview string, spec *manifest.App, all map
 			env[k] = v
 		}
 	}
-	if spec.Framework == manifest.FrameworkNext {
+	if aliases := publicAliases[spec.Framework]; aliases != nil {
 		box := map[string]string{"TIFFIN_PUBLIC_SENTRY_DSN": all["TIFFIN_PUBLIC_SENTRY_DSN"], "TIFFIN_URL": r.deployURL(&Deploy{Project: project, App: app, Preview: preview}, spec)}
-		for alias, from := range nextPublicAliases {
+		for alias, from := range aliases {
 			if env[alias] == "" && box[from] != "" {
 				env[alias] = box[from]
 			}

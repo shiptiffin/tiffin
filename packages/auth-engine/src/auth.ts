@@ -21,6 +21,7 @@ import { rateLimitStore } from "./ratelimit";
 import { send, templates, type Brand } from "./mail";
 import { ac, rank, roles, weaker } from "./roles";
 import { APPLE_ORIGIN, bindProxyState, oauthProxies, oidcPlugin, providerName, socialProviders } from "./social";
+import { BETTER_AUTH_VERSION } from "./version";
 
 // Everything named tiffin* in a project database belongs to the box; public and
 // the rest belong to the app.
@@ -306,6 +307,28 @@ function sessionCacheOrg(c: ProjectConfig): BetterAuthPlugin {
   } satisfies BetterAuthPlugin;
 }
 
+/** An address for the server endpoints: trimmed, lowercased (as Better Auth stores it), and an email. */
+function serverEmail(raw: string): string {
+  const email = raw.trim().toLowerCase();
+  if (!z.email().safeParse(email).success) throw new APIError("BAD_REQUEST", { code: "INVALID_EMAIL", message: "That isn't an email address." });
+  return email;
+}
+
+/** What getUserByEmail and createUser hand an app: the account, without ban details or anything else. */
+function serverUser(u: Record<string, unknown>) {
+  const at = (v: unknown) => (v instanceof Date ? v.toISOString() : v);
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    image: u.image ?? null,
+    emailVerified: !!u.emailVerified,
+    banned: !!u.banned,
+    createdAt: at(u.createdAt),
+    updatedAt: at(u.updatedAt),
+  };
+}
+
 /** Endpoints that send mail: refused in production while the box can't send any. */
 const MAIL_PATHS = new Set([
   "/sign-up/email",
@@ -383,7 +406,43 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
           social: Object.fromEntries(SOCIAL.map((id) => [id, methods.has(id) ? { configured: !!c.social[id] } : null])),
           // The buttons to show, in the order they're listed, with their names.
           providers: SOCIAL.filter((id) => methods.has(id)).map((id) => ({ id, name: providerName(id, c.social[id]), configured: !!c.social[id] })),
+          // The Better Auth release the box runs: install the same better-auth for the browser client.
+          betterAuthVersion: BETTER_AUTH_VERSION,
         }),
+      ),
+      // The project's own server code finding and making accounts by email
+      // (getUserByEmail / createUser in @shiptiffin/sdk/auth). Server-only:
+      // never on Better Auth's HTTP router, so no request reaches them through
+      // /api/auth. server.ts calls them for an internal call that carries the
+      // project's TIFFIN_AUTH_KEY, and for nothing else.
+      tiffinFindUser: createAuthEndpoint.serverOnly({ method: "POST", body: z.object({ email: z.string() }) }, async (ctx) => {
+        const email = serverEmail(ctx.body.email);
+        const found = await ctx.context.internalAdapter.findUserByEmail(email);
+        return ctx.json({ user: found ? serverUser(found.user) : null });
+      }),
+      tiffinCreateUser: createAuthEndpoint.serverOnly(
+        { method: "POST", body: z.object({ email: z.string(), name: z.string().optional(), emailVerified: z.boolean().optional() }) },
+        async (ctx) => {
+          // Makes the account and nothing else: no session, no cookie, no
+          // email. The address counts as confirmed only when the caller says
+          // so; otherwise the first magic link or code proves it (and Better
+          // Auth then drops anything linked to the account before that proof).
+          const ia = ctx.context.internalAdapter;
+          const email = serverEmail(ctx.body.email);
+          const existing = await ia.findUserByEmail(email);
+          if (existing) return ctx.json({ user: serverUser(existing.user), created: false });
+          const name = (ctx.body.name ?? "").trim().slice(0, 200) || email.split("@")[0]!;
+          let user: Record<string, unknown>;
+          try {
+            user = (await ia.createUser({ email, name, emailVerified: ctx.body.emailVerified === true }, { method: "tiffin-server" })) as unknown as Record<string, unknown>;
+          } catch (err) {
+            // A concurrent call made it first (the email is unique): same answer as above.
+            const again = await ia.findUserByEmail(email);
+            if (again) return ctx.json({ user: serverUser(again.user), created: false });
+            throw err;
+          }
+          return ctx.json({ user: serverUser(user), created: true });
+        },
       ),
       tiffinSession: createAuthEndpoint(
         "/tiffin/session",

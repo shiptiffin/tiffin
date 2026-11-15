@@ -49,6 +49,7 @@ Bump the version in `packages/sdk` when the SDK's API changes.
 | `internal/cloud` | The managed service's control plane |
 | `apps/dashboard` | The React dashboard, embedded from `internal/dashboard/dist` |
 | `packages/sdk` | `@shiptiffin/sdk` (Apache-2.0) |
+| `packages/astro` | `@shiptiffin/astro`, the one-line Astro integration (Apache-2.0) |
 | `packages/auth-engine`, `packages/emails`, `packages/tracker` | The Better Auth engine, email templates, the analytics script |
 | `site` | shiptiffin.com (Next.js), its own package |
 | `docs/guide` | The user guide; the site serves it to agents as well |
@@ -89,7 +90,7 @@ Bump the version in `packages/sdk` when the SDK's API changes.
 ## Licensing
 
 Tiffin is AGPL-3.0-only, except the parts that end up inside people's apps, which are
-Apache-2.0: the SDK, the starters, templates and examples, the tracker, the build glue in
+Apache-2.0: the SDK, the Astro integration, the starters, templates and examples, the tracker, the build glue in
 `internal/mod/runtime` and the agent files `tiffin init` writes (README, License, lists
 them; each has its own `LICENSE` file or an `SPDX-License-Identifier` line).
 

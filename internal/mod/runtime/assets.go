@@ -41,31 +41,40 @@ const (
 type assetKind struct {
 	deps []string
 	dirs []AssetDir
+	// out, when set, reads the build's output folder from the app's
+	// config, the way its launch does (launch.go): dirs under base move
+	// there.
+	out  func(appDir string) string
+	base string
 }
 
 // knownAssets maps build outputs to where the app serves them. The first
 // kind with a dependency the app has wins.
 var knownAssets = []assetKind{
-	{[]string{"next"}, nextAssets},
+	{deps: []string{"next"}, dirs: nextAssets},
 	// Nuxt's build manifest keeps its name (the client polls it for a new
 	// version); its fonts (@nuxt/fonts) are named by hash.
 	// Pages: the framework's own server answers its prerendered pages from
 	// these files before any app code runs, so the box may too (not
 	// Next.js, whose proxy.ts runs first).
-	{[]string{"nuxt"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_nuxt/", "/_fonts/", "!/_nuxt/builds/latest.json"}, Pages: true}}},
+	{deps: []string{"nuxt"}, dirs: []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_nuxt/", "/_fonts/", "!/_nuxt/builds/latest.json"}, Pages: true}}},
 	// TanStack Start on Nitro writes .output/public; without Nitro, dist/client.
-	{[]string{"@tanstack/react-start", "@tanstack/solid-start"}, []AssetDir{
+	{deps: []string{"@tanstack/react-start", "@tanstack/solid-start"}, dirs: []AssetDir{
 		{Dir: ".output/public", Path: "/", Immutable: []string{"/assets/"}, Pages: true},
 		{Dir: "dist/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
-	{[]string{"@solidjs/start"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_build/assets/"}}}},
-	{[]string{"@react-router/dev", "@remix-run/dev"}, []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
+	{deps: []string{"@solidjs/start"}, dirs: []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_build/assets/"}}}},
+	{deps: []string{"@react-router/dev", "@remix-run/dev"}, dirs: []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
 	// SvelteKit's adapter-bun and adapter-node (adapter-auto builds with
 	// adapter-node here) write the same folders; _app/version.json keeps
 	// its name and is revalidated.
-	{[]string{"@sveltejs/adapter-bun", "@sveltejs/adapter-node", "@sveltejs/kit"}, []AssetDir{
+	// Its adapter's out option moves both.
+	{deps: []string{"@sveltejs/adapter-bun", "@sveltejs/adapter-node", "@sveltejs/kit"}, dirs: []AssetDir{
 		{Dir: "build/client", Path: "/", Immutable: []string{"/_app/immutable/"}},
-		{Dir: "build/prerendered", Path: "/", Immutable: []string{"/_app/immutable/"}, Pages: true}}},
-	{[]string{"@astrojs/node"}, []AssetDir{{Dir: "dist/client", Path: "/", Immutable: []string{"/_astro/"}, Pages: true}}},
+		{Dir: "build/prerendered", Path: "/", Immutable: []string{"/_app/immutable/"}, Pages: true}},
+		out: func(dir string) string { return kitOutDir(kitConfig(dir)) }, base: "build"},
+	// Astro's outDir (or the folder its start script runs the server from).
+	{deps: []string{"@astrojs/node"}, dirs: []AssetDir{{Dir: "dist/client", Path: "/", Immutable: []string{"/_astro/"}, Pages: true}},
+		out: func(dir string) string { return astroOutDir(dir, packageScript(dir, "start")) }, base: "dist"},
 }
 
 var nextAssets = []AssetDir{
@@ -90,11 +99,30 @@ func clientAssets(srcDir string, spec *manifest.App) []AssetDir {
 	for _, k := range knownAssets {
 		for _, d := range k.deps {
 			if deps[d] {
-				return withPublicFiles(srcDir, k.dirs)
+				return withPublicFiles(srcDir, k.outDirs(srcDir))
 			}
 		}
 	}
 	return nil
+}
+
+// outDirs are the kind's directories for the app in srcDir: moved to the
+// output folder its config names, when the kind reads one.
+func (k assetKind) outDirs(srcDir string) []AssetDir {
+	if k.out == nil || srcDir == "" {
+		return k.dirs
+	}
+	out := k.out(srcDir)
+	if out == "" || out == k.base {
+		return k.dirs
+	}
+	dirs := slices.Clone(k.dirs)
+	for i, a := range dirs {
+		if rest, ok := strings.CutPrefix(a.Dir, k.base+"/"); ok {
+			dirs[i].Dir = path.Join(out, rest)
+		}
+	}
+	return dirs
 }
 
 // publicDirs are the folders a Vite build copies as they are to the top of

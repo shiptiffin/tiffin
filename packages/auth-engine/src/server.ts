@@ -2,6 +2,7 @@
 // auth-enabled project here, keeping the Host header. Host picks the project.
 // Apps calling from inside the box can name the host in x-tiffin-host, held to
 // their own project by x-tiffin-auth-host.
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { reportSignup } from "./analytics";
 import { SCHEMA } from "./auth";
 import { requestFacts, type RequestFacts } from "./context";
@@ -40,12 +41,77 @@ export function engineRequest(req: Request, appHost: string | null, primaryUrl: 
   return new Request(url, { method: req.method, headers, body: req.body, redirect: "manual", ...(req.body ? { duplex: "half" } : {}) } as RequestInit);
 }
 
+/** Where a project's own server code finds and creates users (TIFFIN_AUTH_KEY). Internal calls only. */
+export const SERVER_PATH = "/api/auth/tiffin/server/";
+
+/**
+ * A project's server key (TIFFIN_AUTH_KEY): "tak_<project>_<mac>", an HMAC
+ * of the project's name under the project's engine secret, so only the box
+ * (which holds the secret) can make it and each project's differs. The Go
+ * module derives the same (internal/mod/auth ServerKey) for the project's apps.
+ */
+export function serverKey(project: string, secret: string): string {
+  return `tak_${project}_${createHmac("sha256", secret).update(`tiffin-auth server key:${project}`).digest("hex").slice(0, 48)}`;
+}
+
+const sameKey = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+const SERVER_CALLS: Record<string, "tiffinFindUser" | "tiffinCreateUser"> = { "find-user": "tiffinFindUser", "create-user": "tiffinCreateUser" };
+
+/**
+ * POST /api/auth/tiffin/server/{find-user,create-user}: the project's own
+ * server code, on the box. Three things hold it to that project:
+ *
+ *  - Never through the edge: a request whose Host is an app host (how the
+ *    edge sends browsers here) or the dashboard host gets a 404, key or not.
+ *  - x-tiffin-auth-host names the project, as on every internal call; it
+ *    alone proves nothing (any app on the box can send any host).
+ *  - x-tiffin-auth-key must be that project's TIFFIN_AUTH_KEY. Only the
+ *    project's apps get it, so another project's app can't read or make
+ *    this project's users.
+ *
+ * The endpoints are Better Auth server-only endpoints: this is the only way to
+ * them.
+ */
+async function serverCall(reg: Registry, req: Request, url: URL): Promise<Response> {
+  const host = req.headers.get("host")?.split(":")[0]?.toLowerCase();
+  if (reg.projectForHost(host) || (host && host === reg.proxyHost())) return problem(404, "not_found", "Not found.");
+  const call = SERVER_CALLS[url.pathname.slice(SERVER_PATH.length)];
+  if (!call) return problem(404, "not_found", "No such server call: use find-user or create-user.");
+  const pin = req.headers.get("x-tiffin-auth-host");
+  const project = reg.projectForHost(pin);
+  const inst = project ? reg.get(project) : undefined;
+  if (!project || !inst || !sameKey(req.headers.get("x-tiffin-auth-key") ?? "", serverKey(project, inst.config.secret))) {
+    return problem(401, "unauthenticated", "Send the project's TIFFIN_AUTH_KEY in x-tiffin-auth-key and its TIFFIN_AUTH_HOST in x-tiffin-auth-host.");
+  }
+  if (req.method !== "POST") return problem(405, "method_not_allowed", "Use POST.");
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || typeof body.email !== "string") return problem(422, "validation", "The body is JSON with an email.");
+  const facts: RequestFacts = { host: pin!.split(":")[0]!.toLowerCase() };
+  try {
+    const api = inst.auth.api as unknown as Record<typeof call, (a: { body: unknown }) => Promise<unknown>>;
+    return Response.json(await requestFacts.run(facts, () => api[call]({ body })), { headers: { "cache-control": "no-store" } });
+  } catch (err) {
+    const e = err as { statusCode?: number; body?: { code?: string; message?: string } };
+    if (typeof e.statusCode === "number" && e.statusCode >= 400 && e.statusCode < 500) {
+      return problem(e.statusCode === 400 ? 422 : e.statusCode, e.body?.code ?? "validation", e.body?.message ?? "Bad request.");
+    }
+    console.error(JSON.stringify({ level: "error", msg: "server call failed", project, call, err: String(err) }));
+    return problem(500, "internal", "The auth engine hit an error. Details are in the auth engine log on the box (journalctl -u tiffin-auth).");
+  }
+}
+
 export function publicHandler(reg: Registry) {
   return async function handle(req: Request): Promise<Response> {
     reg.maybeReload();
     const url = new URL(req.url);
     if (url.pathname === "/healthz") return Response.json({ ok: true });
     if (!url.pathname.startsWith("/api/auth")) return problem(404, "not_found", "The auth engine only serves /api/auth.");
+    if (url.pathname.startsWith(SERVER_PATH)) return serverCall(reg, req, url);
     const proxyHost = reg.proxyHost();
     if (proxyHost && req.headers.get("host")?.split(":")[0]?.toLowerCase() === proxyHost) return proxyCallback(reg, req, url);
     let host = req.headers.get("host");
