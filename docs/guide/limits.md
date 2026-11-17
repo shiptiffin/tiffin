@@ -748,9 +748,12 @@ Not yet: Bing Webmaster Tools data (IndexNow covers Bing's indexing), Google's A
 Overviews and AI Mode report and Bing's AI Performance report (no API, and no CSV import
 yet), and Analytics › Search filtered by country, device or search type.
 
-- Google Search Console needs a service account key made in your own Google Cloud
-  project (Settings › Search engines). Organisations whose Google Workspace policy blocks
-  service account keys can't use it.
+- Google Search Console (Settings › Search engines › Connect with Google) goes through
+  ShipTiffin's Google app on a managed box, which then needs shiptiffin.com to renew its
+  access each hour. A box you run yourself uses its own Google sign-in keys: it needs
+  them set, with the Search Console and Site Verification APIs on in their Google Cloud
+  project. Connecting needs a browser, so an agent can't do it. One Google account per
+  box.
 - With Google connected, search data is read every 12 hours and kept for 16 months (as
   long as Google keeps it); the first read fills them in. URL Inspection checks about 20
   pages per domain a day (a page Google hasn't indexed again after a day, an indexed one

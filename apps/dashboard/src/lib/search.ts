@@ -49,7 +49,7 @@ export const purposeWords: Record<string, string> = {
 export type GoogleConnection = S["SearchGoogleConnection"];
 export type GoogleHost = S["SearchGoogleHost"];
 
-/** The box's Google service account (box admins; a 403 means "not yours"). */
+/** The box's Google connection (box admins; a 403 means "not yours"). */
 export const googleQuery = queryOptions({
   queryKey: ["search-google"],
   queryFn: () => request<GoogleConnection>("GET", "/v1/search/google"),
@@ -57,14 +57,17 @@ export const googleQuery = queryOptions({
   refetchInterval: (qq) => ((qq.state.data?.properties ?? []).some((p) => p.state === "verifying") ? 5_000 : false),
 });
 
-export const connectGoogle = (key: string, owner: string) => request<GoogleConnection>("PUT", "/v1/search/google", { key, owner: owner || undefined });
+/** Starts Connect with Google: Google's consent page for the box's Google sign-in keys. */
+export const startGoogle = () => request<{ url: string }>("POST", "/v1/search/google/connect");
 export const disconnectGoogle = () => request<GoogleConnection>("DELETE", "/v1/search/google");
 
-export const GOOGLE_CONSOLE = {
-  project: "https://console.cloud.google.com/projectcreate",
-  searchApi: "https://console.cloud.google.com/apis/library/searchconsole.googleapis.com",
-  verifyApi: "https://console.cloud.google.com/apis/library/siteverification.googleapis.com",
-  accounts: "https://console.cloud.google.com/iam-admin/serviceaccounts/create",
+/** The two APIs that must be on in the Google Cloud project of the box's Google keys. */
+export const googleApis = (project?: string) => {
+  const q = project ? `?project=${encodeURIComponent(project)}` : "";
+  return {
+    search: `https://console.cloud.google.com/apis/library/searchconsole.googleapis.com${q}`,
+    verify: `https://console.cloud.google.com/apis/library/siteverification.googleapis.com${q}`,
+  };
 };
 
 export type IndexNowStatus = S["SearchIndexNowStatus"];

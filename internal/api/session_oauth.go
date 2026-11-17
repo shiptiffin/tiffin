@@ -82,6 +82,42 @@ func dashboardOAuth() DashboardOAuth {
 	return dashOAuth
 }
 
+// BoxOAuthClient returns a provider's box-wide OAuth app (ok=false when its
+// keys aren't set). A module that connects the box to that provider with
+// the same app uses it (Search Console with the Google keys).
+func BoxOAuthClient(ctx context.Context, provider string) (OAuthClient, bool, error) {
+	d := dashboardOAuth()
+	if d == nil {
+		return OAuthClient{}, false, nil
+	}
+	return d.Client(ctx, provider)
+}
+
+var (
+	oauthStateMu       sync.RWMutex
+	oauthStateHandlers = map[string]http.HandlerFunc{} // "<provider>\x00<state prefix>"
+)
+
+// HandleOAuthState gives h the callbacks of a provider whose state starts
+// with prefix: a flow of a module's own at the box's one callback URL. The
+// module checks its state itself; prefix must not be OAuthStatePrefix.
+func HandleOAuthState(provider, prefix string, h http.HandlerFunc) {
+	oauthStateMu.Lock()
+	oauthStateHandlers[provider+"\x00"+prefix] = h
+	oauthStateMu.Unlock()
+}
+
+func oauthStateHandler(provider, state string) http.HandlerFunc {
+	oauthStateMu.RLock()
+	defer oauthStateMu.RUnlock()
+	for k, h := range oauthStateHandlers {
+		if p, prefix, _ := strings.Cut(k, "\x00"); p == provider && strings.HasPrefix(state, prefix) {
+			return h
+		}
+	}
+	return nil
+}
+
 // oauthEndpoints are the providers' URLs (tests point them at fakes).
 type oauthEndpoints struct {
 	GoogleAuth, GoogleToken                           string
@@ -370,6 +406,10 @@ func (a *API) DashboardOAuthCallback(w http.ResponseWriter, r *http.Request) boo
 	name := oauthProviderName(provider)
 	q := r.URL.Query()
 	state := q.Get("state")
+	if h := oauthStateHandler(provider, state); h != nil {
+		h(w, r)
+		return true
+	}
 	if name == "" || a.oauth == nil || !strings.HasPrefix(state, OAuthStatePrefix) {
 		return false
 	}

@@ -48,7 +48,7 @@ func TestReport(t *testing.T) {
 	}
 
 	// Connected and verified: the first pull fills 16 months back.
-	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "", "t"); err != nil {
+	if err := h.connect(); err != nil {
 		t.Fatal(err)
 	}
 	h.pass()

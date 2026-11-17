@@ -31,6 +31,7 @@ type site struct {
 	pings  []map[string]any
 	code   int          // IndexNow's answer
 	google http.Handler // google.test, when set
+	relay  http.Handler // cp.test: a managed box's control plane, when set
 }
 
 func (s *site) set(host, path, body string) {
@@ -46,6 +47,10 @@ func (s *site) set(host, path, body string) {
 func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.Host, "google.test") && s.google != nil {
 		s.google.ServeHTTP(w, r)
+		return
+	}
+	if strings.HasPrefix(r.Host, "cp.test") && s.relay != nil {
+		s.relay.ServeHTTP(w, r)
 		return
 	}
 	s.mu.Lock()
@@ -127,6 +132,8 @@ func newHarness(t *testing.T) *harness {
 		},
 	}}
 	m.endpoint = "https://indexnow.test/indexnow"
+	m.gapp = func(context.Context) (googleApp, error) { return testApp, nil }
+	m.managed = func() *platform.ManagedConfig { return nil }
 	m.liveHosts = func(context.Context) ([]runtime.LiveHost, error) { return h.live, nil }
 	m.routes = func() []edge.Route { return h.rts }
 	m.domainLive = func(host string) bool { return host != "pending.example" }

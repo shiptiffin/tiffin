@@ -12,29 +12,25 @@ import (
 	"time"
 )
 
-// TestGoogleLive runs the real flow against Google with a service account
-// key and a domain on Cloudflare: sign in, get a DNS token, add the TXT
-// record (added beside the zone's other TXT records, never replacing them),
-// verify, add the property, submit the sitemap, read search data and
-// inspect the home page. It runs only when asked:
+// TestGoogleLive runs the real flow against Google as a person, with a
+// refresh token for an OAuth app (one that has the Search Console and Site
+// Verification scopes) and a domain on Cloudflare: sign in, get a DNS token,
+// add the TXT record (added beside the zone's other TXT records, never
+// replacing them), verify, add the property, submit the sitemap, read
+// search data and inspect the home page. It runs only when asked:
 //
-//	TIFFIN_GOOGLE_LIVE=1 TIFFIN_GOOGLE_KEY=.secrets/google-service-account.json \
+//	TIFFIN_GOOGLE_LIVE=1 TIFFIN_GOOGLE_REFRESH=... TIFFIN_GOOGLE_CLIENT_ID=... TIFFIN_GOOGLE_CLIENT_SECRET=... \
 //	TIFFIN_GOOGLE_DOMAIN=example.com CLOUDFLARE_API_TOKEN=... go test ./internal/mod/search -run GoogleLive -v
 func TestGoogleLive(t *testing.T) {
 	if os.Getenv("TIFFIN_GOOGLE_LIVE") == "" {
 		t.Skip("set TIFFIN_GOOGLE_LIVE=1 (see the comment) to run against Google")
 	}
-	raw, err := os.ReadFile(os.Getenv("TIFFIN_GOOGLE_KEY"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	domain := os.Getenv("TIFFIN_GOOGLE_DOMAIN")
 	ctx := context.Background()
 	hc := &http.Client{Timeout: 30 * time.Second}
-	g, err := newGClient(raw, hc)
-	if err != nil {
-		t.Fatal(err)
-	}
+	g := &gclient{refresh: os.Getenv("TIFFIN_GOOGLE_REFRESH"), http: hc, signin: func(context.Context) (gsignin, error) {
+		return &ownSignin{http: hc, app: googleApp{ClientID: os.Getenv("TIFFIN_GOOGLE_CLIENT_ID"), ClientSecret: os.Getenv("TIFFIN_GOOGLE_CLIENT_SECRET")}}, nil
+	}}
 	if _, err := g.accessToken(ctx); err != nil {
 		t.Fatalf("sign-in: %v", err)
 	}

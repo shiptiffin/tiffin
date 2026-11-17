@@ -2,14 +2,14 @@ package search
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -56,7 +56,10 @@ type fakeGoogle struct {
 	mu         sync.Mutex
 	dns        *fakeDNS
 	files      func(host, path string) string // what the box serves
-	owners     [][]string
+	owned      map[string]bool                // sites the account is a verified owner of
+	scope      string                         // what the person granted ("": everything asked for)
+	codes      []url.Values                   // the code exchanges
+	revokes    int
 	sites      []string
 	sitemaps   []string
 	inspects   int
@@ -65,27 +68,51 @@ type fakeGoogle struct {
 	queries    []string // the dimensions of each Search Analytics query
 	incomplete string   // the first day Google says it is still filling in
 	apiOff     bool     // the Site Verification API is off
-	revoked    bool     // the key was deleted
+	revoked    bool     // the person removed the box's access
+	tokenOff   bool     // a managed box never asks Google's token endpoint itself
 }
 
 func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	var body map[string]any
+	var form url.Values
 	if r.Body != nil {
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
+		form, _ = url.ParseQuery(string(raw))
+	}
+	if g.owned == nil {
+		g.owned = map[string]bool{}
 	}
 	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	p := r.URL.Path
 	switch {
-	case p == "/token":
-		if g.revoked {
+	case p == "/token" && g.tokenOff:
+		w.WriteHeader(418)
+	case p == "/token" && form.Get("grant_type") == "authorization_code":
+		g.codes = append(g.codes, form)
+		if form.Get("code") != "good-code" || form.Get("client_secret") != "box-secret" || form.Get("code_verifier") == "" {
 			w.WriteHeader(400)
-			reply(map[string]any{"error": "invalid_grant", "error_description": "Invalid JWT Signature."})
+			reply(map[string]any{"error": "invalid_grant", "error_description": "Bad Request"})
+			return
+		}
+		scope := g.scope
+		if scope == "" {
+			scope = googleScopes
+		}
+		claims, _ := json.Marshal(map[string]any{"email": "Owner@Gmail.com", "email_verified": true})
+		reply(map[string]any{"access_token": "tok", "expires_in": 3600, "refresh_token": "refresh-1", "scope": scope,
+			"id_token": "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"})
+	case p == "/token":
+		if g.revoked || form.Get("grant_type") != "refresh_token" || form.Get("refresh_token") == "" || form.Get("client_id") != testApp.ClientID {
+			w.WriteHeader(400)
+			reply(map[string]any{"error": "invalid_grant", "error_description": "Token has been expired or revoked."})
 			return
 		}
 		reply(map[string]any{"access_token": "tok", "expires_in": 3600})
+	case p == "/revoke":
+		g.revokes++
 	case g.apiOff && strings.HasPrefix(p, "/siteVerification/"):
 		w.WriteHeader(403)
 		reply(map[string]any{"error": map[string]string{"message": "Site Verification API has not been used in project 1 before or it is disabled."}})
@@ -110,20 +137,19 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(map[string]any{"error": map[string]string{"message": "The necessary verification token could not be found on your site."}})
 			return
 		}
-		if body["owners"] != nil {
-			w.WriteHeader(503) // what Google does
-			return
+		if site["type"] == "INET_DOMAIN" {
+			id = "dns://" + id
 		}
+		g.owned[id] = true
 		reply(body)
 	case strings.HasPrefix(p, "/siteVerification/v1/webResource/") && r.Method == http.MethodGet:
-		reply(map[string]any{"owners": []string{"tiffin@tiffin-test.iam.gserviceaccount.com"}})
-	case strings.HasPrefix(p, "/siteVerification/v1/webResource/") && r.Method == http.MethodPut:
-		var owners []string
-		for _, o := range body["owners"].([]any) {
-			owners = append(owners, o.(string))
+		// Google answers for a site only to its owners.
+		if !g.owned[strings.TrimPrefix(p, "/siteVerification/v1/webResource/")] {
+			w.WriteHeader(403)
+			reply(map[string]any{"error": map[string]string{"message": "You are not an owner of this site."}})
+			return
 		}
-		g.owners = append(g.owners, owners)
-		reply(body)
+		reply(map[string]any{"owners": []string{"owner@gmail.com"}})
 	case r.Method == http.MethodGet && p == "/webmasters/v3/sites":
 		reply(map[string]any{})
 	case strings.Contains(p, "/sitemaps/") && r.Method == http.MethodGet:
@@ -173,20 +199,14 @@ func (g *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func testKey(t *testing.T) []byte { return testKeyFor(t, "tiffin@tiffin-test.iam.gserviceaccount.com") }
+// testApp is the box's Google sign-in keys in tests.
+var testApp = googleApp{ClientID: "1234567-box.apps.googleusercontent.com", ClientSecret: "box-secret",
+	RedirectURL: "https://dashboard.box.example.net/api/auth/callback/google"}
 
-func testKeyFor(t *testing.T, email string) []byte {
-	t.Helper()
-	k, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	der, _ := x509.MarshalPKCS8PrivateKey(k)
-	raw, _ := json.Marshal(map[string]string{
-		"type": "service_account", "project_id": "tiffin-test", "client_email": email,
-		"private_key": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})), "token_uri": "https://oauth2.googleapis.com/token",
-	})
-	return raw
+// connect stores a connection as owner@gmail.com, as the callback does.
+func (h *harness) connect() error {
+	_, err := h.m.connectGoogle(h.ctx, "refresh-1", "owner@gmail.com", "t")
+	return err
 }
 
 func TestGoogleConnection(t *testing.T) {
@@ -208,15 +228,13 @@ func TestGoogleConnection(t *testing.T) {
 	h.s.google = fg
 	h.m.googleBase = "https://google.test"
 
-	if _, err := h.m.connectGoogle(h.ctx, []byte(`{"type":"authorized_user"}`), "", "t"); err == nil {
-		t.Fatal("a user key was taken")
-	}
 	fg.apiOff = true
-	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "owner@gmail.com", "t"); err == nil || !strings.Contains(err.Error(), "Site Verification API") {
+	if err := h.connect(); err == nil || !strings.Contains(err.Error(), "Site Verification API") ||
+		!strings.Contains(err.Error(), "siteverification.googleapis.com?project=1234567") {
 		t.Fatalf("connected with the API off: %v", err)
 	}
 	fg.apiOff = false
-	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "owner@gmail.com", "t"); err != nil {
+	if err := h.connect(); err != nil {
 		t.Fatal(err)
 	}
 	pages := map[string]string{"https://shop.example.com/": "2026-10-01", "https://shop.example.com/new": "2026-10-24"}
@@ -245,8 +263,8 @@ func TestGoogleConnection(t *testing.T) {
 	if gh.Index == nil || gh.Index.Checked != 2 || gh.Index.Indexed != 1 || len(gh.Index.NotIndexed) != 1 || gh.Index.NotIndexed[0].Coverage != "Discovered - currently not indexed" {
 		t.Fatalf("index %+v", gh.Index)
 	}
-	if len(fg.owners) != 2 || fg.owners[0][1] != "owner@gmail.com" {
-		t.Fatalf("owners %v", fg.owners)
+	if len(fg.sites) != 2 { // each property is in the person's own Search Console
+		t.Fatalf("sites %v", fg.sites)
 	}
 	bg := h.host("blog.other.org").Google
 	if bg.State != GVerified || bg.Property != "https://blog.other.org/" {
@@ -281,24 +299,17 @@ func TestGoogleConnection(t *testing.T) {
 	if fg.inspects != n {
 		t.Fatal("pulled again within the hour")
 	}
-	// A new owner later: added to the verified properties at the next pass.
-	if _, err := h.m.setGoogleOwner(h.ctx, "Second@Gmail.com"); err != nil {
-		t.Fatal(err)
-	}
-	h.pass()
-	if last := fg.owners[len(fg.owners)-1]; last[1] != "second@gmail.com" {
-		t.Fatalf("new owner %v", fg.owners)
-	}
-	// The key is deleted in Google Cloud: said on the connection, in the
-	// box's checks and on each address; a working key clears it.
+	// The person removes the box in their Google account: said on the
+	// connection, in the box's checks and on each address; a call that works
+	// clears it.
 	fg.revoked = true
 	h.m.gc.token = "" // the next call signs in again
 	h.now = h.now.Add(gPullEvery)
 	h.pass()
-	if c := h.m.Checks(h.ctx, h.m.p); len(c) != 1 || c[0].OK || !strings.Contains(c[0].Detail, "Invalid JWT") {
+	if c := h.m.Checks(h.ctx, h.m.p); len(c) != 1 || c[0].OK || !strings.Contains(c[0].Detail, "Connect with Google again") {
 		t.Fatalf("checks %+v", c)
 	}
-	if gh := h.host("shop.example.com").Google; !strings.Contains(gh.Error, "Invalid JWT") {
+	if gh := h.host("shop.example.com").Google; !strings.Contains(gh.Error, "revoked") {
 		t.Fatalf("host error %+v", gh)
 	}
 	fg.revoked = false
@@ -307,27 +318,295 @@ func TestGoogleConnection(t *testing.T) {
 		t.Fatalf("checks after a working call %+v", c)
 	}
 	v, _ := h.m.googleView(h.ctx)
-	if !v.Connected || v.ClientEmail != "tiffin@tiffin-test.iam.gserviceaccount.com" || len(v.Properties) != 2 {
+	if !v.Connected || v.Email != "owner@gmail.com" || !v.Ready || v.Project != "1234567" || len(v.Properties) != 2 {
 		t.Fatalf("view %+v", v)
 	}
-	// Another service account: every property starts again under it.
-	if _, err := h.m.connectGoogle(h.ctx, testKeyFor(t, "other@p.iam.gserviceaccount.com"), "", "t"); err != nil {
+	// Connecting again (the same account or another): every property is
+	// looked at again, and what Google said before stays. One the account
+	// owns needs no new proof and goes into its Search Console.
+	if err := h.connect(); err != nil {
 		t.Fatal(err)
 	}
-	if gh := h.host("shop.example.com").Google; gh.State != GVerifying || gh.PulledAt != nil {
-		t.Fatalf("after another account %+v", gh)
+	if gh := h.host("shop.example.com").Google; gh.State != GVerifying || gh.PulledAt == nil || gh.Clicks != 4 {
+		t.Fatalf("after connecting again %+v", gh)
 	}
+	txts, sites := len(dns.txts["example.com"]), len(fg.sites)
 	h.pass()
-	h.now = h.now.Add(20 * time.Second)
-	h.pass()
-	if gh := h.host("shop.example.com").Google; gh.State != GVerified {
-		t.Fatalf("verified again %+v", gh)
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || !strings.Contains(gh.Detail, "owns it") {
+		t.Fatalf("an owner verified again %+v", gh)
+	}
+	if len(dns.txts["example.com"]) != txts || len(fg.sites) != sites+2 {
+		t.Fatalf("an owned property got a new proof, or was not added: %v %v", dns.txts, fg.sites)
 	}
 	if err := h.m.disconnectGoogle(h.ctx); err != nil {
 		t.Fatal(err)
 	}
+	if gh := h.host("shop.example.com").Google; gh.State != "not_connected" || fg.revokes != 1 {
+		t.Fatalf("after disconnect %+v, %d revokes", gh, fg.revokes)
+	}
+}
+
+// back sends the browser back from Google to the box's callback.
+func (h *harness) back(query, cookie string) string {
+	r := httptest.NewRequest(http.MethodGet, "/api/auth/callback/google?"+query, nil)
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: googleStateCookie, Value: cookie})
+	}
+	w := httptest.NewRecorder()
+	h.m.googleCallback(w, r)
+	body := w.Body.String()
+	_, after, _ := strings.Cut(body, googleSettings+"?google=")
+	code, _, _ := strings.Cut(after, `"`)
+	return code
+}
+
+func TestConnectWithGoogle(t *testing.T) {
+	h := newHarness(t)
+	sec, err := platform.OpenSecrets(h.m.p.DB, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns := &fakeDNS{txts: map[string][]string{}}
+	h.m.p.Secrets, h.m.p.DNS = sec, dns
+	fg := &fakeGoogle{dns: dns, files: func(string, string) string { return "" }}
+	h.s.google = fg
+	h.m.googleBase = "https://google.test"
+
+	// Without Google sign-in keys there is nothing to connect with.
+	h.m.gapp = func(context.Context) (googleApp, error) { return googleApp{}, errNoGoogleKeys }
+	if _, _, err := h.m.startGoogle(h.ctx, "Ada", "tok_1", ""); err == nil {
+		t.Fatal("started without keys")
+	}
+	if v, _ := h.m.googleView(h.ctx); v.Ready || v.Connected {
+		t.Fatalf("view without keys %+v", v)
+	}
+	h.m.gapp = func(context.Context) (googleApp, error) { return testApp, nil }
+
+	start := func() (url.Values, string) {
+		t.Helper()
+		u, state, err := h.m.startGoogle(h.ctx, "Ada", "tok_1", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		pu, _ := url.Parse(u)
+		return pu.Query(), state
+	}
+	q, state := start()
+	if !strings.HasPrefix(state, GoogleStatePrefix) || q.Get("state") != state || q.Get("client_id") != testApp.ClientID ||
+		q.Get("redirect_uri") != testApp.RedirectURL || q.Get("access_type") != "offline" || q.Get("prompt") != "consent" ||
+		q.Get("code_challenge_method") != "S256" || !strings.Contains(q.Get("scope"), gScopeSearch) || !strings.Contains(q.Get("scope"), gScopeVerify) {
+		t.Fatalf("consent page %v", q)
+	}
+	// Another browser (no cookie, or another state's) connects nothing, and
+	// the state is spent.
+	if code := h.back("code=good-code&state="+state, ""); code != gcExpired {
+		t.Fatalf("without the cookie: %s", code)
+	}
+	_, state = start()
+	if code := h.back("code=good-code&state="+state, GoogleStatePrefix+"other"); code != gcExpired {
+		t.Fatalf("with another cookie: %s", code)
+	}
+	// The right browser with a code Google refuses; then the state is spent.
+	if code := h.back("code=bad&state="+state, state); code != gcFailed {
+		t.Fatalf("a bad code: %s", code)
+	}
+	if code := h.back("code=good-code&state="+state, state); code != gcExpired {
+		t.Fatalf("a state worked twice: %s", code)
+	}
+	// Saying no, and leaving a permission unticked.
+	_, state = start()
+	if code := h.back("error=access_denied&state="+state, state); code != gcDenied {
+		t.Fatalf("denied: %s", code)
+	}
+	_, state = start()
+	fg.scope = "openid email " + gScopeSearch
+	if code := h.back("code=good-code&state="+state, state); code != gcScopes || fg.revokes != 1 {
+		t.Fatalf("one permission: %s, %d revokes", code, fg.revokes)
+	}
+	fg.scope = ""
+	// An API off in the keys' project: nothing stored, and Settings says why.
+	_, state = start()
+	fg.apiOff = true
+	if code := h.back("code=good-code&state="+state, state); code != gcFailed {
+		t.Fatalf("API off: %s", code)
+	}
+	if v, _ := h.m.googleView(h.ctx); v.Connected || !strings.Contains(v.LastTry, "Site Verification API") {
+		t.Fatalf("view after a failed try %+v", v)
+	}
+	fg.apiOff = false
+	// Yes to everything.
+	_, state = start()
+	if code := h.back("code=good-code&state="+state, state); code != gcConnected {
+		t.Fatalf("connected: %s", code)
+	}
+	if f := fg.codes[len(fg.codes)-1]; f.Get("redirect_uri") != testApp.RedirectURL || f.Get("client_id") != testApp.ClientID {
+		t.Fatalf("code exchange %v", f)
+	}
+	v, _ := h.m.googleView(h.ctx)
+	if !v.Connected || v.Email != "owner@gmail.com" || v.By != "Ada" || v.LastTry != "" {
+		t.Fatalf("view %+v", v)
+	}
+	// A domain the person verified in Search Console themselves needs no
+	// proof from the box.
+	fg.owned["dns://example.com"] = true
+	h.s.set("shop.example.com", "/sitemap.xml", sitemap(map[string]string{"https://shop.example.com/": "2026-10-01"}))
+	h.serve("shop.example.com", "d1")
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Clicks != 4 || len(dns.txts["example.com"]) != 0 {
+		t.Fatalf("an owned domain %+v %v", gh, dns.txts)
+	}
+}
+
+// fakeRelay is the control plane of a managed box (site/app/api/box/google):
+// it holds ShipTiffin's Google app, so it hands out the consent page, the
+// grant (for the verifier whose hash started it) and each hour's token.
+type fakeRelay struct {
+	mu        sync.Mutex
+	challenge string
+	lapsed    bool // the subscription is not active
+	revoked   bool
+	renews    int
+}
+
+func (f *fakeRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var body map[string]string
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	refuse := func(status int, code, why string) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": why})
+	}
+	switch {
+	case r.Header.Get("Authorization") != "Bearer tl1.test":
+		refuse(401, "bad_licence", "This box's ShipTiffin licence did not check out.")
+	case f.lapsed:
+		refuse(403, "not_active", "This box's ShipTiffin subscription is not active.")
+	case r.URL.Path == "/api/box/google/start":
+		f.challenge = body["challenge"]
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": "https://accounts.google.com/o/oauth2/v2/auth?client_id=shiptiffin&state=signed." + body["state"]})
+	case r.URL.Path == "/api/box/google/token" && body["grant"] == "code":
+		sum := sha256.Sum256([]byte(body["verifier"]))
+		if body["code"] != "handoff-1" || base64.RawURLEncoding.EncodeToString(sum[:]) != f.challenge {
+			refuse(400, "invalid_grant", "That code is not this box's.")
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"refresh_token": "refresh-1", "scope": googleScopes, "email": "owner@gmail.com"})
+	case r.URL.Path == "/api/box/google/token" && body["grant"] == "refresh":
+		if f.revoked || body["refresh_token"] != "refresh-1" {
+			refuse(400, "invalid_grant", "Token has been expired or revoked.")
+			return
+		}
+		f.renews++
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "tok", "expires_in": 3600})
+	default:
+		w.WriteHeader(404)
+	}
+}
+
+// A managed box has no Google keys of its own: it connects through
+// ShipTiffin's app, and the refresh token still stays on the box.
+func TestConnectThroughShipTiffin(t *testing.T) {
+	h := newHarness(t)
+	sec, err := platform.OpenSecrets(h.m.p.DB, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns := &fakeDNS{txts: map[string][]string{}}
+	h.m.p.Secrets, h.m.p.DNS = sec, dns
+	fg := &fakeGoogle{dns: dns, files: func(string, string) string { return "" }, tokenOff: true}
+	fr := &fakeRelay{}
+	h.s.google, h.s.relay = fg, fr
+	h.m.googleBase = "https://google.test"
+	h.m.gapp = func(context.Context) (googleApp, error) { return googleApp{}, errNoGoogleKeys }
+	h.m.managed = func() *platform.ManagedConfig {
+		return &platform.ManagedConfig{ControlPlane: "https://cp.test", BoxID: "box_1", Licence: "tl1.test"}
+	}
+
+	if v, _ := h.m.googleView(h.ctx); !v.Ready || !v.Managed || v.Project != "" {
+		t.Fatalf("view on a managed box %+v", v)
+	}
+	// A lapsed subscription: the button says why, and nothing is pending.
+	fr.lapsed = true
+	if _, _, err := h.m.startGoogle(h.ctx, "Ada", "tok_1", ""); err == nil || !strings.Contains(err.Error(), "subscription is not active") {
+		t.Fatalf("started on a lapsed box: %v", err)
+	}
+	fr.lapsed = false
+	u, state, err := h.m.startGoogle(h.ctx, "Ada", "tok_1", "")
+	if err != nil || !strings.Contains(u, "client_id=shiptiffin") || !strings.HasSuffix(u, state) {
+		t.Fatalf("consent page %q: %v", u, err)
+	}
+	// A code that isn't this start's connects nothing.
+	if code := h.back("code=handoff-2&state="+state, state); code != gcFailed {
+		t.Fatalf("another code: %s", code)
+	}
+	_, state, _ = h.m.startGoogle(h.ctx, "Ada", "tok_1", "")
+	if code := h.back("code=handoff-1&state="+state, state); code != gcConnected {
+		v, _ := h.m.googleView(h.ctx)
+		t.Fatalf("connected: %s (%s)", code, v.LastTry)
+	}
+	v, _ := h.m.googleView(h.ctx)
+	if !v.Connected || v.Email != "owner@gmail.com" || v.By != "Ada" {
+		t.Fatalf("view %+v", v)
+	}
+	h.s.set("shop.example.com", "/sitemap.xml", sitemap(map[string]string{"https://shop.example.com/": "2026-10-01"}))
+	h.serve("shop.example.com", "d1")
+	h.pass()
+	h.now = h.now.Add(20 * time.Second)
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Clicks != 4 || fr.renews == 0 {
+		t.Fatalf("a managed box's domain %+v (%d renewals)", gh, fr.renews)
+	}
+	// The subscription lapses, or the person removes the box at Google: said
+	// on the connection; a renewal that works clears it.
+	fr.lapsed = true
+	h.m.gc.token = ""
+	h.now = h.now.Add(gPullEvery)
+	h.pass()
+	if c := h.m.Checks(h.ctx, h.m.p); len(c) != 1 || c[0].OK || !strings.Contains(c[0].Detail, "subscription is not active") {
+		t.Fatalf("checks on a lapsed box %+v", c)
+	}
+	fr.lapsed, fr.revoked = false, true
+	h.pass()
+	if c := h.m.Checks(h.ctx, h.m.p); c[0].OK || !strings.Contains(c[0].Detail, "Connect with Google again") {
+		t.Fatalf("checks after a removal %+v", c)
+	}
+	fr.revoked = false
+	h.pass()
+	if c := h.m.Checks(h.ctx, h.m.p); !c[0].OK {
+		t.Fatalf("checks after a renewal %+v", c)
+	}
+}
+
+// A box connected with a service account key (earlier versions) is not
+// connected: it says so, and keeps its domains and what Google said.
+func TestServiceAccountKeyEnded(t *testing.T) {
+	h, _ := googleShop(t)
+	raw, _, _ := h.m.p.DB.KVGet(h.ctx, kvNS, "google")
+	var old map[string]any
+	_ = json.Unmarshal(raw, &old)
+	delete(old, "kind")
+	old["clientEmail"] = "tiffin@p.iam.gserviceaccount.com"
+	raw, _ = json.Marshal(old)
+	_ = h.m.p.DB.KVPut(h.ctx, kvNS, "google", raw)
+	h.m.gc = nil
+	h.pass()
+	v, _ := h.m.googleView(h.ctx)
+	if v.Connected || !v.Legacy || len(v.Properties) != 1 {
+		t.Fatalf("view %+v", v)
+	}
+	if c := h.m.Checks(h.ctx, h.m.p); len(c) != 1 || c[0].OK || !strings.Contains(c[0].Detail, "Connect with Google") {
+		t.Fatalf("checks %+v", c)
+	}
 	if gh := h.host("shop.example.com").Google; gh.State != "not_connected" {
-		t.Fatalf("after disconnect %+v", gh)
+		t.Fatalf("host %+v", gh)
+	}
+	if err := h.connect(); err != nil {
+		t.Fatal(err)
+	}
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Clicks != 4 {
+		t.Fatalf("after connecting %+v", gh)
 	}
 }
 
@@ -345,7 +624,7 @@ func googleShop(t *testing.T) (*harness, *fakeGoogle) {
 	fg := &fakeGoogle{dns: dns, files: func(string, string) string { return "" }}
 	h.s.google = fg
 	h.m.googleBase = "https://google.test"
-	if _, err := h.m.connectGoogle(h.ctx, testKey(t), "", "t"); err != nil {
+	if err := h.connect(); err != nil {
 		t.Fatal(err)
 	}
 	h.s.set("shop.example.com", "/sitemap.xml", sitemap(map[string]string{"https://shop.example.com/": "2026-10-01", "https://shop.example.com/new": "2026-10-24"}))

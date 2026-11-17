@@ -5689,20 +5689,36 @@ export interface paths {
         };
         /**
          * Show the Google Search Console connection
-         * @description Whether the box has a Google service account, which, and the Search Console properties it looks after with their state. Box admins only.
+         * @description Whether someone has connected Google, as which account, and the Search Console properties the box looks after with their state. Box admins only.
          */
         get: operations["search-google"];
-        /**
-         * Connect Google Search Console with a service account key
-         * @description Stores a Google service account's JSON key, encrypted with the box's key, after signing in with it. Make it once: in a Google Cloud project turn on the Google Search Console API and the Site Verification API, create a service account (no roles), and add a JSON key (IAM › Service accounts › Keys). The box then verifies every findable address on its own: a TXT record on the domain when its zone is on a connected DNS provider, else Google's verification file on the host. It adds owner as an owner too, submits sitemaps and reads searches and index status twice a day. Box admins only.
-         */
-        put: operations["search-google-connect"];
+        put?: never;
         post?: never;
         /**
          * Disconnect Google Search Console
-         * @description Deletes the service account key and what the box read from Google. The properties stay in Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.
+         * @description Ends the box's access at Google and deletes what the box read from it. The properties stay in your Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.
          */
         delete: operations["search-google-disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/search/google/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start connecting Google Search Console
+         * @description Returns Google's consent page and sets a short-lived state cookie. A managed box connects through ShipTiffin's Google app, with nothing to set up; any other box uses its own Google sign-in keys (Box settings › Sign-in providers). The person lets the box see and manage their Search Console and verify their sites; Google sends the browser back to the box's Google callback URL, the one sign-in uses. From then on the box verifies every findable address as them (a TXT record with a connected DNS provider, else Google's verification file; a site they own already needs neither), adds it to their Search Console, submits sitemaps and reads searches and index status twice a day. With the box's own keys, the Google Search Console API and the Site Verification API must be on in their Google Cloud project. Browser only: it is the dashboard's Connect with Google button. Box admins only.
+         */
+        post: operations["search-google-connect"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -13380,28 +13396,28 @@ export interface components {
             /** Format: double */
             position: number;
         };
-        SearchGoogleBody: {
-            /** @description The service account's JSON key file, as text. Leave it out to change only owner on a connected box. */
-            key?: string;
-            /** @description Your Google account's email: the box adds it as an owner of each property, so it shows in your Search Console */
-            owner?: string;
-        };
         SearchGoogleConnection: {
             by?: string;
-            /** @description The service account the box signs in as */
-            clientEmail?: string;
             connected: boolean;
             /** Format: date-time */
             connectedAt?: string;
-            /** @description Why Google refuses the key lately: replace it (a new key for the same account keeps every property) */
+            /** @description The Google account the box acts as: its Search Console holds the box's properties */
+            email?: string;
+            /** @description Why Google refuses the box lately (the connection was removed in the Google account, an API was turned off): connect again */
             error?: string;
             /** Format: date-time */
             errorAt?: string;
-            /** @description The Google account added as an owner of each property, so they show in that account's Search Console */
-            owner?: string;
-            /** @description Its Google Cloud project */
-            projectId?: string;
+            /** @description Why the last try to connect failed, in Google's words */
+            lastTry?: string;
+            /** @description The box was connected with a service account key, which it no longer uses: connect with Google, and the domains and their history carry on */
+            legacy?: boolean;
+            /** @description A managed box: Connect with Google goes through ShipTiffin's Google app, and there is nothing to set up */
+            managed?: boolean;
+            /** @description On a box with its own Google sign-in keys, their Google Cloud project number: the Google Search Console API and the Site Verification API must be on in it */
+            project?: string;
             properties: components["schemas"]["SearchGoogleProperty"][] | null;
+            /** @description Connect with Google can start: a managed box, or a box with Google sign-in keys. Without them, add them in Box settings › Sign-in providers */
+            ready: boolean;
         };
         SearchGoogleHost: {
             /** Format: int64 */
@@ -13412,7 +13428,7 @@ export interface components {
             ctr: number;
             daily?: components["schemas"]["SearchGDay"][] | null;
             detail?: string;
-            /** @description Why the box could not read Google's data lately (the key, an API turned off, a lost permission) */
+            /** @description Why the box could not read Google's data lately (the connection was removed, an API turned off, a lost permission) */
             error?: string;
             /** @description The first of the 28 days the numbers below cover (Google's days run on Pacific time) */
             from?: string;
@@ -13438,7 +13454,7 @@ export interface components {
             /** @description The sitemap the box submitted (once, when the address was verified; again only when someone asks with search ping) and what Google did with it */
             sitemap?: components["schemas"]["SearchGSitemap"];
             /**
-             * @description not_connected: no Google service account on the box (Settings › Search engines)
+             * @description not_connected: nobody has connected Google on the box (Settings › Search engines)
              * @enum {string}
              */
             state: "not_connected" | "verifying" | "verified" | "failed";
@@ -13457,6 +13473,10 @@ export interface components {
             state: "verifying" | "verified" | "failed";
             /** Format: date-time */
             verifiedAt?: string;
+        };
+        SearchGoogleStart: {
+            /** @description Google's consent page; open it in this tab */
+            url: string;
         };
         SearchHostStatus: {
             /** @description The app at the address's home page */
@@ -13477,7 +13497,7 @@ export interface components {
             /** @description Search engines may index it, and the box tells them about its pages */
             findable: boolean;
             fix?: string;
-            /** @description Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with a Google service account connected) */
+            /** @description Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with Google connected) */
             google?: components["schemas"]["SearchGoogleHost"];
             /** @description Kept out of search results by the project's settings (search set) */
             hidden?: boolean;
@@ -41162,18 +41182,14 @@ export interface operations {
             };
         };
     };
-    "search-google-connect": {
+    "search-google-disconnect": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SearchGoogleBody"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description OK */
             200: {
@@ -41240,7 +41256,7 @@ export interface operations {
             };
         };
     };
-    "search-google-disconnect": {
+    "search-google-connect": {
         parameters: {
             query?: never;
             header?: never;
@@ -41252,10 +41268,11 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchGoogleConnection"];
+                    "application/json": components["schemas"]["SearchGoogleStart"];
                 };
             };
             /** @description Bad Request */

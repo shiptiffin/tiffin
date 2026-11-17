@@ -97,32 +97,43 @@ it. For that, use Google Search Console.
 ## Google Search Console
 
 Google reads your sitemap without being told. To see what people search for and which
-pages Google indexed, connect Google once per box, in **Settings › Search engines**. It
-takes about 5 minutes in your own Google Cloud account, nothing is billed, and the box
-does the rest for every domain, now and later.
+pages Google indexed, connect Google once per box: in **Settings › Search engines**,
+choose **Connect with Google**, pick the Google account you use for Search Console and
+tick both permissions (Search Console, and verifying your sites). The box does the rest
+for every domain, now and later.
 
-1. At [console.cloud.google.com](https://console.cloud.google.com/projectcreate),
-   create a project (`tiffin`, say).
-2. In it, turn on the **Google Search Console API** and the **Site Verification API**.
-3. Under **IAM › Service accounts**, create a service account named `tiffin` with no
-   roles. Open it, then **Keys › Add key › Create new key › JSON**: a file downloads.
-4. In Settings › Search engines, choose that file, and enter the Google account you use
-   for Search Console.
+**On a managed box there is nothing to set up.** The button goes through ShipTiffin's
+Google app: Google's page shows ShipTiffin's name, and ShipTiffin passes the access on
+to your box without keeping it. Your box holds it, and asks ShipTiffin for each hour's
+token, because only the app's own secret can renew one. It works while the box's
+subscription is active.
 
-The service account is a robot Google account in your project; the box signs in as it
-with the key (kept encrypted, never shown again). For each findable address it:
+**On a box you run yourself**, the button uses the box's own Google sign-in keys, the
+ones under **Box settings › Sign-in providers** that also sign people in to your apps
+and the dashboard ([how to make them](auth.md)). Two things must be true of that Google
+OAuth app, once:
 
-- **verifies the domain**: with Cloudflare connected, it adds Google's TXT record
-  beside the domain's other records (SPF and the rest stay as they are), and the
-  Domain property `sc-domain:example.com` covers every name under it. A domain whose
-  DNS is elsewhere is verified with Google's verification file, which the box serves
-  on the host; that property covers the one host. The record must stay: Google checks
-  it again from time to time.
-- **adds your Google account as an owner**, so the domain shows in your own Search
-  Console, and submits the sitemap, once. Google reads a submitted sitemap again on its
-  own; the box submits it again only when you press **Tell search engines** (or run
-  `tiffin search ping`). It shows when Google last read it, how many pages it found and
-  any errors.
+1. In its Google Cloud project, the **Google Search Console API** and the **Site
+   Verification API** are on. Settings › Search engines links to both.
+2. Its consent screen is **In production**, not Testing: Google ends a Testing app's
+   access after 7 days. An app that Google hasn't reviewed for these permissions shows a
+   "Google hasn't verified this app" page first; it is your own app, so choose
+   **Advanced**, then continue.
+
+The box then works as you. It keeps Google's access encrypted and never shows it again.
+For each findable address it:
+
+- **verifies the domain in your Search Console**: a domain you own there already needs
+  nothing. Otherwise, with Cloudflare connected, it adds Google's TXT record beside the
+  domain's other records (SPF and the rest stay as they are), and the Domain property
+  `sc-domain:example.com` covers every name under it. A domain whose DNS is elsewhere is
+  verified with Google's verification file, which the box serves on the host; that
+  property covers the one host. The record must stay: Google checks it again from time
+  to time.
+- **adds the property to your Search Console** and submits the sitemap, once. Google
+  reads a submitted sitemap again on its own; the box submits it again only when you
+  press **Tell search engines** (or run `tiffin search ping`). It shows when Google last
+  read it, how many pages it found and any errors.
 - **reads web search every 12 hours**: clicks, impressions, average position, the top
   searches and pages, day by day. The first read goes back as far as Google keeps (16
   months) and the box keeps them as long, in `search/search.db` on the data disk; later
@@ -132,18 +143,22 @@ with the key (kept encrypted, never shown again). For each findable address it:
   indexed one after a week. `search inspect` asks about one page now; for a page in the
   sitemap its answer counts at once.
 
-If Google later refuses the key (it was deleted, an API was turned off), Settings ›
-Search engines and the box's status checks say so, and the domains show it too. Make a
-new key for the same service account and choose **Replace key**: every domain stays
-verified. A different service account starts over and verifies each domain again.
+If Google later refuses the box (you removed it in your Google account, an API was
+turned off, the box's Google keys changed, a managed box's subscription ended), Settings
+› Search engines and the box's
+status checks say so, and the domains show it too. Choose **Connect again**: every
+domain and its history stay. **Use another account** moves the box to another Google
+account; domains that account doesn't own yet are verified for it.
 
 Without the connection, add the domain in Search Console yourself (**Domain**, then the
 TXT record it shows); the box notices the record and shows the domain as verified.
 
-An agent can connect it too: put the key file's text in a request body (never in chat
-or the repo) and run `tiffin search google connect --body-file body.json`, where
-`body.json` is `{"key": "<the file's contents>", "owner": "you@gmail.com"}`. To change only
-the owner later, leave the key out: `tiffin search google connect --owner you@gmail.com`.
+Connecting needs a browser, so it is the dashboard's: an agent can read the connection
+(`tiffin search google`) and everything it brings, and asks a person to press the button.
+
+A box that was connected with a service account key (earlier versions) says so in Settings ›
+Search engines and in its status checks. Connect with Google there: the domains and
+their history carry on, and the key can be deleted in Google Cloud.
 
 ## In the dashboard and for agents
 

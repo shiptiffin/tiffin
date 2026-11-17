@@ -81,11 +81,16 @@ type Module struct {
 	domainLive func(host string) bool
 	acme       func() bool
 	lookupTXT  func(context.Context, string) ([]string, error)
-	googleBase string // Google's API hosts, overridden in tests
+	googleBase string                                   // Google's API hosts, overridden in tests
+	gapp       func(context.Context) (googleApp, error) // the box's Google keys (nil: the box's own)
+	managed    func() *platform.ManagedConfig           // the control plane of a managed box (nil: read the box's)
 
-	gc   *gclient // the Google client for the stored key
+	gc   *gclient // the Google client for the stored connection
 	gcAt time.Time
 	gdMu sync.Mutex // writes of what Google said about a host (gdata)
+
+	pendMu  sync.Mutex
+	pending map[string]gpending // Connect with Google in flight, by state
 
 	hist     *histStore // the history behind the Search tab (nil: none)
 	prunedAt time.Time

@@ -144,6 +144,27 @@ and your coding agent with an API key: see
   forgotten after two hours), your account says so and we email you to start the server in
   the Hetzner console.
 
+## Google Search Console
+
+**Settings › Search engines › Connect with Google** needs no setup on a managed box
+([what it brings](search.md#google-search-console)). It goes through ShipTiffin's Google
+app, because Google only sends people back to addresses registered in advance and only
+an app's own secret can renew a token:
+
+- You choose your Google account and allow two things: Search Console, and verifying
+  your sites. Google's page shows ShipTiffin's name.
+- shiptiffin.com receives Google's answer and passes it straight to your box, as a code
+  only your box can collect (with its licence, within two minutes). It stores nothing:
+  no token, no address, no record of the connection.
+- Your box keeps the lasting access, encrypted, and asks shiptiffin.com for each hour's
+  token. Those requests pass through ShipTiffin; your search data never does: the box
+  reads it from Google itself.
+- End it any time: **Disconnect** on the box, or remove ShipTiffin in your Google
+  account (myaccount.google.com › Security › Third-party apps).
+
+The requests are taken only from a box with an active subscription, with its current
+licence, from the box's own address.
+
 ## Off-site backups
 
 Every backup set is also copied off the server, as on any box with
@@ -197,7 +218,8 @@ reserved.
 
 Nothing happens to your server or apps, ever, over billing. When the subscription ends (or
 stays unpaid after Stripe's retries): automatic updates pause (the box's Updates page says
-why), monitoring emails and support stop, and the address keeps working for **30 days**,
+why), monitoring emails and support stop, Google Search Console numbers stop updating
+(what the box has read stays), and the address keeps working for **30 days**,
 with an email when it starts, a week before it goes and when it goes. The address never
 goes until the week-before warning was accepted by our mail server at least seven days
 earlier: a warning that fails is sent again a day later, and the address stays meanwhile.
@@ -260,6 +282,7 @@ Secrets, by name:
 | website | `CLOUD_SEAL_PUBLIC`, `CLOUD_LICENCE_PUBLIC` | public keys only |
 | website | `CLOUD_ADMIN_USER_IDS` | account ids allowed into /admin (verified email) |
 | website | `CLOUD_ABUSE_NOTIFY`, `EARLY_ACCESS_NOTIFY`, `SITE_URL` | optional |
+| website | `GOOGLE_RELAY_CLIENT_ID`, `GOOGLE_RELAY_CLIENT_SECRET` | Connect with Google for managed boxes: off until both are set |
 | provisioner | `CONTROL_DATABASE_URL` | the website project's `DATABASE_URL` |
 | provisioner | `CLOUD_SEAL_KEY`, `CLOUD_LICENCE_KEY` | private keys |
 | provisioner | `CLOUDFLARE_API_TOKEN` | Zone · DNS · Edit on shiptiffin.app only |
@@ -288,6 +311,14 @@ Setting it up:
    `CLOUD_R2_ACCESS_KEY_ID` to its Access Key ID (the token's id; its secret access key is
    not needed) and `CLOUD_R2_ACCOUNT_ID` to the account id. The worker logs "off-site
    backups for managed boxes: on" when it starts.
-7. If `cloud_*` tables exist from an earlier build, drop them: the worker refuses to start
+7. Connect with Google for managed boxes: in the Google Cloud project of ShipTiffin's
+   OAuth app, turn on the Google Search Console API and the Site Verification API, add
+   the redirect URI `https://shiptiffin.com/api/box/google/callback` to the OAuth client,
+   keep the consent screen In production, and set `GOOGLE_RELAY_CLIENT_ID` and
+   `GOOGLE_RELAY_CLIENT_SECRET` to that client's. Until Google has reviewed the app for
+   the two permissions, people see "Google hasn't verified this app" first and at most
+   100 Google accounts can connect, so submit it for verification (the Search Console
+   and Site Verification scopes, with the privacy policy and a short screen recording).
+8. If `cloud_*` tables exist from an earlier build, drop them: the worker refuses to start
    on them (before launch nothing in them matters). /start shows the sign-up list until
    every website secret is set and the worker has made its tables.

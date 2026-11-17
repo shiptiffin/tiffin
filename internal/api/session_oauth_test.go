@@ -643,3 +643,26 @@ func auditEvents(t *testing.T, db *state.DB, action string) []string {
 	}
 	return out
 }
+
+// A module's own flow at the box's callback URL (Search Console's Connect
+// with Google) gets the callbacks whose state has its prefix; sign-in keeps
+// its own, and the rest still go on to the auth engine.
+func TestOAuthStateHandler(t *testing.T) {
+	e := newOAuthEnv(t, "google")
+	got := ""
+	api.HandleOAuthState("google", "tmod.", func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query().Get("state")
+		w.WriteHeader(http.StatusTeapot)
+	})
+	res, _ := e.back(pkOrigin+"/api/auth/callback/google?code=x&state=tmod.abc", "203.0.113.20")
+	if res.StatusCode != http.StatusTeapot || got != "tmod.abc" {
+		t.Fatalf("the module's callback: %d, state %q", res.StatusCode, got)
+	}
+	got = ""
+	if res, _ := e.back(pkOrigin+"/api/auth/callback/github?code=x&state=tmod.abc", "203.0.113.20"); res.StatusCode == http.StatusTeapot || got != "" {
+		t.Fatal("another provider's callback reached the module")
+	}
+	if res, _ := e.back(pkOrigin+"/api/auth/callback/google?code=x&state="+api.OAuthStatePrefix+"x", "203.0.113.20"); res.StatusCode == http.StatusTeapot || got != "" {
+		t.Fatal("a sign-in callback reached the module")
+	}
+}

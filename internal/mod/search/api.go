@@ -41,7 +41,7 @@ type HostStatus struct {
 	Pending *Pending    `json:"pending,omitempty" doc:"A check that waits (after a deploy the box waits a couple of minutes, so a burst of deploys makes one ping)"`
 	Next    *time.Time  `json:"next,omitempty" doc:"The next regular check"`
 	Crawled []Crawler   `json:"crawled,omitempty" doc:"Search and AI bots that fetched its pages (last 30 days), most recent first. A bot counts only from the addresses its operator publishes."`
-	Google  *GoogleHost `json:"google,omitempty" doc:"Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with a Google service account connected)"`
+	Google  *GoogleHost `json:"google,omitempty" doc:"Google Search Console: verification, the last 28 days of searches and what URL Inspection says (with Google connected)"`
 	Fakes7d int         `json:"fakes7d,omitempty" doc:"Requests in the last 7 days whose user agent claimed a known bot from an address outside its operator's list"`
 }
 
@@ -290,17 +290,25 @@ func (m *Module) status(ctx context.Context, project string) (Status, error) {
 	return s, nil
 }
 
-// GoogleConnection is the box's Google service account, as the API shows it.
+// GoogleConnection is the box's Google connection, as the API shows it.
 type GoogleConnection struct {
 	Connected   bool             `json:"connected"`
-	ClientEmail string           `json:"clientEmail,omitempty" doc:"The service account the box signs in as"`
-	ProjectID   string           `json:"projectId,omitempty" doc:"Its Google Cloud project"`
-	Owner       string           `json:"owner,omitempty" doc:"The Google account added as an owner of each property, so they show in that account's Search Console"`
+	Email       string           `json:"email,omitempty" doc:"The Google account the box acts as: its Search Console holds the box's properties"`
 	ConnectedAt *time.Time       `json:"connectedAt,omitempty"`
 	By          string           `json:"by,omitempty"`
-	Error       string           `json:"error,omitempty" doc:"Why Google refuses the key lately: replace it (a new key for the same account keeps every property)"`
+	Error       string           `json:"error,omitempty" doc:"Why Google refuses the box lately (the connection was removed in the Google account, an API was turned off): connect again"`
 	ErrorAt     *time.Time       `json:"errorAt,omitempty"`
+	Ready       bool             `json:"ready" doc:"Connect with Google can start: a managed box, or a box with Google sign-in keys. Without them, add them in Box settings › Sign-in providers"`
+	Managed     bool             `json:"managed,omitempty" doc:"A managed box: Connect with Google goes through ShipTiffin's Google app, and there is nothing to set up"`
+	Project     string           `json:"project,omitempty" doc:"On a box with its own Google sign-in keys, their Google Cloud project number: the Google Search Console API and the Site Verification API must be on in it"`
+	LastTry     string           `json:"lastTry,omitempty" doc:"Why the last try to connect failed, in Google's words"`
+	Legacy      bool             `json:"legacy,omitempty" doc:"The box was connected with a service account key, which it no longer uses: connect with Google, and the domains and their history carry on"`
 	Properties  []GoogleProperty `json:"properties"`
+}
+
+// GoogleStart is where to send the browser to connect.
+type GoogleStart struct {
+	URL string `json:"url" doc:"Google's consent page; open it in this tab"`
 }
 
 // GoogleProperty is one Search Console property the box looks after.
@@ -310,11 +318,6 @@ type GoogleProperty struct {
 	State      string     `json:"state" enum:"verifying,verified,failed"`
 	Detail     string     `json:"detail,omitempty"`
 	VerifiedAt *time.Time `json:"verifiedAt,omitempty"`
-}
-
-type googleBody struct {
-	Key   string `json:"key,omitempty" maxLength:"20000" doc:"The service account's JSON key file, as text. Leave it out to change only owner on a connected box."`
-	Owner string `json:"owner,omitempty" maxLength:"320" doc:"Your Google account's email: the box adds it as an owner of each property, so it shows in your Search Console"`
 }
 
 func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() error) {
@@ -341,7 +344,7 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 
 	sh := api.Op("search-google", http.MethodGet, "/v1/search/google", "search google", api.RiskRead,
 		"Show the Google Search Console connection",
-		"Whether the box has a Google service account, which, and the Search Console properties it looks after with their state. Box admins only.", tag)
+		"Whether someone has connected Google, as which account, and the Search Console properties the box looks after with their state. Box admins only.", tag)
 	sh.Errors = append(sh.Errors, 409)
 	huma.Register(a, sh, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body GoogleConnection }, error) {
 		if err := admin(ctx); err != nil {
@@ -351,45 +354,42 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 		return &struct{ Body GoogleConnection }{v}, err
 	}))
 
-	cn := api.Outbound(api.Op("search-google-connect", http.MethodPut, "/v1/search/google", "search google connect", api.RiskWrite,
-		"Connect Google Search Console with a service account key",
-		"Stores a Google service account's JSON key, encrypted with the box's key, after signing in with it. "+
-			"Make it once: in a Google Cloud project turn on the Google Search Console API and the Site Verification API, create a service account (no roles), "+
-			"and add a JSON key (IAM › Service accounts › Keys). The box then verifies every findable address on its own: a TXT record on the domain when its zone is on a connected DNS provider, "+
-			"else Google's verification file on the host. It adds owner as an owner too, submits sitemaps and reads searches and index status twice a day. Box admins only.", tag))
-	cn.Errors = append(cn.Errors, 409, 422)
-	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct{ Body googleBody }) (*struct{ Body GoogleConnection }, error) {
+	api.HandleOAuthState("google", GoogleStatePrefix, m.googleCallback)
+	cn := api.Op("search-google-connect", http.MethodPost, "/v1/search/google/connect", "-", api.RiskWrite,
+		"Start connecting Google Search Console",
+		"Returns Google's consent page and sets a short-lived state cookie. A managed box connects through ShipTiffin's Google app, with nothing to set up; "+
+			"any other box uses its own Google sign-in keys (Box settings › Sign-in providers). "+
+			"The person lets the box see and manage their Search Console and verify their sites; Google sends the browser back to the box's Google callback URL, "+
+			"the one sign-in uses. From then on the box verifies every findable address as them (a TXT record with a connected DNS provider, else Google's "+
+			"verification file; a site they own already needs neither), adds it to their Search Console, submits sitemaps and reads searches and index status "+
+			"twice a day. With the box's own keys, the Google Search Console API and the Site Verification API must be on in their Google Cloud project. "+
+			"Browser only: it is the dashboard's Connect with Google button. Box admins only.", tag)
+	cn.Errors = append(cn.Errors, 409)
+	huma.Register(a, cn, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct {
+		SetCookie http.Cookie `header:"Set-Cookie"`
+		Body      GoogleStart
+	}, error) {
 		if err := admin(ctx); err != nil {
 			return nil, err
 		}
-		owner := strings.TrimSpace(in.Body.Owner)
-		if owner != "" && (!strings.Contains(owner, "@") || strings.ContainsAny(owner, " ,;")) {
-			return nil, api.NewProblem(422, "validation", "owner must be one email address (your Google account)")
-		}
 		pr := api.PrincipalFrom(ctx)
-		if strings.TrimSpace(in.Body.Key) == "" {
-			c, err := m.setGoogleOwner(ctx, owner)
-			if err != nil {
-				return nil, err
-			}
-			_ = p.DB.Audit(ctx, pr.TokenID, "search.google.owner", c.ClientEmail, map[string]any{"session": pr.Session, "owner": c.Owner})
-			v, err := m.googleView(ctx)
-			return &struct{ Body GoogleConnection }{v}, err
-		}
-		c, err := m.connectGoogle(ctx, []byte(in.Body.Key), owner, pr.Name)
+		u, state, err := m.startGoogle(ctx, pr.Name, pr.TokenID, pr.Session)
 		if err != nil {
-			pb := api.NewProblem(422, "validation", err.Error())
-			pb.Hint = "make a JSON key at console.cloud.google.com › IAM › Service accounts › Keys › Add key, with the Search Console and Site Verification APIs turned on"
-			return nil, pb
+			return nil, err
 		}
-		_ = p.DB.Audit(ctx, pr.TokenID, "search.google.connect", c.ClientEmail, map[string]any{"session": pr.Session, "project": c.ProjectID, "owner": c.Owner})
-		v, err := m.googleView(ctx)
-		return &struct{ Body GoogleConnection }{v}, err
+		return &struct {
+			SetCookie http.Cookie `header:"Set-Cookie"`
+			Body      GoogleStart
+		}{
+			SetCookie: http.Cookie{Name: googleStateCookie, Value: state, Path: "/", HttpOnly: true, Secure: true,
+				SameSite: http.SameSiteLaxMode, MaxAge: int(googleStateTTL / time.Second)},
+			Body: GoogleStart{URL: u},
+		}, nil
 	}))
 
 	dc := api.Op("search-google-disconnect", http.MethodDelete, "/v1/search/google", "search google disconnect", api.RiskWrite,
 		"Disconnect Google Search Console",
-		"Deletes the service account key and what the box read from Google. The properties stay in Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.", tag)
+		"Ends the box's access at Google and deletes what the box read from it. The properties stay in your Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.", tag)
 	dc.Errors = append(dc.Errors, 409)
 	huma.Register(a, dc, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body GoogleConnection }, error) {
 		if err := admin(ctx); err != nil {
@@ -460,7 +460,7 @@ func (m *Module) inspectOne(ctx context.Context, project, raw string) (*GInspect
 	}
 	if g == nil {
 		pb := api.NewProblem(409, "precondition", "Google Search Console is not connected on this box")
-		pb.Hint = "the box owner connects it in Settings › Search engines (tiffin search google connect)"
+		pb.Hint = "a box admin presses Connect with Google in the dashboard's Settings › Search engines"
 		return nil, pb
 	}
 	gh := m.googleHost(ctx, host)
@@ -597,15 +597,26 @@ func (m *Module) indexNowView(ctx context.Context) (IndexNowStatus, error) {
 
 func (m *Module) googleView(ctx context.Context) (GoogleConnection, error) {
 	v := GoogleConnection{Properties: []GoogleProperty{}}
-	c, err := m.googleConn(ctx)
+	if app, err := m.signin(ctx); err == nil {
+		_, relay := app.(*relaySignin)
+		v.Ready, v.Managed, v.Project = true, relay, app.project()
+	}
+	if raw, ok, _ := m.p.DB.KVGet(ctx, kvNS, "google-try"); ok {
+		v.LastTry = string(raw)
+	}
+	c, err := m.storedGoogle(ctx)
 	if err != nil || c == nil {
 		return v, err
 	}
-	at := c.At
-	v.Connected, v.ClientEmail, v.ProjectID, v.Owner, v.ConnectedAt, v.By = true, c.ClientEmail, c.ProjectID, c.Owner, &at, c.By
-	if c.Error != "" {
-		et := c.ErrorAt
-		v.Error, v.ErrorAt = c.Error, &et
+	if c.Kind != gOAuth {
+		v.Legacy = true
+	} else {
+		at := c.At
+		v.Connected, v.Email, v.ConnectedAt, v.By = true, c.Email, &at, c.By
+		if c.Error != "" {
+			et := c.ErrorAt
+			v.Error, v.ErrorAt = c.Error, &et
+		}
 	}
 	m.mu.Lock()
 	props, err := m.gprops(ctx)
@@ -625,18 +636,21 @@ func (m *Module) googleView(ctx context.Context) (GoogleConnection, error) {
 	return v, nil
 }
 
-// Checks reports the Google connection when the box has one: a refused key
-// shows on the box's status page and alerts the owner.
+// Checks reports the Google connection when the box has one: a refused
+// connection shows on the box's status page and alerts the owner.
 func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Check {
 	if m.p == nil {
 		return nil
 	}
-	c, _ := m.googleConn(ctx)
+	c, _ := m.storedGoogle(ctx)
 	if c == nil {
 		return nil
 	}
-	if c.Error != "" {
-		return []platform.Check{{Name: "search.google", OK: false, Detail: c.Error + " (Settings › Search engines: replace the key)"}}
+	if c.Kind != gOAuth {
+		return []platform.Check{{Name: "search.google", OK: false, Detail: "the service account key is no longer used: press Connect with Google in Settings › Search engines (the domains and their history carry on)"}}
 	}
-	return []platform.Check{{Name: "search.google", OK: true, Detail: "signed in as " + c.ClientEmail}}
+	if c.Error != "" {
+		return []platform.Check{{Name: "search.google", OK: false, Detail: c.Error + " (Settings › Search engines: connect with Google again)"}}
+	}
+	return []platform.Check{{Name: "search.google", OK: true, Detail: "connected as " + c.Email}}
 }

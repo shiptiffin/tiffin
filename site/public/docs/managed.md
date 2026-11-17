@@ -144,6 +144,27 @@ and your coding agent with an API key: see
   forgotten after two hours), your account says so and we email you to start the server in
   the Hetzner console.
 
+## Google Search Console
+
+**Settings › Search engines › Connect with Google** needs no setup on a managed box
+([what it brings](https://shiptiffin.com/docs/search.md#google-search-console)). It goes through ShipTiffin's Google
+app, because Google only sends people back to addresses registered in advance and only
+an app's own secret can renew a token:
+
+- You choose your Google account and allow two things: Search Console, and verifying
+  your sites. Google's page shows ShipTiffin's name.
+- shiptiffin.com receives Google's answer and passes it straight to your box, as a code
+  only your box can collect (with its licence, within two minutes). It stores nothing:
+  no token, no address, no record of the connection.
+- Your box keeps the lasting access, encrypted, and asks shiptiffin.com for each hour's
+  token. Those requests pass through ShipTiffin; your search data never does: the box
+  reads it from Google itself.
+- End it any time: **Disconnect** on the box, or remove ShipTiffin in your Google
+  account (myaccount.google.com › Security › Third-party apps).
+
+The requests are taken only from a box with an active subscription, with its current
+licence, from the box's own address.
+
 ## Off-site backups
 
 Every backup set is also copied off the server, as on any box with
@@ -197,7 +218,8 @@ reserved.
 
 Nothing happens to your server or apps, ever, over billing. When the subscription ends (or
 stays unpaid after Stripe's retries): automatic updates pause (the box's Updates page says
-why), monitoring emails and support stop, and the address keeps working for **30 days**,
+why), monitoring emails and support stop, Google Search Console numbers stop updating
+(what the box has read stays), and the address keeps working for **30 days**,
 with an email when it starts, a week before it goes and when it goes. The address never
 goes until the week-before warning was accepted by our mail server at least seven days
 earlier: a warning that fails is sent again a day later, and the address stays meanwhile.

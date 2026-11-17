@@ -3,14 +3,7 @@ package search
 import (
 	"bytes"
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -22,60 +15,46 @@ import (
 	"time"
 )
 
-// A Google service account: a robot account in the owner's own Google
-// Cloud project, which the box signs in as (a key file, no browser, no
-// app review). It verifies the owner's domains through DNS, adds the owner
-// as an owner too (so they show in the owner's own Search Console), submits
-// sitemaps and reads search data back.
+// The box signs in to Google as a person. Whoever pressed Connect with
+// Google gave the box's own Google OAuth app (the sign-in keys in Box
+// settings › Sign-in providers) a refresh token for their Search Console.
+// With it the box verifies their domains, adds them to their Search
+// Console, submits sitemaps and reads search data back, all as them.
 
 const (
-	googleScopes  = "https://www.googleapis.com/auth/webmasters https://www.googleapis.com/auth/siteverification"
+	gScopeSearch  = "https://www.googleapis.com/auth/webmasters"
+	gScopeVerify  = "https://www.googleapis.com/auth/siteverification"
+	googleScopes  = "openid email " + gScopeSearch + " " + gScopeVerify
+	googleAuth    = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleToken   = "https://oauth2.googleapis.com/token"
+	googleRevoke  = "https://oauth2.googleapis.com/revoke"
 	verifyAPI     = "https://www.googleapis.com/siteVerification/v1"
 	webmastersAPI = "https://www.googleapis.com/webmasters/v3"
 	searchAPI     = "https://searchconsole.googleapis.com/v1"
 )
 
-// googleKey is the parts of a service account key file the box uses.
-type googleKey struct {
-	Type        string `json:"type"`
-	ProjectID   string `json:"project_id"`
-	ClientEmail string `json:"client_email"`
-	PrivateKey  string `json:"private_key"`
-	TokenURI    string `json:"token_uri"`
+// googleApp is the OAuth app the box asks Google with.
+type googleApp struct {
+	ClientID, ClientSecret, RedirectURL string
 }
 
-func parseGoogleKey(raw []byte) (*googleKey, *rsa.PrivateKey, error) {
-	var k googleKey
-	if err := json.Unmarshal(raw, &k); err != nil {
-		return nil, nil, errors.New("not a JSON key file")
+// project is the app's Google Cloud project number: the client ID starts
+// with it ("334146733800-abc.apps.googleusercontent.com").
+func (a googleApp) project() string {
+	n, _, ok := strings.Cut(a.ClientID, "-")
+	if !ok || n == "" || strings.Trim(n, "0123456789") != "" {
+		return ""
 	}
-	if k.Type != "service_account" || k.ClientEmail == "" || k.PrivateKey == "" {
-		return nil, nil, errors.New(`not a service account key (download it from IAM › Service accounts › Keys › Add key › JSON)`)
-	}
-	block, _ := pem.Decode([]byte(k.PrivateKey))
-	if block == nil {
-		return nil, nil, errors.New("the key file's private_key is not a PEM key")
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, nil, fmt.Errorf("the key file's private_key: %w", err)
-	}
-	rk, ok := parsed.(*rsa.PrivateKey)
-	if !ok {
-		return nil, nil, errors.New("the key file's private_key is not an RSA key")
-	}
-	if k.TokenURI == "" {
-		k.TokenURI = googleToken
-	}
-	return &k, rk, nil
+	return n
 }
 
-// gclient calls Google's APIs as the service account.
+var errNoGoogleKeys = errors.New("the box has no Google sign-in keys (Box settings › Sign-in providers)")
+
+// gclient calls Google's APIs as the person who connected.
 type gclient struct {
-	key  *googleKey
-	rsa  *rsa.PrivateKey
-	http *http.Client
+	refresh string
+	signin  func(context.Context) (gsignin, error) // the app that renews the access
+	http    *http.Client
 	// base overrides the API hosts in tests ("" = Google's).
 	base string
 
@@ -84,61 +63,45 @@ type gclient struct {
 	expires time.Time
 }
 
-func newGClient(raw []byte, hc *http.Client) (*gclient, error) {
-	k, rk, err := parseGoogleKey(raw)
-	if err != nil {
-		return nil, err
-	}
-	return &gclient{key: k, rsa: rk, http: hc}, nil
+func (g *gclient) url(u string) string {
+	return rebase(g.base, u)
 }
 
-func (g *gclient) url(u string) string {
-	if g.base == "" {
+// rebase moves a Google URL to base (tests), keeping its path and query.
+func rebase(base, u string) string {
+	if base == "" {
 		return u
 	}
 	pu, _ := url.Parse(u)
-	return strings.TrimSuffix(g.base, "/") + pu.Path + func() string {
-		if pu.RawQuery != "" {
-			return "?" + pu.RawQuery
-		}
-		return ""
-	}()
+	out := strings.TrimSuffix(base, "/") + pu.Path
+	if pu.RawQuery != "" {
+		out += "?" + pu.RawQuery
+	}
+	return out
 }
 
-// accessToken signs a JWT with the key and trades it for an hour's token.
-func (g *gclient) accessToken(ctx context.Context) (string, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.token != "" && time.Until(g.expires) > time.Minute {
-		return g.token, nil
-	}
-	now := time.Now()
-	enc := base64.RawURLEncoding
-	head := enc.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-	claims, _ := json.Marshal(map[string]any{
-		"iss": g.key.ClientEmail, "scope": googleScopes, "aud": g.key.TokenURI,
-		"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(),
-	})
-	signing := head + "." + enc.EncodeToString(claims)
-	sum := sha256.Sum256([]byte(signing))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, g.rsa, crypto.SHA256, sum[:])
-	if err != nil {
-		return "", err
-	}
-	form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {signing + "." + enc.EncodeToString(sig)}}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, g.url(g.key.TokenURI), strings.NewReader(form.Encode()))
+// gtoken is an answer of Google's token endpoint.
+type gtoken struct {
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+	IDToken      string `json:"id_token"`
+	Email        string `json:"email"` // from the control plane of a managed box
+	Error        string `json:"error"`
+	Desc         string `json:"error_description"`
+}
+
+// googleTokenCall posts a grant to Google's token endpoint.
+func googleTokenCall(ctx context.Context, hc *http.Client, tokenURL string, form url.Values) (*gtoken, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := g.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("google sign-in: %w", err)
+		return nil, fmt.Errorf("google sign-in: %w", err)
 	}
 	defer resp.Body.Close()
-	var out struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
-		Error       string `json:"error"`
-		Desc        string `json:"error_description"`
-	}
+	var out gtoken
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
 	if resp.StatusCode != 200 || out.AccessToken == "" {
 		msg := out.Desc
@@ -148,7 +111,31 @@ func (g *gclient) accessToken(ctx context.Context) (string, error) {
 		if msg == "" {
 			msg = resp.Status
 		}
-		return "", &GoogleError{Status: resp.StatusCode, Message: "sign-in refused: " + msg}
+		if out.Error == "invalid_grant" {
+			msg = "Google no longer accepts the connection (" + msg + "). Connect with Google again"
+		}
+		return nil, &GoogleError{Status: resp.StatusCode, Message: "sign-in refused: " + msg}
+	}
+	return &out, nil
+}
+
+// accessToken trades the refresh token for an hour's token.
+func (g *gclient) accessToken(ctx context.Context) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.token != "" && time.Until(g.expires) > time.Minute {
+		return g.token, nil
+	}
+	s, err := g.signin(ctx)
+	if errors.Is(err, errNoGoogleKeys) {
+		return "", &GoogleError{Status: 401, Message: "sign-in refused: " + err.Error()}
+	} else if err != nil {
+		return "", err
+	}
+	now := time.Now()
+	out, err := s.renew(ctx, g.refresh)
+	if err != nil {
+		return "", err
 	}
 	g.token, g.expires = out.AccessToken, now.Add(time.Duration(out.ExpiresIn)*time.Second)
 	return g.token, nil
@@ -223,35 +210,29 @@ func (g *gclient) verificationToken(ctx context.Context, site gsite, method stri
 	return out.Token, err
 }
 
-// verify asks Google to check the token now; the service account becomes
-// an owner. (Owners sent along make Google answer 503: see addOwner.)
+// verify asks Google to check the token now; the person becomes a verified
+// owner of the site.
 func (g *gclient) verify(ctx context.Context, site gsite, method string) error {
 	return g.call(ctx, http.MethodPost, verifyAPI+"/webResource?verificationMethod="+method, map[string]any{"site": site}, nil)
 }
 
-// addOwner adds a person's Google account to a verified property's owners,
-// so it shows in their Search Console.
-func (g *gclient) addOwner(ctx context.Context, site gsite, owner string) error {
+// owns reports whether the person is already a verified owner of the site
+// (they verified it themselves once, or another owner added them): Google
+// answers for a site only to its owners.
+func (g *gclient) owns(ctx context.Context, site gsite) (bool, error) {
 	id := site.Identifier
 	if site.Type == "INET_DOMAIN" {
 		id = "dns://" + site.Identifier
 	}
-	u := verifyAPI + "/webResource/" + url.PathEscape(id)
-	var res struct {
-		Owners []string `json:"owners"`
+	err := g.call(ctx, http.MethodGet, verifyAPI+"/webResource/"+url.PathEscape(id), nil, nil)
+	var ge *GoogleError
+	if errors.As(err, &ge) && (ge.Status == 403 || ge.Status == 404) {
+		return false, nil
 	}
-	if err := g.call(ctx, http.MethodGet, u, nil, &res); err != nil {
-		return err
-	}
-	for _, o := range res.Owners {
-		if strings.EqualFold(o, owner) {
-			return nil
-		}
-	}
-	return g.call(ctx, http.MethodPut, u, map[string]any{"site": site, "owners": append(res.Owners, owner)}, nil)
+	return err == nil, err
 }
 
-// addSite adds a property to the service account's Search Console.
+// addSite adds a property to the person's Search Console.
 func (g *gclient) addSite(ctx context.Context, siteURL string) error {
 	return g.call(ctx, http.MethodPut, webmastersAPI+"/sites/"+url.PathEscape(siteURL), nil, nil)
 }
