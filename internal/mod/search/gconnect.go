@@ -62,19 +62,24 @@ type googleConn struct {
 
 // gprop is one Search Console property the box looks after.
 type gprop struct {
-	Prop       string            `json:"prop"` // sc-domain:example.com or https://shop.example.com/
-	Identifier string            `json:"identifier"`
-	Method     string            `json:"method"` // DNS_TXT or FILE
-	Host       string            `json:"host,omitempty"`
-	Token      string            `json:"token,omitempty"`
-	State      string            `json:"state"`
-	Detail     string            `json:"detail,omitempty"`
-	Tries      int               `json:"tries,omitempty"`
-	Since      time.Time         `json:"since"`
-	Next       time.Time         `json:"next,omitzero"`
-	VerifiedAt time.Time         `json:"verifiedAt,omitzero"`
-	Added      bool              `json:"added,omitempty"`
-	Sitemaps   map[string]string `json:"sitemaps,omitempty"` // host → sitemap submitted
+	Prop       string    `json:"prop"` // sc-domain:example.com or https://shop.example.com/
+	Identifier string    `json:"identifier"`
+	Method     string    `json:"method"` // DNS_TXT or FILE
+	Host       string    `json:"host,omitempty"`
+	Token      string    `json:"token,omitempty"`
+	State      string    `json:"state"`
+	Detail     string    `json:"detail,omitempty"`
+	Tries      int       `json:"tries,omitempty"`
+	Since      time.Time `json:"since"`
+	Next       time.Time `json:"next,omitzero"`
+	VerifiedAt time.Time `json:"verifiedAt,omitzero"`
+	Added      bool      `json:"added,omitempty"`
+	// Proved: the connected account holds its own proof (its TXT record or
+	// file), so it is a verified owner in its own right. An account that was
+	// only added as an owner by another one loses the property when that
+	// one goes; the box gives it its own proof.
+	Proved   bool              `json:"proved,omitempty"`
+	Sitemaps map[string]string `json:"sitemaps,omitempty"` // host → sitemap submitted
 }
 
 // GoogleHost is what Google says about one address.
@@ -475,6 +480,11 @@ func (m *Module) googlePass(ctx context.Context, findable []string) {
 			}
 			gp.State, gp.Tries = GVerifying, 0
 			m.verifyStep(ctx, g, conn, gp, now)
+		case GVerified:
+			// Owned already, but through someone else's proof: add its own.
+			if !gp.Proved && !now.Before(gp.Next) {
+				m.verifyStep(ctx, g, conn, gp, now)
+			}
 		}
 		if gp.State == GVerified {
 			m.afterVerified(ctx, g, gp, hostsOf[prop], now)
@@ -485,26 +495,40 @@ func (m *Module) googlePass(ctx context.Context, findable []string) {
 	}
 }
 
-// verifyStep moves a property one step towards verified: get the token,
-// publish it, ask Google to check.
+// verifyStep moves a property one step towards verified with the
+// account's own proof: get the token, publish it, ask Google to check. A
+// site the account owns already counts as verified at once, so its data
+// shows without waiting, and gets the proof in the passes after: while it
+// waits it stays verified, whatever Google answers.
 func (m *Module) verifyStep(ctx context.Context, g *gclient, conn *googleConn, gp *gprop, now time.Time) {
 	site := gsite{Type: "INET_DOMAIN", Identifier: gp.Identifier}
 	if gp.Method == "FILE" {
 		site.Type = "SITE"
 	}
+	owned := gp.State == GVerified
+	// stall: a step that didn't work. An owned property keeps its state and
+	// tries again later; another fails as before.
+	stall := func(why string, wait time.Duration) {
+		if owned {
+			gp.Next = now.Add(wait)
+			return
+		}
+		m.gfail(gp, now, why)
+	}
 	if gp.Token == "" {
-		// A site the person owns already needs no proof.
-		if mine, err := g.owns(ctx, site); err != nil {
-			gp.Detail, gp.Next = "Google could not be asked: "+err.Error(), now.Add(time.Minute)
-			return
-		} else if mine {
-			gp.State, gp.VerifiedAt, gp.Tries, gp.Next = GVerified, now, 0, time.Time{}
-			gp.Detail = "Verified: " + conn.Email + " owns it in Search Console already."
-			return
+		if !owned {
+			if mine, err := g.owns(ctx, site); err != nil {
+				gp.Detail, gp.Next = "Google could not be asked: "+err.Error(), now.Add(time.Minute)
+				return
+			} else if mine {
+				gp.State, gp.VerifiedAt, gp.Tries, gp.Next = GVerified, now, 0, time.Time{}
+				gp.Detail = "Verified: " + conn.Email + " owns it in Search Console already."
+				return
+			}
 		}
 		tok, err := g.verificationToken(ctx, site, gp.Method)
 		if err != nil {
-			m.gfail(gp, now, "Google gave no verification token: "+err.Error())
+			stall("Google gave no verification token: "+err.Error(), time.Hour)
 			return
 		}
 		gp.Token = tok
@@ -512,12 +536,16 @@ func (m *Module) verifyStep(ctx context.Context, g *gclient, conn *googleConn, g
 			rec := dnskit.Record{Type: "TXT", Name: gp.Identifier, Value: tok}
 			if err := m.dnsAppender().AddRecords(ctx, []dnskit.Record{rec}, "search"); err != nil {
 				gp.Token = ""
-				m.gfail(gp, now, "The TXT record could not be added: "+err.Error())
+				stall("The TXT record could not be added: "+err.Error(), time.Hour)
 				return
 			}
-			gp.Detail = "Added Google's TXT record to " + gp.Identifier + "; waiting for Google to see it."
+			if !owned {
+				gp.Detail = "Added Google's TXT record to " + gp.Identifier + "; waiting for Google to see it."
+			}
 		} else {
-			gp.Detail = "Serving Google's verification file on " + gp.Host + "; waiting for Google to read it."
+			if !owned {
+				gp.Detail = "Serving Google's verification file on " + gp.Host + "; waiting for Google to read it."
+			}
 			if err := m.p.RefreshRoutes(ctx); err != nil {
 				m.p.Log.Warn("search: routes", "err", err)
 			}
@@ -528,11 +556,15 @@ func (m *Module) verifyStep(ctx context.Context, g *gclient, conn *googleConn, g
 	err := g.verify(ctx, site, gp.Method)
 	if err != nil {
 		gp.Tries++
+		wait := time.Duration(min(gp.Tries, 30)) * 30 * time.Second
+		if owned {
+			gp.Next = now.Add(wait)
+			return
+		}
 		if now.Sub(gp.Since) > gVerifyFor {
 			m.gfail(gp, now, "Google still can't see the proof after a day: "+err.Error())
 			return
 		}
-		wait := time.Duration(min(gp.Tries, 30)) * 30 * time.Second
 		gp.Next = now.Add(wait)
 		if gp.Method == "DNS_TXT" {
 			gp.Detail = "Waiting for Google to see the TXT record on " + gp.Identifier + " (tried " + itoa(gp.Tries) + " times)."
@@ -541,7 +573,10 @@ func (m *Module) verifyStep(ctx context.Context, g *gclient, conn *googleConn, g
 		}
 		return
 	}
-	gp.State, gp.VerifiedAt, gp.Tries, gp.Next, gp.Detail = GVerified, now, 0, time.Time{}, "Verified."
+	gp.State, gp.Proved, gp.Tries, gp.Next, gp.Detail = GVerified, true, 0, time.Time{}, "Verified."
+	if gp.VerifiedAt.IsZero() {
+		gp.VerifiedAt = now
+	}
 }
 
 func (m *Module) gfail(gp *gprop, now time.Time, why string) {

@@ -123,8 +123,9 @@ OAuth app, once:
 The box then works as you. It keeps Google's access encrypted and never shows it again.
 For each findable address it:
 
-- **verifies the domain in your Search Console**: a domain you own there already needs
-  nothing. Otherwise, with Cloudflare connected, it adds Google's TXT record beside the
+- **verifies the domain in your Search Console**: a domain you own there already shows
+  at once, and the box then adds your own proof too, so your ownership never depends on
+  whoever added you. With Cloudflare connected, it adds Google's TXT record beside the
   domain's other records (SPF and the rest stay as they are), and the Domain property
   `sc-domain:example.com` covers every name under it. A domain whose DNS is elsewhere is
   verified with Google's verification file, which the box serves on the host; that

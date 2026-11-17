@@ -336,7 +336,21 @@ func TestGoogleConnection(t *testing.T) {
 		t.Fatalf("an owner verified again %+v", gh)
 	}
 	if len(dns.txts["example.com"]) != txts || len(fg.sites) != sites+2 {
-		t.Fatalf("an owned property got a new proof, or was not added: %v %v", dns.txts, fg.sites)
+		t.Fatalf("an owned property waited for its proof, or was not added: %v %v", dns.txts, fg.sites)
+	}
+	// Then the account gets its own proof, so it doesn't depend on whoever
+	// added it as an owner; the property stays verified meanwhile.
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || len(dns.txts["example.com"]) != txts+1 {
+		t.Fatalf("the proof of an owned property %+v %v", gh, dns.txts)
+	}
+	h.now = h.now.Add(20 * time.Second)
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Detail != "Verified." {
+		t.Fatalf("an owned property proved %+v", gh)
+	}
+	if v, _ := h.m.googleView(h.ctx); len(v.Properties) != 2 || v.Properties[0].State != GVerified || v.Properties[1].State != GVerified {
+		t.Fatalf("view after proving %+v", v)
 	}
 	if err := h.m.disconnectGoogle(h.ctx); err != nil {
 		t.Fatal(err)
@@ -454,6 +468,20 @@ func TestConnectWithGoogle(t *testing.T) {
 	h.pass()
 	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Clicks != 4 || len(dns.txts["example.com"]) != 0 {
 		t.Fatalf("an owned domain %+v %v", gh, dns.txts)
+	}
+	// Google refusing the proof for now doesn't unverify a domain they own.
+	fg.apiOff = true
+	h.pass()
+	fg.apiOff = false
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified {
+		t.Fatalf("an owned domain while its proof fails %+v", gh)
+	}
+	h.now = h.now.Add(time.Hour)
+	h.pass()
+	h.now = h.now.Add(20 * time.Second)
+	h.pass()
+	if gh := h.host("shop.example.com").Google; gh.State != GVerified || gh.Detail != "Verified." || !dns.has("example.com", "google-site-verification=abc") {
+		t.Fatalf("an owned domain proved %+v %v", gh, dns.txts)
 	}
 }
 
