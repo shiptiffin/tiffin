@@ -9,7 +9,7 @@ export const dynamic = "force-static";
 export const metadata: Metadata = pageMeta({
   title: "Privacy policy",
   description:
-    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, the sign-up list, who helps us run it, and how to have it deleted.",
+    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google and from connecting Google Search Console, the sign-up list, who helps us run it, and how to have it deleted.",
   path: "/privacy",
 });
 
@@ -139,13 +139,14 @@ const sections: Section[] = [
     body: (
       <>
         <p>
-          This section covers the information ShipTiffin receives from Google when you use Sign in with Google.
-          It is the only reason ShipTiffin uses Google APIs.
+          This section covers the information ShipTiffin receives from Google when you use Sign in with Google,
+          and when you connect Google Search Console to a box with Connect with Google. Those are the only
+          reasons ShipTiffin uses Google APIs.
         </p>
 
         <h3 id="google-access">What we access</h3>
         <p>
-          ShipTiffin asks Google for three sign-in scopes, and no others:
+          For Sign in with Google, ShipTiffin asks Google for three sign-in scopes:
         </p>
         <ul>
           <li>
@@ -158,6 +159,23 @@ const sections: Section[] = [
             <code>profile</code>: your name and profile picture.
           </li>
         </ul>
+        <p>
+          Connect with Google is separate, and only a box&rsquo;s owner or admins can start it, in the box&rsquo;s
+          Settings › Search engines. Google then asks that person, on its own page, to allow two more scopes
+          (they can say no, and nothing is connected):
+        </p>
+        <ul>
+          <li>
+            <code>https://www.googleapis.com/auth/webmasters</code>: their Google Search Console: the sites in
+            it, their sitemaps, what people searched for to find those sites (searches, pages, clicks,
+            impressions and position), and whether Google has indexed a page.
+          </li>
+          <li>
+            <code>https://www.googleapis.com/auth/siteverification</code>: the list of sites and domains they
+            have verified with Google, so the box can verify the domains it serves.
+          </li>
+        </ul>
+        <p>It also reads that account&rsquo;s email address, to show which account is connected.</p>
         <p>
           We do not ask for, and cannot reach, your Gmail, Google Drive, Google Calendar, contacts, YouTube or any
           other Google data.
@@ -176,7 +194,7 @@ const sections: Section[] = [
         </ul>
 
         <h3 id="google-use">How we use it</h3>
-        <p>We use Google user data only to sign you in:</p>
+        <p>We use Google user data only to sign you in and, if you connect it, to bring your own Search Console to your box:</p>
         <ul>
           <li>
             <strong>Dashboard:</strong> we use your verified email address to find the person with that address on
@@ -186,6 +204,12 @@ const sections: Section[] = [
           <li>
             <strong>Apps:</strong> the app uses your account ID, name, email address and picture to create or find
             your account in that app, and to show your name and picture to you there.
+          </li>
+          <li>
+            <strong>Search Console:</strong> your box verifies the domains of your apps in your Search Console
+            (with a DNS record, or a verification file it serves), adds them there, submits their sitemaps, and
+            shows you in its dashboard what people searched for and which pages Google has indexed. It does this
+            only for domains your box serves.
           </li>
         </ul>
         <p>
@@ -208,6 +232,14 @@ const sections: Section[] = [
             user accounts in the box&rsquo;s database, with the tokens Google returns at sign-in. Those tokens are
             stored encrypted on the box, give access only to the same basic profile, and the access token expires
             after an hour.
+          </li>
+          <li>
+            <strong>Search Console connection:</strong> Google&rsquo;s answer comes to shiptiffin.com, which passes
+            it straight on to your box and keeps nothing: no token and no search data. Your box stores the
+            lasting access (a refresh token), encrypted, and the search data it reads, for up to 16 months, in
+            its own files. Once an hour your box asks shiptiffin.com to renew its access, because only
+            ShipTiffin&rsquo;s Google app can; the tokens pass through and are not stored. Your search data goes
+            from Google to your box and never passes through ShipTiffin.
           </li>
           <li>
             <strong>Encryption:</strong> all traffic to and from a box uses HTTPS (TLS). The sign-in tokens Google
@@ -239,6 +271,10 @@ const sections: Section[] = [
             rules for it.
           </li>
           <li>
+            For a Search Console connection: the people the box&rsquo;s owner has given access to its dashboard,
+            who see the search data there beside the box&rsquo;s other analytics.
+          </li>
+          <li>
             The companies that process data for us only as needed to run the service: Hetzner (hosting this website;
             customers&rsquo; boxes run in their own Hetzner accounts), Cloudflare (DNS) and SendGrid (delivering ShipTiffin&rsquo;s own email, such as
             notices to your email address). See <a href="#providers">Who helps us run it</a>.
@@ -256,6 +292,10 @@ const sections: Section[] = [
           <li>
             We keep Google user data for as long as your account exists: your dashboard account, or your account
             in the app you signed in to.
+          </li>
+          <li>
+            A Search Console connection lasts until someone chooses Disconnect in the box&rsquo;s Settings ›
+            Search engines. That ends the box&rsquo;s access at Google and deletes the search data the box read.
           </li>
           <li>
             When an account is removed, the Google user data stored with it is deleted. A box lives in its
@@ -330,7 +370,8 @@ const sections: Section[] = [
         <li>Show ads, or put advertising or cross-site tracking scripts on our pages or yours.</li>
         <li>Use your data, or your apps&rsquo; data, to train AI models.</li>
         <li>
-          Use Google user data for anything but signing you in. See <a href="#google">Google user data</a>.
+          Use Google user data for anything but signing you in and, if you connect it, showing you your own
+          Search Console on your box. See <a href="#google">Google user data</a>.
         </li>
       </ul>
     ),
@@ -374,7 +415,10 @@ const sections: Section[] = [
             </tr>
             <tr>
               <td>Google</td>
-              <td>Sign in with Google, only if you choose it. See <a href="#google">Google user data</a>.</td>
+              <td>
+                Sign in with Google, and Connect with Google for Search Console, only if you choose them. See{" "}
+                <a href="#google">Google user data</a>.
+              </td>
             </tr>
           </tbody>
         </table>
@@ -508,8 +552,8 @@ export default function Privacy() {
   return (
     <LegalPage
       title="Privacy policy"
-      updated="25 October 2026"
-      updatedIso="2026-10-25"
+      updated="17 November 2026"
+      updatedIso="2026-11-17"
       intro="What we collect, why, how we handle Google user data, who helps us run the service, and how to have it deleted. In plain words, because you should be able to read it."
       sections={sections}
     />
