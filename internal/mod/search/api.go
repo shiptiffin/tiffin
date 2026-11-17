@@ -389,7 +389,7 @@ func (m *Module) registerGoogle(a huma.API, p *platform.Platform, ready func() e
 
 	dc := api.Op("search-google-disconnect", http.MethodDelete, "/v1/search/google", "search google disconnect", api.RiskWrite,
 		"Disconnect Google Search Console",
-		"Ends the box's access at Google and deletes what the box read from it. The properties stay in your Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.", tag)
+		"Deletes the box's Google access and what the box read with it. The properties stay in your Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). The Google account still lists the app until its owner removes it there (myaccount.google.com, Third-party apps): the box doesn't revoke, since that would end the same person's other connections and sign-ins with the app. Box admins only.", tag)
 	dc.Errors = append(dc.Errors, 409)
 	huma.Register(a, dc, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body GoogleConnection }, error) {
 		if err := admin(ctx); err != nil {

@@ -51,6 +51,9 @@ const (
 	ForgetAfter = 24 * time.Hour
 	// Endpoint is where pings go: any IndexNow engine shares them with the rest.
 	Endpoint = "https://www.bing.com/indexnow"
+	// Fallback takes a host's pings when the first engine refuses that host
+	// (403) though its key file is there: Bing does that to single sites.
+	Fallback = "https://yandex.com/indexnow"
 	// userAgent is what the box sends when it reads its apps' files.
 	userAgent = "TiffinSearch/1 (+https://shiptiffin.com/docs/search)"
 )
@@ -76,6 +79,7 @@ type Module struct {
 	now        func() time.Time
 	client     *http.Client
 	endpoint   string
+	fallback   string // "" in tests that have none
 	liveHosts  func(context.Context) ([]runtime.LiveHost, error)
 	routes     func() []edge.Route
 	domainLive func(host string) bool
@@ -104,6 +108,7 @@ func New() *Module {
 		now:        time.Now,
 		client:     &http.Client{Timeout: 20 * time.Second, CheckRedirect: sameHostRedirects},
 		endpoint:   Endpoint,
+		fallback:   Fallback,
 		liveHosts:  runtime.LiveHosts,
 		domainLive: domains.Live,
 		lookupTXT:  net.DefaultResolver.LookupTXT,

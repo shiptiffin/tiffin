@@ -159,8 +159,9 @@ an app's own secret can renew a token:
 - Your box keeps the lasting access, encrypted, and asks shiptiffin.com for each hour's
   token. Those requests pass through ShipTiffin; your search data never does: the box
   reads it from Google itself.
-- End it any time: **Disconnect** on the box, or remove ShipTiffin in your Google
-  account (myaccount.google.com › Security › Third-party apps).
+- End it any time: **Disconnect** on the box deletes the box's access and what it read.
+  To take ShipTiffin out of your Google account too, remove it there (myaccount.google.com
+  › Security › Third-party apps); that also ends it on any other box you connected.
 
 The requests are taken only from a box with an active subscription, with its current
 licence, from the box's own address.

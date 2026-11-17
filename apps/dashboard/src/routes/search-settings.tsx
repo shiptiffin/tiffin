@@ -270,13 +270,13 @@ function GoogleCard({ conn }: { conn: GoogleConnection }) {
         open={leaving}
         onClose={() => setLeaving(false)}
         title="Disconnect Google?"
-        body="The box ends its access at Google and forgets the search data it read. Your properties stay in Search Console, and the verification records stay in DNS."
+        body="The box deletes its Google access and the search data it read. Your properties stay in Search Console, and the verification records stay in DNS. Your Google account still lists the app until you remove it there."
         action="Disconnect"
         run={() => disconnectGoogle()}
         done={() => {
           void qc.invalidateQueries({ queryKey: ["search-google"] });
           void qc.invalidateQueries({ queryKey: ["search"] });
-          toast({ title: "Google is disconnected." });
+          toast({ title: "Google is disconnected.", detail: "To remove the app from your Google account too, open myaccount.google.com › Security › Third-party apps." });
         }}
       />
     </section>

@@ -438,8 +438,41 @@ func sameDates(pages map[string]string) bool {
 	return first != ""
 }
 
-// submit sends URLs to IndexNow, at most batch per request.
+// submit sends URLs to IndexNow. When the first engine refuses the host
+// itself (403: it could not check the key file, or it blocks the site) and
+// another engine takes the pages, the ping counts: IndexNow engines pass
+// what they get on to each other, so the rest still hear. Its detail says
+// who refused.
 func (m *Module) submit(ctx context.Context, host, key string, urls []string) *Ping {
+	p := m.submitTo(ctx, m.endpoint, host, key, urls)
+	if p.OK || p.Status != http.StatusForbidden || m.fallback == "" {
+		return p
+	}
+	q := m.submitTo(ctx, m.fallback, host, key, urls)
+	if !q.OK {
+		return p
+	}
+	q.Detail = engineName(m.endpoint) + " refuses this address, so " + engineName(m.fallback) +
+		" took the pages and passes them on to the other engines. " + engineName(m.endpoint) + "'s own webmaster tools say why it refuses."
+	return q
+}
+
+// engineName is an IndexNow endpoint's engine, for people.
+func engineName(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	h := strings.TrimPrefix(u.Hostname(), "www.")
+	name, _, _ := strings.Cut(h, ".")
+	if name == "" {
+		return h
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// submitTo sends URLs to one IndexNow engine, at most batch per request.
+func (m *Module) submitTo(ctx context.Context, endpoint, host, key string, urls []string) *Ping {
 	p := &Ping{Pages: len(urls), OK: true}
 	p.Sample = urls[:min(5, len(urls))]
 	for i := 0; i < len(urls); i += batch {
@@ -450,7 +483,7 @@ func (m *Module) submit(ctx context.Context, host, key string, urls []string) *P
 			"keyLocation": "https://" + host + "/" + key + ".txt",
 			"urlList":     part,
 		})
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.endpoint, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
 			p.OK, p.Detail = false, err.Error()
 			return p

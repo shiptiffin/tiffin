@@ -295,7 +295,8 @@ const sections: Section[] = [
           </li>
           <li>
             A Search Console connection lasts until someone chooses Disconnect in the box&rsquo;s Settings ›
-            Search engines. That ends the box&rsquo;s access at Google and deletes the search data the box read.
+            Search engines. That deletes the box&rsquo;s access (its token) and the search data the box read. To
+            take ShipTiffin out of your Google Account as well, remove it there (the link is below).
           </li>
           <li>
             When an account is removed, the Google user data stored with it is deleted. A box lives in its

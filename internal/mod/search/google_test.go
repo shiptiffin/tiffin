@@ -355,7 +355,9 @@ func TestGoogleConnection(t *testing.T) {
 	if err := h.m.disconnectGoogle(h.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if gh := h.host("shop.example.com").Google; gh.State != "not_connected" || fg.revokes != 1 {
+	// Disconnecting forgets the token; it never revokes at Google, which
+	// would end the person's other connections and sign-ins with the app.
+	if gh := h.host("shop.example.com").Google; gh.State != "not_connected" || fg.revokes != 0 {
 		t.Fatalf("after disconnect %+v, %d revokes", gh, fg.revokes)
 	}
 }
@@ -434,7 +436,7 @@ func TestConnectWithGoogle(t *testing.T) {
 	}
 	_, state = start()
 	fg.scope = "openid email " + gScopeSearch
-	if code := h.back("code=good-code&state="+state, state); code != gcScopes || fg.revokes != 1 {
+	if code := h.back("code=good-code&state="+state, state); code != gcScopes || fg.revokes != 0 {
 		t.Fatalf("one permission: %s, %d revokes", code, fg.revokes)
 	}
 	fg.scope = ""

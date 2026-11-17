@@ -27,7 +27,6 @@ const (
 	googleScopes  = "openid email " + gScopeSearch + " " + gScopeVerify
 	googleAuth    = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleToken   = "https://oauth2.googleapis.com/token"
-	googleRevoke  = "https://oauth2.googleapis.com/revoke"
 	verifyAPI     = "https://www.googleapis.com/siteVerification/v1"
 	webmastersAPI = "https://www.googleapis.com/webmasters/v3"
 	searchAPI     = "https://searchconsole.googleapis.com/v1"

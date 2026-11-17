@@ -306,15 +306,12 @@ func (m *Module) noteGoogle(ctx context.Context, err error) {
 	_ = m.p.DB.KVPut(ctx, kvNS, "google", b)
 }
 
-// disconnectGoogle forgets the connection and what was read with it, and
-// tells Google to end the box's access (best effort: the person can also
-// remove it in their Google account).
+// disconnectGoogle forgets the connection, its refresh token and what was
+// read with it. It doesn't revoke at Google: that would end everything the
+// person granted the app, another box's connection and their sign-ins
+// included. The token is gone from the box, so the access can't be used;
+// the person removes the app in their Google account to end the grant.
 func (m *Module) disconnectGoogle(ctx context.Context) error {
-	if c, _ := m.googleConn(ctx); c != nil && m.p.Secrets != nil {
-		if raw, err := m.p.Secrets.Unseal(c.Sealed); err == nil {
-			m.revokeGoogle(ctx, string(raw))
-		}
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	all, err := m.p.DB.KVList(ctx, kvNS)

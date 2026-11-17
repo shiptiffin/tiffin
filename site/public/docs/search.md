@@ -44,7 +44,10 @@ For each findable address it reads `robots.txt`, the home page and the sitemap, 
 tells search engines which pages are new, changed or removed through
 [IndexNow](https://www.indexnow.org). One message reaches Bing, Yandex, Seznam,
 Naver, Yep, Amazon and the Internet Archive; DuckDuckGo, Yahoo and Copilot use Bing's
-index. Google takes no pings: it reads your sitemap on its own.
+index. Google takes no pings: it reads your sitemap on its own. The message goes to
+Bing; if Bing refuses one of your addresses (it does that to single sites, though the
+key file is there), the box sends it to Yandex instead, which passes it on, and says
+so. Bing Webmaster Tools shows why Bing refuses a site.
 
 | When | What is sent |
 |---|---|
@@ -149,7 +152,10 @@ turned off, the box's Google keys changed, a managed box's subscription ended), 
 › Search engines and the box's
 status checks say so, and the domains show it too. Choose **Connect again**: every
 domain and its history stay. **Use another account** moves the box to another Google
-account; domains that account doesn't own yet are verified for it.
+account; domains that account doesn't own yet are verified for it. **Disconnect**
+deletes the box's access and what it read. It leaves the app listed in your Google
+account, because removing it there also ends your other connections and sign-ins with
+the same app: do that yourself at myaccount.google.com › Security › Third-party apps.
 
 Without the connection, add the domain in Search Console yourself (**Domain**, then the
 TXT record it shows); the box notices the record and shows the domain as verified.

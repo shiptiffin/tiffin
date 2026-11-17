@@ -5696,7 +5696,7 @@ export interface paths {
         post?: never;
         /**
          * Disconnect Google Search Console
-         * @description Ends the box's access at Google and deletes what the box read from it. The properties stay in your Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). Box admins only.
+         * @description Deletes the box's Google access and what the box read with it. The properties stay in your Search Console, and the verification TXT records stay in DNS (remove them by hand if you like). The Google account still lists the app until its owner removes it there (myaccount.google.com, Third-party apps): the box doesn't revoke, since that would end the same person's other connections and sign-ins with the app. Box admins only.
          */
         delete: operations["search-google-disconnect"];
         options?: never;

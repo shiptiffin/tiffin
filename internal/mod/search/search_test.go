@@ -30,6 +30,8 @@ type site struct {
 	files  map[string]string // host+path → body
 	pings  []map[string]any
 	code   int          // IndexNow's answer
+	code2  int          // the fallback engine's answer (0: 200)
+	pings2 int          // pings the fallback engine got
 	google http.Handler // google.test, when set
 	relay  http.Handler // cp.test: a managed box's control plane, when set
 }
@@ -56,6 +58,13 @@ func (s *site) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	host, _, _ := strings.Cut(r.Host, ":")
+	if host == "indexnow2.test" && r.Method == http.MethodPost {
+		s.pings2++
+		if s.code2 != 0 {
+			w.WriteHeader(s.code2)
+		}
+		return
+	}
 	if host == "indexnow.test" && r.Method == http.MethodPost {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -132,6 +141,7 @@ func newHarness(t *testing.T) *harness {
 		},
 	}}
 	m.endpoint = "https://indexnow.test/indexnow"
+	m.fallback = "https://indexnow2.test/indexnow"
 	m.gapp = func(context.Context) (googleApp, error) { return testApp, nil }
 	m.managed = func() *platform.ManagedConfig { return nil }
 	m.liveHosts = func(context.Context) ([]runtime.LiveHost, error) { return h.live, nil }
@@ -295,6 +305,45 @@ func TestPingRefusedKeepsSnapshot(t *testing.T) {
 	}
 	if hs := h.host("shop.example"); !hs.Last.OK || !strings.Contains(hs.Last.Detail, "key file") {
 		t.Fatalf("accepted %+v", hs.Last)
+	}
+}
+
+// The first engine refuses one host (Bing does, though the key file is
+// there): another engine takes the pages and passes them on, and the ping
+// says who refused. If it refuses too, the pages wait as before.
+func TestPingFallsBackWhenTheHostIsRefused(t *testing.T) {
+	h := newHarness(t)
+	h.s.set("shop.example", "/sitemap.xml", sitemap(map[string]string{"https://shop.example/": "2026-10-01"}))
+	h.s.code, h.s.code2 = 403, 403
+	h.serve("shop.example", "d1")
+	h.pass()
+	if hs := h.host("shop.example"); hs.Last == nil || hs.Last.OK || hs.Last.Status != 403 || h.s.pings2 != 1 {
+		t.Fatalf("refused by both %+v (%d to the fallback)", hs.Last, h.s.pings2)
+	}
+	h.s.code2 = 202
+	h.now = h.now.Add(CheckEvery)
+	h.pass()
+	hs := h.host("shop.example")
+	if hs.Last == nil || !hs.Last.OK || hs.Last.Status != 202 || !strings.Contains(hs.Last.Detail, "Indexnow refuses this address") ||
+		!strings.Contains(hs.Last.Detail, "Indexnow2 took the pages") {
+		t.Fatalf("taken by the fallback %+v", hs.Last)
+	}
+	// Taken: the same pages are not sent again, to either engine.
+	n := h.s.pings2
+	h.now = h.now.Add(CheckEvery)
+	h.pass()
+	if h.s.pings2 != n {
+		t.Fatal("pages the fallback took were sent again")
+	}
+	// Another refusal (spam, a malformed request) is the first engine's to
+	// give: the fallback is only for a refused host.
+	h2 := newHarness(t)
+	h2.s.set("shop.example", "/sitemap.xml", sitemap(map[string]string{"https://shop.example/": "2026-10-01"}))
+	h2.s.code = 429
+	h2.serve("shop.example", "d1")
+	h2.pass()
+	if hs := h2.host("shop.example"); hs.Last.OK || h2.s.pings2 != 0 {
+		t.Fatalf("a 429 went to the fallback: %+v", hs.Last)
 	}
 }
 

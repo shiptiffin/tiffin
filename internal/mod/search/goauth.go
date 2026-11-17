@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -173,10 +172,12 @@ func (m *Module) googleCallback(w http.ResponseWriter, r *http.Request) {
 		done(gcFailed, err.Error())
 		return
 	}
-	// Google lets people untick single permissions; the box needs both.
+	// Google lets people untick single permissions; the box needs both. A
+	// grant the box doesn't keep is dropped, never revoked: revoking one
+	// token ends everything the person granted the app, a working
+	// connection on this or another box and their sign-ins included.
 	granted := " " + tok.Scope + " "
 	if !strings.Contains(granted, " "+gScopeSearch+" ") || !strings.Contains(granted, " "+gScopeVerify+" ") {
-		m.revokeGoogle(cctx, tok.RefreshToken+tok.AccessToken) // one of the two came
 		done(gcScopes, "")
 		return
 	}
@@ -190,7 +191,6 @@ func (m *Module) googleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := m.connectGoogle(cctx, tok.RefreshToken, email, p.by)
 	if err != nil {
-		m.revokeGoogle(cctx, tok.RefreshToken)
 		done(gcFailed, err.Error())
 		return
 	}
@@ -207,21 +207,6 @@ func (m *Module) noteTry(ctx context.Context, why string) {
 		return
 	}
 	_ = m.p.DB.KVPut(ctx, kvNS, "google-try", []byte(trim(why, 600)))
-}
-
-// revokeGoogle tells Google to end the access a token stands for.
-func (m *Module) revokeGoogle(ctx context.Context, token string) {
-	if token == "" {
-		return
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rebase(m.googleBase, googleRevoke), strings.NewReader(url.Values{"token": {token}}.Encode()))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if resp, err := m.client.Do(req); err == nil {
-		resp.Body.Close()
-	}
 }
 
 // idTokenEmail reads the account's address from Google's ID token. It came
