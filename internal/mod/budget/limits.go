@@ -21,13 +21,6 @@ const (
 )
 
 const (
-	// FloorPerCopyMB is the memory an automatic project leaves for each app
-	// copy other projects run, so a runaway cannot squeeze its neighbours
-	// down to nothing.
-	FloorPerCopyMB = 128
-	// MinAutoMB is the least an automatic project can be capped to, however
-	// many copies its neighbours run.
-	MinAutoMB = 256
 	// CPUWeight is every project's CPU weight: equal shares under
 	// contention, full speed when the box is idle.
 	CPUWeight = 100
@@ -186,10 +179,14 @@ func (l Limits) Source() string {
 //   - maxSharePercent caps it at a share of the pool (memory for apps) and
 //     of the CPUs; with memoryMB as well, the lower memory limit wins.
 //   - a project with no memory limit of its own takes the box default share
-//     when it is below 100, else it is automatic: it may grow to the pool
-//     minus FloorPerCopyMB for every copy other projects run (at least
-//     MinAutoMB).
-//   - shares and the box default never take the floor from neighbours either.
+//     when it is below 100, else it is automatic: it may grow to the pool.
+//   - a cap never depends on how many projects the box runs: 25% is a
+//     quarter of the pool with two projects or with fifty. (Caps used to
+//     shrink by 128 MB for every copy the neighbours ran; a box with 18
+//     small sites capped every project at 256 MB while most of the pool sat
+//     free.) What keeps a runaway off its neighbours is the cap itself,
+//     the parent slice (all apps together stay within the pool) and
+//     MemoryLow below.
 //   - every project without a memoryMB budget is protected (MemoryLow) up
 //     to a fair share: what the memoryMB budgets leave of the pool, split
 //     evenly between the projects that run copies. Automatic projects may
@@ -209,11 +206,7 @@ func (l Limits) Source() string {
 // the biggest process, and the container restarts.
 func Resolve(b Box, s Settings, projects []Project) map[string]Limits {
 	pool := b.PoolMB()
-	totalCopies := 0
-	for _, p := range projects {
-		totalCopies += p.Copies
-	}
-	share := func(pct int) int { return pool * pct / 100 }
+	share := func(pct int) int { return max(pool*pct/100, 1) }
 	cpuShare := func(pct int) float64 { return math.Floor(float64(b.CPUs)*float64(pct)) / 100 }
 	out := make(map[string]Limits, len(projects))
 	reserved, elastic := 0, 0
@@ -222,20 +215,19 @@ func Resolve(b Box, s Settings, projects []Project) map[string]Limits {
 		if r == nil {
 			r = &manifest.Resources{}
 		}
-		auto := max(MinAutoMB, pool-FloorPerCopyMB*(totalCopies-p.Copies))
 		l := Limits{CPUWeight: CPUWeight}
 		switch {
 		case r.MemoryMB > 0:
 			l.MemoryMaxMB, l.MemorySource = r.MemoryMB, SourceProject
 			if r.MaxSharePercent > 0 {
-				l.MemoryMaxMB = min(l.MemoryMaxMB, max(share(r.MaxSharePercent), 1))
+				l.MemoryMaxMB = min(l.MemoryMaxMB, share(r.MaxSharePercent))
 			}
 		case r.MaxSharePercent > 0:
-			l.MemoryMaxMB, l.MemorySource = min(max(share(r.MaxSharePercent), 1), auto), SourceProject
+			l.MemoryMaxMB, l.MemorySource = share(r.MaxSharePercent), SourceProject
 		case s.DefaultMaxSharePercent > 0 && s.DefaultMaxSharePercent < 100:
-			l.MemoryMaxMB, l.MemorySource = min(max(share(s.DefaultMaxSharePercent), 1), auto), SourceBoxDefault
+			l.MemoryMaxMB, l.MemorySource = share(s.DefaultMaxSharePercent), SourceBoxDefault
 		default:
-			l.MemoryMaxMB, l.MemorySource = auto, SourceAutomatic
+			l.MemoryMaxMB, l.MemorySource = pool, SourceAutomatic
 		}
 		if l.MemorySource == SourceAutomatic {
 			l.SwapMaxMB = l.MemoryMaxMB / 2

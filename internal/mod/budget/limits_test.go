@@ -2,6 +2,7 @@ package budget
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,16 +37,15 @@ func TestReserve(t *testing.T) {
 	}
 }
 
-// Two automatic projects: each may burst to nearly the whole pool while the
-// other idles (only the floor for the other's copies is held back), and
-// each is protected up to half the pool when both want memory. CPU: equal
+// Two automatic projects: each may burst to the whole pool while the other
+// idles, and each is protected up to half the pool when both want memory. CPU: equal
 // weights, no quota, so each gets every core when alone and half under
 // contention.
 func TestAutomaticProjectsAreElasticAndFair(t *testing.T) {
 	pool := box3.PoolMB()
 	l := Resolve(box3, DefaultSettings, []Project{{Name: "a", Copies: 1}, {Name: "b", Copies: 2}})
 	a, b := l["a"], l["b"]
-	if a.MemoryMaxMB != pool-2*FloorPerCopyMB || b.MemoryMaxMB != pool-FloorPerCopyMB {
+	if a.MemoryMaxMB != pool || b.MemoryMaxMB != pool {
 		t.Fatalf("burst caps: a %d b %d (pool %d)", a.MemoryMaxMB, b.MemoryMaxMB, pool)
 	}
 	if a.MemoryLowMB != pool/2 || b.MemoryLowMB != pool/2 {
@@ -61,10 +61,34 @@ func TestAutomaticProjectsAreElasticAndFair(t *testing.T) {
 	if a.Source() != SourceAutomatic || a.CPUSource != SourceAutomatic {
 		t.Fatalf("source: %+v", a)
 	}
-	// Many neighbours never squeeze a project below MinAutoMB.
-	l = Resolve(box3, DefaultSettings, []Project{{Name: "a"}, {Name: "b", Copies: 40}})
-	if l["a"].MemoryMaxMB != MinAutoMB {
-		t.Fatalf("floor: %+v", l["a"])
+}
+
+// A project's cap is the same however many projects and copies the box
+// runs. (It used to shrink by 128 MB per neighbouring copy: a 4 GB box
+// with 18 small sites capped every project at 256 MB, and a 340 MB app was
+// killed every few hours while most of the pool sat free.)
+func TestCapsDoNotShrinkWithNeighbours(t *testing.T) {
+	box4 := Box{MemoryMB: 3814, CPUs: 2}
+	pool := box4.PoolMB() // 2222
+	for _, tc := range []struct {
+		name string
+		set  Settings
+		res  *manifest.Resources
+		want int
+	}{
+		{"automatic", DefaultSettings, nil, pool},
+		{"box default 85%", Settings{DefaultMaxSharePercent: 85}, nil, pool * 85 / 100},
+		{"box default 20%", Settings{DefaultMaxSharePercent: 20}, nil, pool * 20 / 100},
+		{"own share 25%", DefaultSettings, &manifest.Resources{MaxSharePercent: 25}, pool * 25 / 100},
+	} {
+		alone := Resolve(box4, tc.set, []Project{{Name: "a", Resources: tc.res, Copies: 1}})["a"].MemoryMaxMB
+		crowded := []Project{{Name: "a", Resources: tc.res, Copies: 1}}
+		for i := 0; i < 40; i++ {
+			crowded = append(crowded, Project{Name: "n" + strconv.Itoa(i), Copies: 1})
+		}
+		if got := Resolve(box4, tc.set, crowded)["a"].MemoryMaxMB; got != tc.want || alone != tc.want {
+			t.Errorf("%s: cap %d MB with 40 neighbours, %d MB alone, want %d", tc.name, got, alone, tc.want)
+		}
 	}
 }
 
@@ -94,7 +118,7 @@ func TestBudgetsAndShares(t *testing.T) {
 	// The fair share splits what the memoryMB budgets leave among the
 	// three elastic projects with copies.
 	fair := (pool - 256 - pool/4) / 3
-	if a := l["auto"]; a.MemoryLowMB != fair || a.MemoryMaxMB != pool-4*FloorPerCopyMB {
+	if a := l["auto"]; a.MemoryLowMB != fair || a.MemoryMaxMB != pool {
 		t.Fatalf("auto: %+v (fair %d)", a, fair)
 	}
 }

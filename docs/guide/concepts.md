@@ -54,7 +54,8 @@ project. `tiffin box settings get` shows the numbers.
 
 By default a project is **automatic**. It grows into whatever the box has free, so a
 busy shop can use most of the box while the others are quiet. It can never take the
-platform's memory, and it always leaves 128 MB for each copy the other projects run.
+platform's memory. A project's limit does not shrink as you add projects: a quarter of
+the box is the same amount with two projects or with fifty.
 When the box gets tight, each project is protected up to a fair share; one that is over
 its share gets swapped out first, so it slows down rather than anyone being killed. CPU
 works the same way: full speed when the box is idle, equal shares when projects compete.

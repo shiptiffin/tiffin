@@ -76,7 +76,7 @@ type UsageMemory struct {
 	UsedBytes      uint64 `json:"usedBytes" doc:"Memory the project's app copies use, file cache included"`
 	CacheBytes     uint64 `json:"cacheBytes" doc:"Of usedBytes, file cache the kernel takes back first when memory is tight"`
 	SwapBytes      uint64 `json:"swapBytes" doc:"Memory swapped out to disk because the box was tight (automatic projects over their fair share only; fixed caps never swap)"`
-	LimitBytes     uint64 `json:"limitBytes" doc:"The most the project may use now (hard cap). Automatic projects: the box's memory for apps minus 128 MB for each copy other projects run"`
+	LimitBytes     uint64 `json:"limitBytes" doc:"The most the project may use now (hard cap). Automatic projects: all of the box's memory for apps. It does not change with the number of projects on the box"`
 	ProtectedBytes uint64 `json:"protectedBytes" doc:"Memory the kernel keeps for the project when the box runs short (its fair share, or its whole memoryMB budget)"`
 	HeadroomBytes  uint64 `json:"headroomBytes" doc:"How much more the project could take right now: the smaller of what is left under its limit and what the box has available"`
 	LimitSource    string `json:"limitSource" enum:"project,box default,automatic"`

@@ -107,8 +107,8 @@ func TestBudget(t *testing.T) {
 		t.Fatalf("guestbook usage: %v", u)
 	}
 	u = usage("shop")
-	// Automatic: the pool minus 128 MB for each of the two copies the others run.
-	if u["budget"].(map[string]any)["auto"] != true || u["limitSource"] != "automatic" || num(u, "memory", "limitBytes") != (pool-256)*(1<<20) ||
+	// Automatic: the whole pool, however many copies the others run.
+	if u["budget"].(map[string]any)["auto"] != true || u["limitSource"] != "automatic" || num(u, "memory", "limitBytes") != pool*(1<<20) ||
 		u["cpu"].(map[string]any)["limitCpus"] != nil || num(u, "memory", "headroomBytes") < 500<<20 {
 		t.Fatalf("shop usage: %v", u)
 	}

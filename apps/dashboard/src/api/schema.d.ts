@@ -8246,7 +8246,7 @@ export interface components {
             headroomBytes: number;
             /**
              * Format: int64
-             * @description The most the project may use now (hard cap). Automatic projects: the box's memory for apps minus 128 MB for each copy other projects run
+             * @description The most the project may use now (hard cap). Automatic projects: all of the box's memory for apps. It does not change with the number of projects on the box
              */
             limitBytes: number;
             /** @enum {string} */
