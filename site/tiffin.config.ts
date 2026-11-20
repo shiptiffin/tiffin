@@ -16,7 +16,9 @@ import { defineConfig } from "@shiptiffin/sdk";
 // Mail goes through the box; accounts use the box's sign-in (services.auth).
 // Previews are off: a pull request's code would get this project's secrets.
 //
-// Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_COUPON_FOUNDING,
+// Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PUBLISHABLE_KEY (the
+// publishable key of the secret key's mode; the payment form on /start needs it
+// in the browser), STRIPE_COUPON_FOUNDING,
 // STRIPE_PRICE_MONTHLY (optional; else the price with lookup key box_monthly_v1),
 // STRIPE_PAYMENT_METHODS (optional: the Stripe payment method configuration Checkout uses, pmc_…;
 // test and live mode each have their own; without it, cards only),

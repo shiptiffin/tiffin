@@ -274,7 +274,7 @@ export function pgCheckout(): CheckoutRepo<BoxRow> {
         });
       }) as any,
     async saveSession(boxId, attemptId, cs, expires) {
-      await s`update cloud_boxes set checkout_session_id = ${cs.id}, checkout_url = ${cs.url}, checkout_expires_at = ${expires}, updated_at = now()
+      await s`update cloud_boxes set checkout_session_id = ${cs.id}, checkout_url = ${cs.url ?? null}, checkout_expires_at = ${expires}, updated_at = now()
         where id = ${boxId} and checkout_attempt->>'id' = ${attemptId}`;
     },
   };

@@ -186,12 +186,12 @@ function HeroPicture() {
 export function Paid({ b }: { b: BoxCtx }) {
   const start = `${b.site}/start`;
   return (
-    <Notice b={b} title="Payment received" preview="Next, connect your Hetzner project and pick a name for your box." why="Sent because you paid for a ShipTiffin box.">
+    <Notice b={b} title="Payment received" preview="Your box is being set up. It takes about five minutes." why="Sent because you paid for a ShipTiffin box.">
       <Eyebrow tone="ok">Payment received</Eyebrow>
-      <H1>Next, connect Hetzner</H1>
+      <H1>Your box is being set up</H1>
       <P>Thanks, your payment went through.</P>
-      <P>Connect your Hetzner project, then pick a name, a size and a place for your box. Setup takes about five minutes.</P>
-      <Cta href={start}>Continue setup</Cta>
+      <P>Setup takes about five minutes, and we email you when your box is ready. If you closed the page before setup started, open it again and paste your Hetzner token once more: we never stored it.</P>
+      <Cta href={start}>See how setup is going</Cta>
       <LinkOut href={start} />
     </Notice>
   );
@@ -499,7 +499,7 @@ const label = (b: BoxCtx) => b.name ?? "Your box";
 
 /** Every box email: its subject and its body. */
 export const boxEmails = {
-  paid: (b: BoxCtx): Built => ({ subject: "Payment received: next, connect Hetzner", element: <Paid b={b} /> }),
+  paid: (b: BoxCtx): Built => ({ subject: "Payment received: your box is being set up", element: <Paid b={b} /> }),
   ready: (b: BoxCtx): Built => ({ subject: b.name ? `Your box ${b.name} is ready` : "Your box is ready", element: <Ready b={b} /> }),
   setup_failed: (b: BoxCtx, error: string): Built => ({ subject: `Setting up ${b.name ?? "your box"} didn't work`, element: <SetupFailed b={b} error={error} /> }),
   attention: (b: BoxCtx, why: string): Built => ({ subject: `${label(b)} needs a look`, element: <Attention b={b} why={why} /> }),

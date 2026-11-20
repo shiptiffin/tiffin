@@ -32,7 +32,19 @@ export type CheckoutBox = {
   checkout_attempt: CheckoutAttempt | null;
 };
 
-export type Session = { id: string; url: string; expires_at?: number };
+/** A hosted session has a url; an embedded one (ui_mode embedded_page) has a client_secret and no url. */
+export type Session = { id: string; url?: string | null; client_secret?: string | null; expires_at?: number };
+
+/**
+ * Where the customer pays. Hosted: Stripe's own page, reached by a redirect
+ * (renewing a box from the account page). Embedded: Stripe's form inside
+ * /start, so the page (and the Hetzner key it holds in memory) is never left.
+ */
+export type CheckoutMode = "hosted" | "embedded";
+export const modeOf = (params: Record<string, unknown> | undefined): CheckoutMode => (params?.ui_mode === "embedded_page" ? "embedded" : "hosted");
+
+/** What the browser needs to show the session: the url to go to (hosted) or the client secret to mount (embedded). */
+export type CheckoutHandle = { url: string | null; clientSecret: string | null };
 
 export interface CheckoutRepo<B extends CheckoutBox = CheckoutBox> {
   /** Runs fn under the box's row lock; what save writes is committed when fn returns, before Stripe is called. */
@@ -63,11 +75,7 @@ export function attemptUsable(a: CheckoutAttempt | null, now = new Date()): a is
 const refusedRequest = (e: unknown) => e instanceof StripeError && e.status === 400 && e.type !== "idempotency_error";
 const couponProblem = (e: unknown) => e instanceof StripeError && (Boolean(e.param?.startsWith("discounts")) || /coupon/i.test(e.message));
 
-/**
- * The Checkout URL for a box: the stored session while it lasts; else the
- * saved attempt sent again; else a new attempt from build (which may ask
- * Stripe and the database things, under the box's lock), saved first.
- */
+/** The hosted Checkout URL for a box (see checkoutHandle). */
 export async function checkoutUrl<B extends CheckoutBox>(
   repo: CheckoutRepo<B>,
   stripe: CheckoutStripe,
@@ -75,6 +83,30 @@ export async function checkoutUrl<B extends CheckoutBox>(
   build: (b: B) => Promise<{ params: Record<string, unknown>; discounted: boolean }>,
   now: () => Date = () => new Date(),
 ): Promise<string> {
+  const h = await checkoutHandle(repo, stripe, boxId, "hosted", build, now);
+  if (!h.url) throw new Error("Stripe made a Checkout session without a url");
+  return h.url;
+}
+
+/**
+ * The Checkout session for a box, in the given mode: the stored session
+ * while it lasts (hosted: its url is kept); else the saved attempt sent
+ * again; else a new attempt from build (which may ask Stripe and the
+ * database things, under the box's lock), saved first.
+ *
+ * An embedded session's client secret is never stored: sending the saved
+ * attempt again makes Stripe answer with the session it made, secret
+ * included. A saved attempt of the other mode (a hosted one from before the
+ * page changed, say) can't serve this one and is replaced.
+ */
+export async function checkoutHandle<B extends CheckoutBox>(
+  repo: CheckoutRepo<B>,
+  stripe: CheckoutStripe,
+  boxId: string,
+  mode: CheckoutMode,
+  build: (b: B) => Promise<{ params: Record<string, unknown>; discounted: boolean }>,
+  now: () => Date = () => new Date(),
+): Promise<CheckoutHandle> {
   // The expiry is fixed here, when the attempt is made, and saved with it.
   const expiring = (params: Record<string, unknown>) => ({ ...params, expires_at: Math.floor(now().getTime() / 1000) + CHECKOUT_TTL_SECONDS });
   // A new attempt, saved: the given parameters, or (null) built again now.
@@ -87,15 +119,16 @@ export async function checkoutUrl<B extends CheckoutBox>(
     });
   type First = { url: string } | { attempt: CheckoutAttempt; discounted: boolean };
   const first = await repo.locked<First>(boxId, async (b, save) => {
-    if (reusableCheckout(b, now())) return { url: b.checkout_url! };
-    if (attemptUsable(b.checkout_attempt, now())) return { attempt: b.checkout_attempt, discounted: Array.isArray(b.checkout_attempt.params.discounts) };
+    const sameMode = modeOf(b.checkout_attempt?.params) === mode;
+    if (mode === "hosted" && sameMode && reusableCheckout(b, now())) return { url: b.checkout_url! };
+    if (sameMode && attemptUsable(b.checkout_attempt, now())) return { attempt: b.checkout_attempt, discounted: Array.isArray(b.checkout_attempt.params.discounts) };
     const { params, discounted } = await build(b);
     const id = randomBytes(9).toString("base64url");
     const a: CheckoutAttempt = { id, key: `checkout:${b.id}:${id}`, params: expiring(params), at: now().toISOString() };
     await save(a);
     return { attempt: a, discounted };
   });
-  if ("url" in first) return first.url;
+  if ("url" in first) return { url: first.url, clientSecret: null };
   let attempt = first.attempt;
   let cs: Session;
   try {
@@ -115,5 +148,6 @@ export async function checkoutUrl<B extends CheckoutBox>(
   }
   const expires = new Date((cs.expires_at ?? Number(attempt.params.expires_at)) * 1000);
   await repo.saveSession(boxId, attempt.id, cs, expires);
-  return cs.url;
+  if (mode === "embedded" ? !cs.client_secret : !cs.url) throw new Error(`Stripe made a ${mode} Checkout session without its ${mode === "embedded" ? "client secret" : "url"}`);
+  return { url: cs.url ?? null, clientSecret: cs.client_secret ?? null };
 }

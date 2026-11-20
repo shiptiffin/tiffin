@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { offsiteSoon, OFFSITE_PENDING_SECONDS, renewable } from "./actions";
-import { checkoutUrl, type CheckoutAttempt, type CheckoutBox, type CheckoutRepo, type Session } from "./checkout";
+import { checkoutHandle, checkoutUrl, type CheckoutAttempt, type CheckoutBox, type CheckoutRepo, type Session } from "./checkout";
 import { StripeError } from "./stripe";
 
 // Stripe's idempotency as documented: a key's first request that ran is
@@ -34,7 +34,12 @@ class FakeStripe {
       this.cache.set(key, { params: json, error });
       throw error;
     }
-    const cs = { id: `cs_${this.sessions.length + 1}`, url: `https://checkout.stripe.test/c/${this.sessions.length + 1}`, expires_at: Number(params.expires_at) };
+    const n = this.sessions.length + 1;
+    // As Stripe answers: a hosted session has a url, an embedded one a client secret and no url.
+    const cs: Session =
+      params.ui_mode === "embedded_page"
+        ? { id: `cs_${n}`, url: null, client_secret: `cs_${n}_secret_x`, expires_at: Number(params.expires_at) }
+        : { id: `cs_${n}`, url: `https://checkout.stripe.test/c/${n}`, expires_at: Number(params.expires_at) };
     this.sessions.push(cs);
     this.cache.set(key, { params: json, result: cs });
     if (this.loseAnswer) {
@@ -62,7 +67,7 @@ class MemRepo implements CheckoutRepo {
       throw new Error("connection terminated");
     }
     if (this.box.checkout_attempt?.id !== attemptId) return;
-    Object.assign(this.box, { checkout_session_id: cs.id, checkout_url: cs.url, checkout_expires_at: expires });
+    Object.assign(this.box, { checkout_session_id: cs.id, checkout_url: cs.url ?? null, checkout_expires_at: expires });
   }
 }
 
@@ -162,6 +167,44 @@ describe("Checkout retries", () => {
     await url();
     expect(stripe.sessions.length).toBe(1);
     expect(repo.box.checkout_attempt!.params.discounts).toBeUndefined();
+  });
+});
+
+// A new box pays inside /start, so the page (and the Hetzner key it holds
+// in memory) is never left: an embedded session, which has no url.
+describe("The payment form inside /start", () => {
+  const embedded = async () => ({ ...(await build()), params: { ...(await build()).params, ui_mode: "embedded_page", redirect_on_completion: "never" } });
+  const form = () => checkoutHandle(repo, stripe, "box_1", "embedded", embedded, clock);
+
+  test("gives the client secret and stores no url; asking again gets the same session, its secret never stored", async () => {
+    const a = await form();
+    expect(a).toEqual({ url: null, clientSecret: "cs_1_secret_x" });
+    expect(repo.box.checkout_url).toBeNull();
+    expect(repo.box.checkout_session_id).toBe("cs_1");
+    expect(JSON.stringify(repo.box)).not.toContain("secret_x");
+    // The page is reloaded, or open in two tabs: the saved request is sent again and Stripe answers with the session it made.
+    later(5);
+    expect(await form()).toEqual(a);
+    expect(stripe.sessions.length).toBe(1);
+    later(30);
+    expect((await form()).clientSecret).toBe("cs_2_secret_x");
+  });
+
+  test("never redirects: the session is made with redirect_on_completion never and no return address", async () => {
+    await form();
+    const p = repo.box.checkout_attempt!.params;
+    expect(p.redirect_on_completion).toBe("never");
+    expect("success_url" in p || "cancel_url" in p || "return_url" in p).toBe(false);
+  });
+
+  test("a hosted session saved before (the old pay-first page) can't serve the form: a new one is made", async () => {
+    const old = await url();
+    const a = await form();
+    expect(a.url).toBeNull();
+    expect(a.clientSecret).toBe("cs_2_secret_x");
+    // And the other way round: a renewal never gets the form's session.
+    expect(await url()).not.toBe(old);
+    expect(stripe.sessions.length).toBe(3);
   });
 });
 

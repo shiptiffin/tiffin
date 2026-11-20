@@ -15,6 +15,11 @@ export function missingSecrets(env: Record<string, string | undefined> = process
   if (!env.STRIPE_SECRET_KEY?.trim()) missing.push("STRIPE_SECRET_KEY");
   else if (env.STRIPE_SECRET_KEY.trim().startsWith("sk_live_") && env.STRIPE_LIVE !== "1") missing.push("STRIPE_SECRET_KEY (a live key; test mode only for now)");
   if (!env.STRIPE_WEBHOOK_SECRET?.trim()) missing.push("STRIPE_WEBHOOK_SECRET");
+  // The payment form runs in the customer's browser, so it needs the publishable key, of the secret key's mode.
+  const pk = env.STRIPE_PUBLISHABLE_KEY?.trim();
+  const sk = env.STRIPE_SECRET_KEY?.trim() ?? "";
+  if (!pk || !/^pk_(test|live)_[A-Za-z0-9]+$/.test(pk)) missing.push("STRIPE_PUBLISHABLE_KEY");
+  else if (sk && pk.startsWith("pk_live_") !== sk.startsWith("sk_live_")) missing.push("STRIPE_PUBLISHABLE_KEY (test and live keys mixed: it must be of STRIPE_SECRET_KEY's mode)");
   if (!sealPublicFrom(env.CLOUD_SEAL_PUBLIC)) missing.push("CLOUD_SEAL_PUBLIC");
   if (!licencePublicFrom(env.CLOUD_LICENCE_PUBLIC)) missing.push("CLOUD_LICENCE_PUBLIC");
   return missing;
@@ -31,6 +36,9 @@ export function sealPublic(): KeyObject {
   if (!k) throw new Error("CLOUD_SEAL_PUBLIC is not set");
   return k;
 }
+
+/** Stripe's publishable key: public by design, it only lets the browser show the payment form. */
+export const stripePublishable = () => process.env.STRIPE_PUBLISHABLE_KEY?.trim() ?? "";
 
 /** The founding coupon's id (Stripe), when the offer is configured. */
 export const foundingCoupon = () => process.env.STRIPE_COUPON_FOUNDING?.trim() || null;

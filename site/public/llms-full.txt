@@ -842,17 +842,21 @@ A box made with `tiffin up` is not managed and none of this runs on it.
 
 1. **Account.** Sign in at shiptiffin.com/start with an email link, Google or GitHub. No
    password.
-2. **Pay.** Stripe Checkout, one subscription per box, by card. The box is ready for setup
-   once the first payment has gone through; a second payment for the same box (two tabs)
-   is cancelled and refunded automatically.
-3. **Connect Hetzner.** In the Hetzner Cloud Console make a **new project just for
+2. **Connect Hetzner.** In the Hetzner Cloud Console make a **new project just for
    ShipTiffin**, then Security → API tokens → Generate API token → **Read & Write**, and
    paste it. The page checks it at once: that Hetzner accepts it, that it can write (with
    one request that creates nothing), how many servers the project already holds, and
-   which sizes Hetzner sells you where, at your account's prices and stock.
-4. **Choose.** A name (your address is `<name>.shiptiffin.app`), a size and a place. We
+   which sizes Hetzner sells you where, at your account's prices and stock. Nothing has
+   been charged yet: if Hetzner can sell your account none of the sizes, the page says so
+   and you never reach payment.
+3. **Choose.** A name (your address is `<name>.shiptiffin.app`), a size and a place. We
    suggest `cx23` in the first EU location that has stock, then `cax11`, `cx33` and
    `cax21`; US locations offer CPX sizes. Each comes with a 40 GB data volume.
+4. **Pay.** One subscription per box, by card, in Stripe's payment form inside the same
+   page. The page is never left, so the token it holds in memory is still there when the
+   payment goes through, and setup starts at once. A second payment for the same box (two
+   tabs) is cancelled and refunded automatically. If you close the page between paying and
+   setup starting, open /start again and paste the token once more: it was never stored.
 5. **Create.** A worker on ShipTiffin's own box makes the server, firewall, volume and a
    setup SSH key in your project (all labelled `tiffin-box=<name>` and
    `shiptiffin-box=<box id>`; it never touches anything without that second label), points

@@ -6,7 +6,7 @@ import * as q from "./db";
 import { abuseMail, deliver, SITE } from "./emails";
 import { checkToken, EU_LOCATIONS, EU_TYPES, family, RESIZE_TYPES, US_LOCATIONS, US_TYPES } from "./hetzner";
 import type { Licence } from "./licence";
-import { checkoutUrl } from "./checkout";
+import { checkoutHandle, type CheckoutHandle } from "./checkout";
 import { boxDomain, dashboardUrl, nameProblem, ownerName } from "./names";
 import { decide, fromBox, probe, type MonitorBox } from "./monitor";
 import { drain, RUNNING_ONLY } from "./outbox";
@@ -66,18 +66,26 @@ export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_pa
 }
 
 /**
- * The Checkout page for a box: a new box, or (renew) one of the account's
+ * The Checkout session for a box: a new box, or (renew) one of the account's
  * boxes whose subscription ended, whatever stage it reached (paid and
  * waiting for Hetzner, set up, or a setup that failed). The new
- * subscription carries the same box id and replaces the ended one. One
- * session per box: stored, and handed out again until it expires, so two
+ * subscription carries the same box id and replaces the ended one.
+ *
+ * A new box pays inside /start (Stripe's embedded page, never a redirect):
+ * the customer has already had their Hetzner key checked and picked a size,
+ * and the key, which lives only in that page's memory, must still be there
+ * when the payment completes. So redirect_on_completion is "never", which
+ * also leaves out the payment methods that need a redirect. A renewal has
+ * no key to keep and goes to Stripe's hosted page from the account.
+ *
+ * One session per box: stored, and handed out again until it expires, so two
  * tabs pay for one subscription; the request is saved before Stripe is
  * called, so a retry after any failure sends the very same request
  * (checkout.ts). Stripe Managed Payments: Stripe (as Link) is the merchant of
  * record, collects and files sales tax and VAT, and picks the payment
  * methods. A box is set up only once its first invoice is paid (billing.ts).
  */
-export async function startCheckout(acct: Account, base = SITE, renew?: string): Promise<string> {
+export async function startCheckout(acct: Account, base = SITE, renew?: string): Promise<CheckoutHandle> {
   let box: q.BoxRow;
   if (renew) {
     const b = await q.boxFor(renew, acct.id);
@@ -87,7 +95,7 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
     box = b;
   } else box = await q.pendingBox(acct.id, acct.email);
   const s = stripe();
-  return checkoutUrl(q.pgCheckout(), s, box.id, async (b) => {
+  return checkoutHandle(q.pgCheckout(), s, box.id, renew ? "hosted" : "embedded", async (b) => {
     const price = await s.monthlyPrice();
     const coupon = renew ? null : foundingCoupon();
     const founding = coupon != null && (await q.foundingCount()) < FOUNDING_LIMIT && (await s.couponOpen(coupon));
@@ -100,8 +108,9 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
       managed_payments: { enabled: true },
       // The terms URL lives in the Stripe account's public details; Checkout refuses this without it.
       consent_collection: { terms_of_service: "required" },
-      success_url: renew ? `${base}/account?renewed=${b.id}` : `${base}/start?box=${b.id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: renew ? `${base}/account` : `${base}/start?canceled=1`,
+      ...(renew
+        ? { success_url: `${base}/account?renewed=${b.id}`, cancel_url: `${base}/account` }
+        : { ui_mode: "embedded_page", redirect_on_completion: "never" }),
       client_reference_id: b.id,
       // tiffin_user names the account for the box's analytics (revenue by the
       // source that brought it); client_reference_id stays the box.
@@ -115,11 +124,11 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
 }
 
 /**
- * Back from Checkout: confirm with Stripe at once rather than wait for the
- * webhook. What it queued (the "paid" email) is the caller's to send, with
- * drainOutbox, after the page is answered. True only the first time a
- * completed session is confirmed this way (the page reloads while Stripe
- * confirms, and may be reloaded later), so the caller can count it once.
+ * The payment form says it completed: confirm with Stripe at once rather
+ * than wait for the webhook. What it queued (the "paid" email) is the
+ * caller's to send, with drainOutbox, after the request is answered. True
+ * only the first time a completed session is confirmed this way, so the
+ * caller can count it once.
  */
 export async function confirmCheckout(acct: Account, boxId: string, sessionId: string): Promise<boolean> {
   const box = await q.boxFor(boxId, acct.id);
@@ -157,7 +166,8 @@ async function ownBox(acct: Account, id: string) {
 export async function checkKey(acct: Account, boxId: string, token: string) {
   const box = await ownBox(acct, boxId);
   if (box.status === "deleted") throw new ActionError("This box was deleted.");
-  if (box.status === "awaiting_payment" || UNMANAGED.has(box.status)) throw new ActionError("Pay for the box first.");
+  // Before payment too: the customer sees what their key can order, and what it costs, and only then pays.
+  if (UNMANAGED.has(box.status)) throw new ActionError("We no longer manage this box.");
   return checkToken(token, (c) => q.recordCall(box.id, "check", c));
 }
 
@@ -167,12 +177,28 @@ export type CreateInput = { token: string; name: string; serverType: string; loc
 /** A key the parser refused, as one sentence for the page. */
 const keyProblem = (e: KeyError) => `That SSH key won't work: ${e.message}.`;
 
-/** retry: setup failed before and starts again. */
-export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<{ retry: boolean }> {
-  const box = await ownBox(acct, boxId);
-  if (box.status !== "paid" && box.status !== "failed") throw new ActionError(box.status === "awaiting_payment" ? "Pay for the box first." : "This box is already set up.");
+/** The payment hasn't been confirmed yet (the page tries again for a moment after the payment form completes). */
+export const PAYMENT_PENDING = 402;
+
+/**
+ * retry: setup failed before and starts again. paidNow: this call confirmed
+ * the box's payment (the payment form on /start just completed), so the
+ * caller counts the checkout and sends what it queued.
+ */
+export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<{ retry: boolean; paidNow: boolean }> {
+  let box = await ownBox(acct, boxId);
+  let paidNow = false;
+  if (box.status === "awaiting_payment" && box.checkout_session_id) {
+    // Straight from the payment form: ask Stripe rather than wait for its webhook.
+    paidNow = await confirmCheckout(acct, box.id, box.checkout_session_id);
+    box = await ownBox(acct, boxId);
+  }
+  if (box.status !== "paid" && box.status !== "failed") {
+    if (box.status === "awaiting_payment") throw new ActionError("The payment for this box hasn't gone through yet.", PAYMENT_PENDING);
+    throw new ActionError("This box is already set up.");
+  }
   if (box.first_paid_at && ENDED.has(box.plan_status)) throw new ActionError("This box's subscription has ended: renew it in your account first (same box, same name).");
-  if (!box.first_paid_at || !onFor(box)) throw new ActionError("The first payment for this box hasn't gone through yet.");
+  if (!box.first_paid_at || !onFor(box)) throw new ActionError("The first payment for this box hasn't gone through yet.", PAYMENT_PENDING);
   if (box.dns_state === "killed") throw new ActionError("This box was turned off after an abuse report. Write to hello@shiptiffin.com.");
   const name = String(input.name ?? "").trim().toLowerCase();
   const why = nameProblem(name);
@@ -211,7 +237,7 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
     if (e?.code === "23505") throw new ActionError(`${boxDomain(name)} is taken. Try another name.`, 409);
     throw e;
   }
-  return { retry: box.status === "failed" };
+  return { retry: box.status === "failed", paidNow };
 }
 
 /** A request for a new sign-in link that the box hasn't answered within this is given up on (the box's own sign-in page instead). */

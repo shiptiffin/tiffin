@@ -88,7 +88,7 @@ export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BA
       }
     },
     createCheckout(params: Record<string, unknown>, idempotencyKey: string) {
-      return req<{ id: string; url: string; expires_at?: number }>("POST", "/checkout/sessions", params, idempotencyKey);
+      return req<{ id: string; url?: string | null; client_secret?: string | null; expires_at?: number }>("POST", "/checkout/sessions", params, idempotencyKey);
     },
     expireCheckout(id: string) {
       return req<any>("POST", `/checkout/sessions/${encodeURIComponent(id)}/expire`);

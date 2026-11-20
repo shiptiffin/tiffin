@@ -1,23 +1,18 @@
 import { redirect } from "next/navigation";
-// /start: sign up, pay, connect Hetzner, pick a name, size and place, watch
-// the box being made, open it. Until sign-up opens (secrets set, the
-// provisioner's tables made) it shows the sign-up list instead.
+// /start: sign up, connect Hetzner (the key is checked, and what it can order
+// is shown with prices), pick a name, size and place, pay, watch the box being
+// made, open it. Nobody pays before they have seen what their Hetzner account
+// can order. Until sign-up opens (secrets set, the provisioner's tables made)
+// it shows the sign-up list instead.
 import type { Metadata } from "next";
 import { pageMeta } from "@/lib/meta";
-import Link from "next/link";
-import { headers } from "next/headers";
-import { after } from "next/server";
-import { track } from "@shiptiffin/sdk/analytics";
-import { confirmCheckout, drainOutbox } from "@/lib/cloud/actions";
-import { foundingCoupon, signupOpen } from "@/lib/cloud/config";
-import { boxesFor, foundingCount, latestJob, type BoxRow } from "@/lib/cloud/db";
-import { SITE } from "@/lib/cloud/emails";
+import { foundingCoupon, signupOpen, stripePublishable } from "@/lib/cloud/config";
+import { boxesFor, foundingCount, latestJob, pendingBox, type BoxRow } from "@/lib/cloud/db";
 import { FOUNDING_LIMIT } from "@/lib/cloud/stripe";
 import { currentAccount } from "@/lib/cloud/session";
-import { requestFrom } from "@/lib/cloud/track";
 import { MESSAGES, type ErrorCode } from "@/lib/form";
 import { SignInForm } from "../sign-in/sign-in-form";
-import { PayButton, StartFlow, Steps, WaitForPayment } from "./start-flow";
+import { Frame, StartFlow } from "./start-flow";
 import { Waitlist } from "./waitlist";
 import "../cloud.css";
 
@@ -30,7 +25,7 @@ export const metadata: Metadata = pageMeta({
 
 export const dynamic = "force-dynamic";
 
-type Search = { error?: string; box?: string; session_id?: string; canceled?: string; new?: string };
+type Search = { error?: string; box?: string; new?: string };
 
 export default async function Start({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
@@ -41,100 +36,38 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
   const acct = await currentAccount();
   if (!acct) {
     return (
-      <Shell
+      <Frame
         step={0}
         title="Create your account"
-        sub="Then you pay, connect Hetzner and pick a name, and your box is ready about five minutes later. No password: sign in with your email, Google or GitHub."
+        sub="Then you connect Hetzner, pick a name and a size, and pay; your box is ready about five minutes later. No password: sign in with your email, Google or GitHub."
       >
         <SignInForm next="/start" />
-      </Shell>
+      </Frame>
     );
-  }
-  if (sp.box && sp.session_id) {
-    // Paid: counted once per Checkout session, in the visitor's session (the page has headers, not the request).
-    if (await confirmCheckout(acct, sp.box, sp.session_id)) void track("checkout_completed", undefined, { request: requestFrom(await headers(), `${SITE}/start`) });
-    after(() => drainOutbox().catch((e) => console.error("outbox", e instanceof Error ? e.message : e)));
   }
   const boxes = await boxesFor(acct.id);
   const inSetup = [...boxes].reverse().find((b) => b.status === "paid" || b.status === "provisioning" || b.status === "cert_pending" || b.status === "failed");
   const justDone = sp.box ? boxes.find((b) => b.id === sp.box && b.status === "active") : undefined;
-  const current: BoxRow | undefined = sp.new ? undefined : (inSetup ?? justDone);
+  let current: BoxRow | undefined = sp.new ? undefined : (inSetup ?? justDone);
 
-  if (current) {
-    const job = await latestJob(current.id, ["provision"]);
-    return (
-      <Shell
-        step={current.status === "active" ? 4 : current.status === "provisioning" || current.status === "cert_pending" ? 3 : 2}
-        title={current.status === "active" ? "Your box is ready" : current.status === "provisioning" || current.status === "cert_pending" ? "Creating your box" : "Connect Hetzner"}
-      >
-        <StartFlow
-          box={{ id: current.id, name: current.name, status: current.status, fingerprint: current.token_fingerprint }}
-          job={job && { status: job.status, steps: job.steps, error: job.error }}
-        />
-      </Shell>
-    );
+  if (!current) {
+    // Someone who already has a box and clicked Get started wants their account, not
+    // a second box; adding one goes through the account's /start?new=1.
+    const active = boxes.filter((b) => b.status === "active").length;
+    if (active > 0 && !sp.new) redirect("/account");
+    // The box-to-be: one unpaid row per account, used again until it is paid. The
+    // Hetzner calls made with the customer's key before payment are recorded on it.
+    current = await pendingBox(acct.id, acct.email);
   }
 
-  const waiting = sp.box ? boxes.find((b) => b.id === sp.box && b.status === "awaiting_payment") : undefined;
-  if (waiting && sp.session_id) {
-    return (
-      <Shell step={1} title="Confirming your payment">
-        <WaitForPayment />
-      </Shell>
-    );
-  }
-
-  // Someone who already has a box and clicked Get started wants their account, not
-  // a second payment; adding a box goes through the account's /start?new=1.
-  const active = boxes.filter((b) => b.status === "active").length;
-  if (active > 0 && !sp.new && !sp.canceled) redirect("/account");
-
+  const job = await latestJob(current.id, ["provision"]);
   const coupon = foundingCoupon();
-  const founding = coupon != null && (await foundingCount()) < FOUNDING_LIMIT;
+  const founding = current.status === "awaiting_payment" && coupon != null && (await foundingCount()) < FOUNDING_LIMIT;
   return (
-    <Shell
-      step={1}
-      title={active ? "Add another box" : "Start your subscription"}
-      sub={active ? `You have ${active} box${active > 1 ? "es" : ""} already. Each box is its own subscription.` : "One subscription per box. You connect Hetzner next."}
-    >
-      <div className="cp-card">
-        <div>
-          <h2>{founding ? "$12 a month, locked for 24 months" : "$19 a month per box"}</h2>
-          {founding && <p className="cp-muted cp-price-note">Founding price for our first 100 customers. $19 a month after that.</p>}
-        </div>
-        <ul className="cp-perks">
-          <li>Tiffin installed on your own server, then kept up to date</li>
-          <li>Monitoring from outside, with an email if your box stops answering</li>
-          <li>Backups copied off your server every 6 hours, encrypted with a key only you hold; kept 30 days</li>
-          <li>
-            A free <strong>name.shiptiffin.app</strong> address with HTTPS
-          </li>
-          <li>Resizing from your account, and support by email</li>
-        </ul>
-        <ul className="cp-facts">
-          <li>Hetzner bills the server itself: about $10 a month for the smallest, with its address and a 40 GB data volume.</li>
-          <li>Cancel any time. Your server and apps keep running.</li>
-          <li>14-day money-back guarantee.</li>
-        </ul>
-        {sp.canceled && <p className="cp-hint">Payment cancelled; nothing was charged.</p>}
-        <PayButton />
-        <p className="cp-hint">
-          Payment by Stripe. Signed in as {acct.email}. <Link href="/account">Your account</Link>
-        </p>
-      </div>
-    </Shell>
-  );
-}
-
-function Shell({ step, title, sub, children }: { step: number; title: string; sub?: string; children: React.ReactNode }) {
-  return (
-    <section className="cp wrap">
-      <div className="cp-col">
-        <Steps now={step} />
-        <h1>{title}</h1>
-        {sub && <p className="cp-sub">{sub}</p>}
-        {children}
-      </div>
-    </section>
+    <StartFlow
+      box={{ id: current.id, name: current.name, status: current.status, fingerprint: current.token_fingerprint }}
+      job={job && { status: job.status, steps: job.steps, error: job.error }}
+      pay={{ publishableKey: stripePublishable(), founding }}
+    />
   );
 }

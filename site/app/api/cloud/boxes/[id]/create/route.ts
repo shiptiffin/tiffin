@@ -1,8 +1,12 @@
 // POST /api/cloud/boxes/:id/create {token, name, serverType, location, sshKeys}:
 // queues the setup. The key travels sealed with the job and is forgotten
 // when it ends; the owner's SSH public keys (up to 10) travel as they are.
+// Called by /start the moment its payment form completes, so it confirms the
+// payment with Stripe first; 402 means Stripe hasn't confirmed it yet (the
+// page tries again for a moment).
+import { after } from "next/server";
 import { track } from "@shiptiffin/sdk/analytics";
-import { ActionError, createBox, type CreateInput } from "@/lib/cloud/actions";
+import { ActionError, createBox, drainOutbox, type CreateInput } from "@/lib/cloud/actions";
 import { actionLimit, json, problem, readJson, sameOrigin } from "@/lib/cloud/http";
 import { currentAccount } from "@/lib/cloud/session";
 
@@ -16,7 +20,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = await readJson<CreateInput>(request, 40_000);
   if (!body) return problem(400, "Bad request.");
   try {
-    const { retry } = await createBox(acct, (await params).id, body);
+    const { retry, paidNow } = await createBox(acct, (await params).id, body);
+    if (paidNow) {
+      // Paid: counted once per Checkout session, and what the payment queued (its email) goes out.
+      void track("checkout_completed", undefined, { request });
+      after(() => drainOutbox().catch((e) => console.error("outbox", e instanceof Error ? e.message : e)));
+    }
     void track("box_setup_started", { retry }, { request });
     return json({ ok: true });
   } catch (e) {
