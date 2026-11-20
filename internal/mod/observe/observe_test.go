@@ -462,7 +462,7 @@ func TestLaterDefaultRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A box seeded before the off-box rules existed, whose owner deleted disk-full.
+	// A box seeded before the off-box and app-out-of-memory rules existed, whose owner deleted disk-full.
 	for _, r := range DefaultRules[:4] {
 		if err := st.PutRule(ctx, r); err != nil {
 			t.Fatal(err)
@@ -481,7 +481,7 @@ func TestLaterDefaultRules(t *testing.T) {
 		}
 		return strings.Join(n, ",")
 	}
-	if got := names(); got != "backup-stale,cert-expiring,memory-high,offsite-stale,restore-drill-failed" {
+	if got := names(); got != "app-out-of-memory,backup-stale,cert-expiring,memory-high,offsite-stale,restore-drill-failed" {
 		t.Fatalf("rules: %s", got)
 	}
 	_, _ = st.DeleteRule(ctx, "offsite-stale")

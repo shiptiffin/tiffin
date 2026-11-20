@@ -26,6 +26,7 @@ const kinds: Array<{ v: Kind; label: string; unit: string; dflt: number }> = [
   { v: "disk", label: "A disk is filling up", unit: "% full", dflt: 85 },
   { v: "memory", label: "Memory is running out", unit: "% used", dflt: 90 },
   { v: "error_spike", label: "Errors spike", unit: "errors in 5 min", dflt: 20 },
+  { v: "app_memory_kills", label: "An app keeps running out of memory", unit: "times in 24 hours", dflt: 1 },
   { v: "unit_down", label: "A service stops", unit: "", dflt: 0 },
   { v: "unit_restarts", label: "A service keeps restarting", unit: "restarts in 15 min", dflt: 3 },
   { v: "backup_age", label: "Backups fall behind", unit: "hours old", dflt: 26 },
@@ -47,6 +48,8 @@ function condition(r: Pick<AlertRule, "kind" | "threshold" | "forSeconds" | "pro
       return `Memory is more than ${t}${NNBSP}% used${hold}.`;
     case "error_spike":
       return `More than ${t} errors in 5${NNBSP}min from ${r.project ? `${r.project}’s apps` : "any project"}${hold}.`;
+    case "app_memory_kills":
+      return `A project’s apps are stopped for memory more than ${countWords(r.threshold, "time")} in 24${NNBSP}hours${hold}.`;
     case "unit_down":
       return `A box service is not running${hold || " (checked every minute)"}.`;
     case "unit_restarts":

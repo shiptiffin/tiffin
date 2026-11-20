@@ -381,8 +381,9 @@ export default function Home() {
               </p>
               <p>
                 Give a project a limit, a share of the box or an amount of memory and CPU, and it&rsquo;s held
-                there. A side project that suddenly gets busy can&rsquo;t take the others down or run up a bill,
-                and neither can an agent that deploys all day.
+                there. A side project that suddenly gets busy stays inside its limit and can&rsquo;t run up a
+                bill, and neither can an agent that deploys all day. When an app needs more room than its limit
+                gives it, the box tells you.
               </p>
             </div>
             <div className="holds">

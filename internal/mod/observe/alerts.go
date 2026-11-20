@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/shiptiffin/tiffin/internal/mod/backup"
+	"github.com/shiptiffin/tiffin/internal/mod/budget"
 	"github.com/shiptiffin/tiffin/internal/mod/email"
 	"github.com/shiptiffin/tiffin/internal/mod/email/templates"
 	"github.com/shiptiffin/tiffin/internal/platform"
@@ -31,25 +32,26 @@ import (
 
 // Rule kinds.
 const (
-	KindDisk         = "disk"          // data or root disk used, percent
-	KindMemory       = "memory"        // memory used, percent
-	KindCertExpiry   = "cert_expiry"   // hours until an edge certificate expires
-	KindBackupAge    = "backup_age"    // hours since the newest file in /var/lib/tiffin/backups
-	KindOffsiteAge   = "offsite_age"   // hours since the newest copy of the backups off the box
-	KindDrillFailed  = "drill_failed"  // 1 when the last restore drill failed
-	KindErrorSpike   = "error_spike"   // error events (Sentry protocol) per project in the last 5 minutes
-	KindUnitRestarts = "unit_restarts" // restarts of a box service in the last 15 minutes
-	KindUnitDown     = "unit_down"     // a box service is not active
-	KindPromQL       = "promql"        // any PromQL expression; every series above the threshold fires
+	KindDisk         = "disk"             // data or root disk used, percent
+	KindMemory       = "memory"           // memory used, percent
+	KindCertExpiry   = "cert_expiry"      // hours until an edge certificate expires
+	KindBackupAge    = "backup_age"       // hours since the newest file in /var/lib/tiffin/backups
+	KindOffsiteAge   = "offsite_age"      // hours since the newest copy of the backups off the box
+	KindDrillFailed  = "drill_failed"     // 1 when the last restore drill failed
+	KindErrorSpike   = "error_spike"      // error events (Sentry protocol) per project in the last 5 minutes
+	KindMemoryKills  = "app_memory_kills" // times a project's apps were stopped for memory in the last 24 hours
+	KindUnitRestarts = "unit_restarts"    // restarts of a box service in the last 15 minutes
+	KindUnitDown     = "unit_down"        // a box service is not active
+	KindPromQL       = "promql"           // any PromQL expression; every series above the threshold fires
 )
 
 // RuleKinds lists every rule kind.
-var RuleKinds = []string{KindDisk, KindMemory, KindCertExpiry, KindBackupAge, KindOffsiteAge, KindDrillFailed, KindErrorSpike, KindUnitRestarts, KindUnitDown, KindPromQL}
+var RuleKinds = []string{KindDisk, KindMemory, KindCertExpiry, KindBackupAge, KindOffsiteAge, KindDrillFailed, KindErrorSpike, KindMemoryKills, KindUnitRestarts, KindUnitDown, KindPromQL}
 
 // Rule is one alert rule.
 type Rule struct {
 	Name        string  `json:"name" doc:"Rule name (lowercase slug)"`
-	Kind        string  `json:"kind" enum:"disk,memory,cert_expiry,backup_age,offsite_age,drill_failed,error_spike,unit_restarts,unit_down,promql" doc:"What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold."`
+	Kind        string  `json:"kind" enum:"disk,memory,cert_expiry,backup_age,offsite_age,drill_failed,error_spike,app_memory_kills,unit_restarts,unit_down,promql" doc:"What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. app_memory_kills: times a project's apps were stopped for using all the memory the project may use, in 24 hours (counted at most once an hour). unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold."`
 	Threshold   float64 `json:"threshold" doc:"Fires when the value is above this (below, for cert_expiry)"`
 	ForSeconds  int     `json:"forSeconds,omitempty" minimum:"0" maximum:"86400" doc:"The condition must hold this long before the alert fires. Default 0."`
 	Project     string  `json:"project,omitempty" doc:"error_spike only: watch one project (default every project)"`
@@ -67,6 +69,7 @@ var DefaultRules = []Rule{
 	{Name: "offsite-stale", Kind: KindOffsiteAge, Threshold: 26, Enabled: true, Description: "The newest copy of the backups off the box is more than 26 hours old (silent while copies are off)"},
 	{Name: "restore-drill-failed", Kind: KindDrillFailed, Threshold: 0, Enabled: true, Description: "The last restore drill, of the local or the off-box copy, failed"},
 	{Name: "error-spike", Kind: KindErrorSpike, Threshold: 20, Enabled: true, Description: "More than 20 errors reported by a project's apps in 5 minutes"},
+	{Name: "app-out-of-memory", Kind: KindMemoryKills, Threshold: 1, Enabled: true, Description: "A project's apps were stopped for memory more than once in 24 hours: its limit is too small for what it runs"},
 	{Name: "service-restarts", Kind: KindUnitRestarts, Threshold: 3, Enabled: true, Description: "A box service restarted more than 3 times in 15 minutes"},
 	{Name: "service-down", Kind: KindUnitDown, Threshold: 0, ForSeconds: 60, Enabled: true, Description: "A box service has not been running for a minute"},
 }
@@ -167,7 +170,7 @@ func (s *Store) DeleteRule(ctx context.Context, name string) (bool, error) {
 
 // laterRules are default rules added after boxes were first seeded: each is
 // installed once on those boxes too.
-var laterRules = []string{"offsite-stale", "restore-drill-failed"}
+var laterRules = []string{"offsite-stale", "restore-drill-failed", "app-out-of-memory"}
 
 // EnsureDefaultRules installs the default rules once (and each of
 // laterRules once on boxes seeded before it existed).
@@ -197,7 +200,7 @@ func (s *Store) EnsureDefaultRules(ctx context.Context) error {
 type Alert struct {
 	Rule    string    `json:"rule"`
 	Subject string    `json:"subject" doc:"What the alert is about: a mount, a service, a project, a certificate host"`
-	Project string    `json:"project,omitempty" doc:"The project, for project alerts (error_spike)"`
+	Project string    `json:"project,omitempty" doc:"The project, for project alerts (error_spike, app_memory_kills)"`
 	State   string    `json:"state" enum:"firing,ok"`
 	Value   float64   `json:"value"`
 	Since   time.Time `json:"since"`
@@ -268,7 +271,7 @@ func (s *Store) addHistory(ctx context.Context, h HistoryEntry) {
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM alert_history WHERE id <= (SELECT MAX(id) - 1000 FROM alert_history)`)
 }
 
-// projectOfSubject: error_spike subjects are "project:<name>".
+// projectOfSubject: error_spike and app_memory_kills subjects are "project:<name>".
 func projectOfSubject(subject string) string {
 	p, _ := strings.CutPrefix(subject, "project:")
 	if p == subject {
@@ -276,6 +279,14 @@ func projectOfSubject(subject string) string {
 	}
 	return p
 }
+
+// memoryKillsWindow is how far back app_memory_kills counts. Limit events
+// are recorded at most once an hour per project, so the count is the hours
+// in which an app was stopped, at most 24.
+const memoryKillsWindow = 24 * time.Hour
+
+// limitEvents reads a project's limit events (a variable so tests can set them).
+var limitEvents = budget.Events
 
 // finding is one evaluated condition.
 type finding struct {
@@ -447,6 +458,34 @@ func (a *Alerter) eval(ctx context.Context, r Rule, snap *Snapshot) ([]finding, 
 			n := float64(counts[p])
 			out = append(out, finding{Subject: "project:" + p, Value: n, Bad: n > r.Threshold,
 				Summary: fmt.Sprintf("project %s reported %d errors in the last 5 minutes", p, counts[p])})
+		}
+		return out, nil
+	case KindMemoryKills:
+		// A project at its memory limit has its biggest app process killed
+		// and restarted. The box stays healthy by every other rule (it is
+		// one project's limit, not the machine's memory), so without this
+		// rule an app can be killed every few hours and nobody is told.
+		var out []finding
+		projects, _ := a.Platform.DB.ListProjects(ctx)
+		since := time.Now().Add(-memoryKillsWindow)
+		for _, p := range projects {
+			n, last := 0, ""
+			for _, e := range limitEvents(ctx, p) { // newest first
+				if e.Kind == budget.EventMemory && e.At.After(since) {
+					if n == 0 {
+						last = e.Message
+					}
+					n++
+				}
+			}
+			sum := fmt.Sprintf("project %s was not stopped for memory in the last 24 hours", p)
+			if n > 0 {
+				sum = fmt.Sprintf("project %s was stopped for memory %d times in the last 24 hours. %s", p, n, last)
+				if n == 1 {
+					sum = fmt.Sprintf("project %s was stopped for memory once in the last 24 hours. %s", p, last)
+				}
+			}
+			out = append(out, finding{Subject: "project:" + p, Value: float64(n), Bad: float64(n) > r.Threshold, Summary: sum})
 		}
 		return out, nil
 	case KindUnitRestarts:

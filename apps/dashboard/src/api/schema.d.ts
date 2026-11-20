@@ -10120,7 +10120,7 @@ export interface components {
             providers: components["schemas"]["OAuthSignInProvider"][] | null;
         };
         ObserveAlert: {
-            /** @description The project, for project alerts (error_spike) */
+            /** @description The project, for project alerts (error_spike, app_memory_kills) */
             project?: string;
             rule: string;
             /** Format: date-time */
@@ -10357,10 +10357,10 @@ export interface components {
              */
             forSeconds?: number;
             /**
-             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
+             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. app_memory_kills: times a project's apps were stopped for using all the memory the project may use, in 24 hours (counted at most once an hour). unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
              * @enum {string}
              */
-            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "offsite_age" | "drill_failed" | "error_spike" | "unit_restarts" | "unit_down" | "promql";
+            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "offsite_age" | "drill_failed" | "error_spike" | "app_memory_kills" | "unit_restarts" | "unit_down" | "promql";
             /** @description Rule name (lowercase slug) */
             name: string;
             /** @description error_spike only: watch one project (default every project) */
@@ -10383,10 +10383,10 @@ export interface components {
              */
             forSeconds?: number;
             /**
-             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
+             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. app_memory_kills: times a project's apps were stopped for using all the memory the project may use, in 24 hours (counted at most once an hour). unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
              * @enum {string}
              */
-            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "offsite_age" | "drill_failed" | "error_spike" | "unit_restarts" | "unit_down" | "promql";
+            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "offsite_age" | "drill_failed" | "error_spike" | "app_memory_kills" | "unit_restarts" | "unit_down" | "promql";
             /** @description error_spike only: watch one project (default every project) */
             project?: string;
             /**
