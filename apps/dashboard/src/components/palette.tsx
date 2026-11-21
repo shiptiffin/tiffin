@@ -49,6 +49,7 @@ import { toast } from "./toast";
 
 // Box-wide pages, so every area is a keystroke away.
 const box: Array<[string, string, string[]]> = [
+  ["Analytics", "/analytics", ["box", "visitors", "pageviews", "traffic", "every project", "all projects"]],
   ["Usage", "/usage", ["box", "memory", "cpu", "disk", "room", "limits", "share", "sizes"]],
   ["Machine", "/settings/box", ["box", "platform", "services", "carrier"]],
   ["Metrics", "/metrics", ["cpu", "memory", "disk", "charts"]],
