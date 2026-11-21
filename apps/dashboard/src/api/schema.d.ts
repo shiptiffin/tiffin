@@ -5352,6 +5352,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a project's title
+         * @description Sets the name people read for the project, shown beside its slug in the dashboard's lists, ⌘K and projects list ("Shop storefront"); an empty title clears it. Only a label: the project's name, addresses, data, keys and commands stay as they are. A change in History with an undo, the same as title in tiffin.config.ts: put it there too, or the next apply from the config clears it.
+         */
+        post: operations["project-title"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/usage": {
         parameters: {
             query?: never;
@@ -9922,6 +9942,7 @@ export interface components {
             resources?: components["schemas"]["ManifestResources"];
             services?: components["schemas"]["ManifestServices"];
             sleepAfter?: string;
+            title?: string;
             topics?: {
                 [key: string]: components["schemas"]["ManifestTopic"];
             };
@@ -11705,6 +11726,8 @@ export interface components {
             status?: {
                 [key: string]: components["schemas"]["ResourceStatus"];
             };
+            /** @description The name people read, shown beside the slug (absent: none). Commands, paths and keys always use name. */
+            title?: string;
             /** Format: int64 */
             version: number;
         };
@@ -11714,6 +11737,8 @@ export interface components {
             name: string;
             /** Format: int64 */
             resources: number;
+            /** @description The name people read, shown beside the slug (absent: none). Commands, paths and keys always use name. */
+            title?: string;
             /** Format: int64 */
             version: number;
         };
@@ -14499,6 +14524,12 @@ export interface components {
             n: number;
             /** Format: int64 */
             size: number;
+        };
+        TitleBody: {
+            /** @description Why, in one sentence (History shows it). */
+            intent?: string;
+            /** @description The title, up to 60 characters on one line (spaces around it are dropped). Empty clears it. */
+            title: string;
         };
         UndoBody: {
             /** @description The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428. */
@@ -39654,6 +39685,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PostgresPGRows"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
                 };
             };
             /** @description Bad Request */

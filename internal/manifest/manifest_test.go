@@ -492,6 +492,9 @@ func randomManifest(r *rand.Rand) *Manifest {
 	if r.IntN(3) == 0 {
 		m.SleepAfter = pick("1h", "24h", "7d", "14d", "30d")
 	}
+	if r.IntN(3) == 0 {
+		m.Title = pick("Shop storefront", "ShipTiffin website", `Quotes "and" \ back`, "Café · 東京")
+	}
 	names := []string{"web", "api", "jobs", "docs", "admin", "x1"}
 	r.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
 	m.Apps = map[string]App{}

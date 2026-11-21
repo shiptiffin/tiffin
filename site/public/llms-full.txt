@@ -520,6 +520,28 @@ moved to another box ([copying and moving](https://shiptiffin.com/docs/moving.md
 resource, set by `tiffin projects stop` or a move) keeps its data but runs no apps, and
 refuses deploys until it is started again.
 
+### A project's name and title
+A project's name (`project` in `tiffin.config.ts`) never changes: its addresses, database,
+files, keys and commands are all made from it. To have lists say something clearer than
+the name, give the project a **title**. The dashboard's lists, ⌘K, Usage, Analytics and
+`tiffin projects list` show it, with the name small beside it:
+
+```ts
+project: "website",
+title: "ShipTiffin website", // up to 60 characters on one line
+```
+
+```bash
+tiffin projects title website "ShipTiffin website"   # or Settings › General › Title
+tiffin projects title website ""                     # clears it
+```
+
+Setting a title is a change like any other, with an undo in History, and it moves nothing.
+Set outside the config, it is a [change made outside your config](#changes-made-outside-your-config):
+put it in `tiffin.config.ts` too, or the next apply from the config offers to clear it.
+For a new name, [duplicate](https://shiptiffin.com/docs/moving.md#duplicate) the project under it instead (its custom
+domains and GitHub deploys stay with the original).
+
 ## Sharing the box
 Launch as many projects as you like: they divide the box between them on their own.
 Tiffin keeps memory for itself first (its services, plus Postgres's and Valkey's caches;

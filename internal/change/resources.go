@@ -81,6 +81,9 @@ func Unmanaged(address string) bool {
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
 // A project without any is "{}".
 type ProjectSpec struct {
+	// Title is the name people read, shown beside the slug in lists ("":
+	// none, see manifest.Manifest.Title).
+	Title string `json:"title,omitempty"`
 	// Resources is the project's budget (nil: automatic).
 	Resources *manifest.Resources `json:"resources,omitempty"`
 	// SleepAfter is when idle production apps sleep ("": never).
@@ -117,7 +120,7 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 		out[addr] = Resource{Address: addr, Spec: b}
 		return nil
 	}
-	if err := add(KindProject, ProjectSpec{Resources: m.Resources, SleepAfter: m.SleepAfter, DeployAddresses: m.DeployAddresses,
+	if err := add(KindProject, ProjectSpec{Title: m.Title, Resources: m.Resources, SleepAfter: m.SleepAfter, DeployAddresses: m.DeployAddresses,
 		KeepVersions: m.KeepVersions}); err != nil {
 		return nil, err
 	}
@@ -351,4 +354,31 @@ func RestoreExpired(ops []Op, deletedAt func(part string, version int64) (time.T
 		}
 	}
 	return nil
+}
+
+// ProjectTitle is the title in a project's resources ("": none).
+func ProjectTitle(res map[string]Resource) string {
+	var ps ProjectSpec
+	if r, ok := res[KindProject]; ok {
+		_ = json.Unmarshal(r.Spec, &ps)
+	}
+	return ps.Title
+}
+
+// WithTitle returns the project's resources with its title set to title
+// ("" clears it), the rest of its settings as they are.
+func WithTitle(res map[string]Resource, title string) (map[string]Resource, error) {
+	var ps ProjectSpec
+	if r, ok := res[KindProject]; ok {
+		if err := json.Unmarshal(r.Spec, &ps); err != nil {
+			return nil, fmt.Errorf("resource %s: %w", KindProject, err)
+		}
+	}
+	ps.Title = title
+	spec, err := compact(ps)
+	if err != nil {
+		return nil, err
+	}
+	res[KindProject] = Resource{Address: KindProject, Spec: spec}
+	return res, nil
 }

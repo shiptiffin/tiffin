@@ -12,6 +12,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Empty, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectName, useProjectTitles } from "@/components/project-name";
 import { Segmented } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
@@ -176,6 +177,7 @@ function BoxChart({ d, metric }: { d: AnalyticsBox; metric: Metric }) {
 function ProjectRow({ r, period, before }: { r: Traffic; period: BoxPeriod; before: string }) {
   const delta = change(r.visitors, r.previous.visitors, r.previous.visitors);
   const quiet = r.visitors === 0;
+  const title = useProjectTitles()(r.project);
   return (
     <li className="border-b border-rule">
       <Link
@@ -191,7 +193,7 @@ function ProjectRow({ r, period, before }: { r: Traffic; period: BoxPeriod; befo
         <span className="flex min-w-0 items-center gap-2.5">
           <ProjectIcon project={r.project} size={20} />
           <span className="min-w-0">
-            <span className="block truncate text-[0.875rem] font-[550] text-ink">{r.project}</span>
+            <ProjectName name={r.project} title={title} className="text-[0.875rem] font-[550] text-ink" />
             {/* A phone has no columns: page views and the source go under the name. */}
             <span className="block truncate text-xs text-ink-3 sm:hidden">
               {int(r.pageviews)} page views{r.topSource ? ` · ${r.topSource}` : ""}

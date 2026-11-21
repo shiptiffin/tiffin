@@ -78,6 +78,7 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 	if m.Version == 0 {
 		m.Version = Version
 	}
+	m.Title = CleanTitle(m.Title)
 	for name, app := range m.Apps {
 		if app.Path == "" {
 			app.Path = DefaultAppPath

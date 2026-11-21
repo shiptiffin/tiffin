@@ -79,6 +79,9 @@ func Validate(m *Manifest) error {
 // semanticErrors implements the rules JSON Schema cannot express.
 func semanticErrors(m *Manifest) []FieldError {
 	var errs []FieldError
+	if why := TitleProblem(m.Title); why != "" {
+		errs = append(errs, FieldError{Path: "/title", Message: why})
+	}
 	if sleepRe.MatchString(m.SleepAfter) {
 		if _, err := ParseSleepAfter(m.SleepAfter); err != nil {
 			errs = append(errs, FieldError{Path: "/sleepAfter", Message: fmt.Sprintf("must be between 1h and 30d (got %q)", m.SleepAfter)})

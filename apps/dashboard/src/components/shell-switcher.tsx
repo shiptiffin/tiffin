@@ -8,6 +8,7 @@ import { q } from "@/api/queries";
 import { useRecentProjects } from "@/lib/recent";
 import { useSwitchToProject } from "@/lib/switch";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectName } from "@/components/project-name";
 
 /**
  * The project switcher's popover: search, the five projects you opened last,
@@ -21,6 +22,7 @@ export function SwitcherPopover({ open, onOpenChange, trigger, current }: { open
   const projects = useQuery(q.projects);
   const recent = useRecentProjects();
   const names = (projects.data ?? []).map((p) => p.name);
+  const title = (name: string) => projects.data?.find((p) => p.name === name)?.title;
   const navigate = useNavigate();
   const switchTo = useSwitchToProject();
   const [query, setQuery] = useState("");
@@ -51,9 +53,9 @@ export function SwitcherPopover({ open, onOpenChange, trigger, current }: { open
               <Command.Empty className="px-2.5 py-3 text-sm text-ink-3">No project called that.</Command.Empty>
               <Command.Group heading={query ? undefined : "Recent"} className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-1 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-ink-3">
                 {list.map((p) => (
-                  <Row key={p} value={p} onSelect={() => go(() => switchTo(p))}>
+                  <Row key={p} value={[p, title(p)].filter(Boolean).join(" ")} onSelect={() => go(() => switchTo(p))}>
                     <ProjectIcon project={p} size={16} />
-                    <span className="truncate">{p}</span>
+                    <ProjectName name={p} title={title(p)} />
                     {p === current && <span className="ml-auto text-xs text-ink-3">here</span>}
                   </Row>
                 ))}

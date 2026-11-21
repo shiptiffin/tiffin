@@ -32,6 +32,11 @@ type Manifest struct {
 	Version int `json:"version"`
 	// Project slug: lowercase letters, digits and dashes, 1-40 chars.
 	Project string `json:"project"`
+	// Title is the name people read, shown beside the slug in lists ("Shop
+	// storefront"): up to MaxTitle characters, no control characters,
+	// trimmed. Only a label: the project's name, addresses and data stay
+	// under Project. Absent: lists show the slug alone.
+	Title string `json:"title,omitempty"`
 	// Resources caps how much of the box the project's apps may use. Absent
 	// means automatic: the project grows into whatever the box has free,
 	// shares the CPU fairly with other projects under contention, and can

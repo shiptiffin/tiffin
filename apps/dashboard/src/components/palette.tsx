@@ -39,6 +39,7 @@ import { mcpCommand } from "@/lib/mcp";
 import { change, undoChange } from "@/lib/staged";
 import { INSTANCE_STOPS } from "./throttle";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectName } from "@/components/project-name";
 import { useRecentProjects } from "@/lib/recent";
 import { partsOf, PART_PAGE, projectHome, type Part } from "@/lib/sections";
 import { keyCaps, requestCommand, useCommands } from "@/lib/shortcuts";
@@ -260,10 +261,11 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
   const here = current && names.includes(current) ? projectEntries(current, true) : [];
   const elsewhere = search ? names.filter((p) => p !== current).flatMap((p) => projectEntries(p, false)) : [];
   const onPage: Entry[] = pageCommands.map((c) => ({ id: `cmd:${c.id}`, label: c.label, text: c.label, icon: <CornerDownLeft />, kw: c.keywords, keys: c.keys, run: c.run }));
+  const titleOf = (p: string) => projects?.find((x) => x.name === p)?.title;
   const projectRows: Entry[] = names.map((p) => ({
     id: `project:${p}`,
-    label: p,
-    text: `project ${p}`,
+    label: <ProjectName name={p} title={titleOf(p)} />,
+    text: `project ${p}${titleOf(p) ? ` ${titleOf(p)}` : ""}`,
     icon: <ProjectGlyph project={p} />,
     aside: p === current ? "here" : undefined,
     run: () => void (current ? switchTo(p) : navigate(projectHome(p))),
