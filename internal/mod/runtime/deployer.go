@@ -1451,8 +1451,12 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 	if d.Status == StatusLive {
 		return d, nil
 	}
-	if !d.Rollbackable() {
-		if d.Preview != "" && d.Status != StatusFailed && d.Status != StatusSkipped {
+	// A preview keeps no rollback targets. Its earlier build's image can
+	// outlive gc for a while (in use while the old instance drains), so the
+	// record alone decides: a preview rolls back to nothing.
+	earlierPreview := d.Preview != "" && !isVersionEnv(d.Preview)
+	if !d.Rollbackable() || earlierPreview {
+		if earlierPreview && d.Status != StatusFailed && d.Status != StatusSkipped {
 			return nil, &stateError{fmt.Sprintf("deploy %s was an earlier build of preview %s, and previews keep only their latest build", d.ID, d.Preview),
 				"Deploy that version to the preview again: tiffin deploy --app " + app + " --preview " + d.Preview}
 		}

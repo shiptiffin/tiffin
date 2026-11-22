@@ -1494,6 +1494,18 @@ func TestPreviewKeepsOnlyItsLatestBuild(t *testing.T) {
 	if _, err := h.r.rollback(ctx, "shop", "api", pv1.ID); err == nil || !strings.Contains(err.Error(), "previews keep only their latest build") {
 		t.Fatalf("rollback of a preview: %v", err)
 	}
+	// gc can leave the earlier build's image for the hourly sweep (in use
+	// while its instance drains): the rollback is refused all the same.
+	d1, _ := h.r.st.getDeploy(ctx, "shop", "api", pv1.ID)
+	d1.Image = image(pv2.ID)
+	if err := h.r.st.putDeploy(ctx, d1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.r.rollback(ctx, "shop", "api", pv1.ID); err == nil || !strings.Contains(err.Error(), "previews keep only their latest build") {
+		t.Fatalf("rollback of a preview whose image is still there: %v", err)
+	}
+	d1.Image = ""
+	_ = h.r.st.putDeploy(ctx, d1)
 	if err := h.r.deletePreview(ctx, "shop", "api", "feat-x"); err != nil {
 		t.Fatal(err)
 	}
