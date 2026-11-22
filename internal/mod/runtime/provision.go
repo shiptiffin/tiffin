@@ -99,6 +99,9 @@ func (m *Module) Provision(ctx context.Context, s *platform.System) error {
 	if _, err := s.WriteFile("/etc/nerdctl/nerdctl.toml", []byte(nerdctlConfig), 0o644); err != nil {
 		return err
 	}
+	if err := provisionAppArmor(ctx, s); err != nil {
+		return err
+	}
 	for _, u := range units {
 		changed, err := s.WriteFile(u.conf, []byte(u.confBody), 0o644)
 		if err != nil {
@@ -313,3 +316,75 @@ ExecStop=/usr/sbin/nft delete table inet tiffin_runtime
 [Install]
 WantedBy=multi-user.target
 `
+
+// appArmorProfile is nerdctl's default container profile (nerdctl 2.4,
+// `nerdctl apparmor inspect`) plus signal and ptrace rules for the stacked
+// label "nerdctl-default//&unconfined". Ubuntu 26.04 kernels set
+// apparmor_restrict_unprivileged_unconfined=1, which stacks that label on a
+// container's processes; nerdctl's own profile only lets them signal the
+// plain name, so tini's SIGTERM to the app, Go's SIGURG preemption and
+// Bun's SIGPWR were denied: an app was killed outright instead of shutting
+// down (containerd/containerd#14485). nerdctl generates its profile only
+// when none of that name is loaded, so this one wins, also after a reboot.
+const appArmorProfile = `abi <abi/3.0>,
+
+#include <tunables/global>
+
+profile nerdctl-default flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+  # Host (privileged) processes, runc and crun may send signals to container processes.
+  signal (receive) peer=unconfined,
+  signal (receive) peer=runc,
+  signal (receive) peer=crun,
+  # Container processes may send signals amongst themselves, also when the
+  # kernel stacks //&unconfined on their label (Tiffin's addition).
+  signal (send,receive) peer=nerdctl-default,
+  signal (send,receive) peer=nerdctl-default//&unconfined,
+
+  deny @{PROC}/* w,
+  deny @{PROC}/{[^1-9/],[^1-9/][^0-9/],[^1-9s/][^0-9y/][^0-9s/],[^1-9/][^0-9/][^0-9/][^0-9/]*}/** w,
+  deny @{PROC}/sys/[^k]** w,
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny mount,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  # Processes within the container may trace each other, as far as other LSMs and yama allow.
+  ptrace (trace,tracedby,read,readby) peer=nerdctl-default,
+  ptrace (trace,tracedby,read,readby) peer=nerdctl-default//&unconfined,
+}
+`
+
+// provisionAppArmor installs appArmorProfile where AppArmor is on, and
+// reloads it when it changed: running containers take the new rules at once.
+func provisionAppArmor(ctx context.Context, s *platform.System) error {
+	if _, err := os.Stat("/sys/kernel/security/apparmor/profiles"); err != nil {
+		return nil // no AppArmor on this host
+	}
+	const path = "/etc/apparmor.d/nerdctl-default"
+	changed, err := s.WriteFile(path, []byte(appArmorProfile), 0o644)
+	if err != nil {
+		return err
+	}
+	if changed {
+		if _, err := s.Run(ctx, "apparmor_parser", "--replace", "--write-cache", path); err != nil {
+			return fmt.Errorf("load the container AppArmor profile: %w", err)
+		}
+	}
+	return nil
+}
