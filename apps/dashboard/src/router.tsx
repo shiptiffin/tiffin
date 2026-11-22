@@ -12,6 +12,7 @@ import type { NewSearch } from "@/routes/new";
 import { jobsSearch, type JobsSearch } from "@/lib/jobs-search";
 import { observeTab, type ObserveSearch } from "@/components/observe-search";
 import { analyticsSearch, type AnalyticsSearch } from "@/routes/analytics-search";
+import { boxAnalyticsSearch, type BoxPeriod } from "@/routes/box-analytics-search";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
 import { q } from "@/api/queries";
@@ -48,6 +49,7 @@ const WelcomePasskeyPage = lz<{ next?: string }>(() => import("@/routes/welcome"
 const GatePage = lz<{ host?: string; next?: string }>(() => import("@/routes/gate"), "GatePage");
 const BoxPage = lz(() => import("@/routes/box"), "BoxPage");
 const BoxUsagePage = lz(() => import("@/routes/box-usage"), "BoxUsagePage");
+const BoxAnalyticsPage = lz<{ period?: BoxPeriod }>(() => import("@/routes/box-analytics"), "BoxAnalyticsPage");
 const ProjectUsagePage = lz<{ project: string }>(() => import("@/routes/project-usage"), "ProjectUsagePage");
 const ProjectHistoryPage = lz<{ project: string }>(() => import("@/routes/project-history"), "ProjectHistoryPage");
 const ProjectSettingsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "ProjectSettingsPage");
@@ -188,6 +190,15 @@ const domainsHome = createRoute({
   },
 });
 const boxUsage = createRoute({ getParentRoute: () => app, path: "/usage", loader: () => void BoxUsagePage.preload(), component: BoxUsagePage });
+const boxAnalytics = createRoute({
+  getParentRoute: () => app,
+  path: "/analytics",
+  validateSearch: boxAnalyticsSearch,
+  loader: () => void BoxAnalyticsPage.preload(),
+  component: function BoxAnalytics() {
+    return <BoxAnalyticsPage period={boxAnalytics.useSearch().period} />;
+  },
+});
 const boxRoute = createRoute({ getParentRoute: () => app, path: "/settings/box", loader: () => void BoxPage.preload(), component: BoxPage });
 const activity = createRoute({
   getParentRoute: () => app,
@@ -844,6 +855,7 @@ const tree = root.addChildren([
     box,
     domainsHome,
     boxRoute,
+    boxAnalytics,
     boxUsage,
     activity,
     settings,

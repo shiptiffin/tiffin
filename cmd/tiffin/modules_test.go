@@ -44,7 +44,7 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 354
+	const wantOps = 356
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
 	}
@@ -77,7 +77,7 @@ func TestUntrustedOutputs(t *testing.T) {
 	for _, id := range []string{"sql", "sql-write", "app-logs", "logs-query", "email-messages-list", "email-message-get", "email-suppressions-list",
 		"auth-users-list", "auth-user-get", "auth-orgs-list", "auth-org-get", "storage-objects-list", "storage-object-get", "storage-audit",
 		"kv-get", "kv-keys", "db-tables", "db-table", "db-rows", "db-edits", "db-queries", "queue-jobs-list", "queue-job-get", "workflow-runs-list", "workflow-run-get", "workflow-approvals-list",
-		"analytics-overview", "analytics-events", "analytics-vitals", "issues-list", "issue-get", "traces-list", "trace-get", "deploy-build-log", "changes-list", "audit-list"} {
+		"analytics-overview", "analytics-box", "analytics-events", "analytics-vitals", "issues-list", "issue-get", "traces-list", "trace-get", "deploy-build-log", "changes-list", "audit-list"} {
 		if !byID[id] {
 			t.Errorf("%s: output is not marked untrusted", id)
 		}
@@ -284,6 +284,42 @@ func TestGuessableCommands(t *testing.T) {
 		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":{"to":"ada"}}`,
 		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":"hello"}`,
 		"GET /v1/projects/shop/usage? ",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// projects title takes the title as its last argument or as --title; an
+// empty one (to clear it) is sent as it is.
+func TestProjectTitleCommand(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		title, ok := body["title"]
+		got = append(got, fmt.Sprintf("%s %s %q %v", r.Method, r.URL.Path, title, ok))
+		_, _ = w.Write([]byte(`{"applied":false}`))
+	}))
+	defer srv.Close()
+	env := map[string]string{"TIFFIN_HOME": t.TempDir(), "HOME": t.TempDir(), "TIFFIN_CONFIG_DIR": t.TempDir(),
+		"TIFFIN_URL": srv.URL, "TIFFIN_TOKEN": "tfn_x"}
+	for _, args := range [][]string{
+		{"projects", "title", "website", "ShipTiffin website"},
+		{"projects", "title", "website", "--title", "ShipTiffin website"},
+		{"projects", "title", "website", ""},
+	} {
+		var out, errb bytes.Buffer
+		no := false
+		if code := cli.Execute(context.Background(), args, cli.IO{Out: &out, Err: &errb, TTY: &no, In: strings.NewReader(""),
+			Env: func(k string) string { return env[k] }}); code != cli.ExitOK {
+			t.Fatalf("%v: exit %d %s %s", args, code, out.String(), errb.String())
+		}
+	}
+	want := []string{
+		`POST /v1/projects/website/title "ShipTiffin website" true`,
+		`POST /v1/projects/website/title "ShipTiffin website" true`,
+		`POST /v1/projects/website/title "" true`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

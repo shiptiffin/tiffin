@@ -163,7 +163,7 @@ var switchFlags = map[string]struct{ flag, suffix, usage string }{
 // `--sql "select 1"`, `tiffin kv get shop greet` is `--key greet`,
 // `tiffin server-access add "$(cat ~/.ssh/id_ed25519.pub)"` is `--keys ...`.
 var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql", "kv-get": "key", "monitor-set": "url",
-	"server-key-add": "keys", "server-key-remove": "fingerprint"}
+	"server-key-add": "keys", "server-key-remove": "fingerprint", "project-title": "title"}
 
 // examples replace a generated command's example where a sample reads
 // better than the bare command (a JSON body, say).
@@ -221,7 +221,7 @@ func stringItems(oapi *huma.OpenAPI, s *huma.Schema) bool {
 // ("shop", "web"), or their names where no sample reads better.
 func exampleArgs(params []string) []string {
 	samples := map[string]string{"project": "shop", "app": "web", "bucket": "uploads", "queue": "emails", "key": "greet", "sql": "\"select 1\"",
-		"keys": "\"$(cat ~/.ssh/id_ed25519.pub)\"", "fingerprint": "SHA256:..."}
+		"keys": "\"$(cat ~/.ssh/id_ed25519.pub)\"", "fingerprint": "SHA256:...", "title": "\"Shop storefront\""}
 	out := make([]string, len(params))
 	for i, p := range params {
 		out[i] = orDefault(samples[p], "<"+p+">")

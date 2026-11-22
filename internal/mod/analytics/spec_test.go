@@ -16,7 +16,7 @@ func TestSpec(t *testing.T) {
 		ops[o.OperationID] = api.IsUntrusted(o)
 	}
 	for id, untrusted := range map[string]bool{
-		"analytics-overview": true, "analytics-realtime": true, "analytics-events": true, "analytics-setup": false,
+		"analytics-overview": true, "analytics-box": true, "analytics-realtime": true, "analytics-events": true, "analytics-setup": false,
 		"logs-query": true, "metrics-query": true, "issues-list": true, "issue-get": true, "issue-resolve": false,
 		"observe-overview": false, "observe-apps": false, "alerts-list": false, "alert-rules-list": false, "alert-rule-put": false,
 		"alert-rule-delete": false, "alerts-test": false, "observe-settings-get": false, "observe-settings-set": false, "observe-ingest": false,

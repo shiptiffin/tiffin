@@ -19,12 +19,13 @@ import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
 import { DeployAddresses } from "@/components/deploy-addresses";
 import { KeepVersions } from "@/components/keep-versions";
+import { ProjectTitle } from "@/components/project-title";
 import { SearchVisibility } from "@/components/domains-search";
 import { SettingsNav, useSettingsSection, type SettingsSection } from "@/components/settings-nav";
 
 /**
  * A project's settings, one section at a time (the sub-navigation keeps the
- * section in the URL's #hash): General (icon, sleep, earlier versions), Apps (how each runs and
+ * section in the URL's #hash): General (title, icon, sleep, earlier versions), Apps (how each runs and
  * builds), Services (sign-in on or off; the other parts are always there), API keys, Copy & move,
  * and the Danger zone (Delete all data in a part, its restore, Delete project). Environment variables and domains have their own pages.
  */
@@ -64,7 +65,11 @@ export function ProjectSettingsPage({ project }: { project: string }) {
         <div className="max-w-[52rem] min-w-0">
           {active === "general" && (
             <>
-              <Section title="Icon" first note="Shown beside the project’s name everywhere: the sidebar, ⌘K, lists, and its emails.">
+              <Section title="Title" first note="The name people read, shown beside the project’s name in lists, ⌘K and tiffin projects list.">
+                {m.data ? <ProjectTitle project={project} live={man?.title} staged={pendingSet(["title"])} writer={can("apply:reversible")} /> : <Skeleton className="h-9 max-w-[32rem]" />}
+              </Section>
+
+              <Section title="Icon" note="Shown beside the project’s name everywhere: the sidebar, ⌘K, lists, and its emails.">
                 <ProjectIconSettings project={project} />
               </Section>
 

@@ -450,12 +450,18 @@ test("sign-up stays closed until every secret is there, refuses live Stripe keys
     DATABASE_URL: "postgres://x",
     STRIPE_SECRET_KEY: "sk_test_x",
     STRIPE_WEBHOOK_SECRET: "whsec_x",
+    STRIPE_PUBLISHABLE_KEY: "pk_test_x",
     CLOUD_SEAL_PUBLIC: "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
     CLOUD_LICENCE_PUBLIC: "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
   };
   expect(missingSecrets(all)).toEqual([]);
   expect(missingSecrets({ ...all, STRIPE_SECRET_KEY: undefined })).toEqual(["STRIPE_SECRET_KEY"]);
   expect(missingSecrets({ ...all, STRIPE_SECRET_KEY: "sk_live_x" })[0]).toContain("live");
+  // The payment form in the page needs the publishable key, of the secret key's mode (and never a secret key by mistake).
+  expect(missingSecrets({ ...all, STRIPE_PUBLISHABLE_KEY: undefined })).toEqual(["STRIPE_PUBLISHABLE_KEY"]);
+  expect(missingSecrets({ ...all, STRIPE_PUBLISHABLE_KEY: "sk_test_x" })).toEqual(["STRIPE_PUBLISHABLE_KEY"]);
+  expect(missingSecrets({ ...all, STRIPE_PUBLISHABLE_KEY: "pk_live_x" })[0]).toContain("mixed");
+  expect(missingSecrets({ ...all, STRIPE_SECRET_KEY: "sk_live_x", STRIPE_LIVE: "1", STRIPE_PUBLISHABLE_KEY: "pk_live_x" })).toEqual([]);
   expect(missingSecrets({ ...all, CLOUD_SEAL_PUBLIC: "short" })).toEqual(["CLOUD_SEAL_PUBLIC"]);
   expect(missingSecrets({ ...all, CLOUD_LICENCE_PUBLIC: undefined })).toEqual(["CLOUD_LICENCE_PUBLIC"]);
 });

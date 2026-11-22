@@ -87,6 +87,14 @@
     padding: 26px 28px;
   }
 }
+/* Stripe's payment form (its own iframe, on a white ground whatever our theme). */
+.cp-pay {
+  margin-top: 18px;
+  min-height: 240px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
 .cp-card + .cp-card {
   margin-top: 16px;
 }

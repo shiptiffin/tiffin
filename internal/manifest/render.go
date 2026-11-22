@@ -86,6 +86,9 @@ func strMap(m map[string]string) *node {
 func configNode(m *Manifest) *node {
 	root := obj()
 	root.set("project", str(m.Project))
+	if m.Title != "" {
+		root.set("title", str(m.Title))
+	}
 	if r := m.Resources; r != nil {
 		n := obj()
 		if r.MemoryMB != 0 {

@@ -8,16 +8,16 @@
     "updated": "2026-10-09"
   },
   "concepts": {
-    "sha": "8a79851dff9f6659",
-    "updated": "2026-11-20"
+    "sha": "f77d50d42ddad50e",
+    "updated": "2026-11-21"
   },
   "agents": {
     "sha": "156c95c13a65e982",
     "updated": "2026-10-09"
   },
   "managed": {
-    "sha": "499cc7b432323c81",
-    "updated": "2026-11-17"
+    "sha": "94aaa96982c71ff0",
+    "updated": "2026-11-20"
   },
   "limits": {
     "sha": "7347eafd06c50a6f",
@@ -64,8 +64,8 @@
     "updated": "2026-11-20"
   },
   "analytics": {
-    "sha": "cd96d0211b962b66",
-    "updated": "2026-11-15"
+    "sha": "e9c88b2d99130525",
+    "updated": "2026-11-21"
   },
   "protection": {
     "sha": "64d967620d7d1667",

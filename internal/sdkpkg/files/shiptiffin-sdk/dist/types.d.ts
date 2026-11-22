@@ -467,6 +467,13 @@ export interface TiffinConfig {
     /** Project slug: lowercase letters, digits and dashes, 1-40 chars. */
     project: Slug;
     /**
+     * The name people read, shown beside the slug in the dashboard's lists,
+     * ⌘K and `tiffin projects list` ("Shop storefront"): up to 60 characters
+     * on one line. Only a label: the project's name, addresses and data stay
+     * under `project`. Leave it out and lists show the slug alone.
+     */
+    title?: string;
+    /**
      * How much of the box the project's apps may use. Leave it out for
      * automatic: the project grows into whatever the box has free, shares the
      * CPU fairly under contention and can never starve the platform or the

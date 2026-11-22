@@ -95,6 +95,7 @@ export type WorkflowRun = S["QueueRun"];
 export type WorkflowStep = S["QueueStep"];
 export type WorkflowApproval = S["QueueApproval"];
 export type AnalyticsOverview = S["AnalyticsOverview"];
+export type AnalyticsBox = S["AnalyticsBoxOverview"];
 export type AnalyticsRealtime = S["AnalyticsRealtimeView"];
 export type AnalyticsEvents = S["AnalyticsEventsView"];
 export type AnalyticsSetup = S["AnalyticsSetup"];
@@ -340,6 +341,8 @@ export const mod2 = {
   decide: (p: string, id: string, decision: "approve" | "reject", comment?: string) =>
     request<WorkflowApproval>("POST", `${P(p)}/workflows/approvals/${e(id)}`, { decision, ...(comment ? { comment } : {}) }),
   // analytics
+  /** Every project's visits side by side (a key for all projects). */
+  analyticsBox: (period: "24h" | "7d" | "30d") => request<AnalyticsBox>("GET", `/v1/analytics/box${qs({ period })}`),
   analytics: (p: string, period: Period) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, period, limit: 8 })}`),
   /** The overview for a period or day range, one app and filters (see AnalyticsQuery). */
   analyticsView: (p: string, q: AnalyticsQuery, limit = 10) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, ...q, limit })}`),

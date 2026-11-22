@@ -17,6 +17,7 @@ import { memWords, useBoxShares, type Shares } from "@/lib/usage";
 import { useRecentProjects } from "@/lib/recent";
 import { useProjectHome } from "@/lib/switch";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectName, useProjectTitles } from "@/components/project-name";
 
 /**
  * Home: your projects. One line about the box and one bar split by project,
@@ -32,6 +33,7 @@ export function HomePage() {
   const changes = useQuery({ ...q.changes(), staleTime: 30_000 });
   const recent = useRecentProjects();
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
+  const titleOf = useProjectTitles();
   const { res, shares } = useBoxShares();
   const [view, setView] = useStoredState<"grid" | "list">("tiffin.home-view", "grid");
   const [sort, setSort] = useStoredState<Sort>("tiffin.home-sort", "active");
@@ -44,12 +46,13 @@ export function HomePage() {
     return m;
   }, [changes.data]);
   const list = useMemo(() => {
-    const l = names.filter((n) => n.includes(query.trim().toLowerCase()));
-    if (sort === "name") return l.sort();
+    const find = query.trim().toLowerCase();
+    const l = names.filter((n) => n.includes(find) || !!titleOf(n)?.toLowerCase().includes(find));
+    if (sort === "name") return l.sort((a, b) => (titleOf(a) ?? a).localeCompare(titleOf(b) ?? b));
     if (sort === "size") return l.sort((a, b) => (shares?.projects[b] ?? 0) - (shares?.projects[a] ?? 0));
     const rank = (n: string) => lastChange.get(n) ?? "";
     return l.sort((a, b) => rank(b).localeCompare(rank(a)) || recent.indexOf(a) - recent.indexOf(b));
-  }, [names, query, sort, shares, lastChange, recent]);
+  }, [names, query, sort, shares, lastChange, recent, titleOf]);
 
   if (projects.isError) {
     return (
@@ -273,6 +276,7 @@ function ProjectCard({ project }: { project: string }) {
   const pulse = useProjectPulse(project, onScreen);
   const preview = usePreview(project, pulse.tone === "ok" && !!pulse.url);
   const home = useProjectHome(project);
+  const title = useProjectTitles()(project);
   return (
     <li
       ref={ref}
@@ -284,7 +288,7 @@ function ProjectCard({ project }: { project: string }) {
           <ProjectIcon project={project} size={24} />
           <h2 className="min-w-0 truncate text-[1.0625rem] leading-6 font-[550] tracking-[-0.01em] text-ink">
             <Link to={home.to} params={home.params} className="outline-hidden after:absolute after:inset-0 after:rounded-[12px] focus-visible:after:shadow-[0_0_0_2px_var(--brass)]">
-              {project}
+              <ProjectName name={project} title={title} />
             </Link>
           </h2>
         </div>
@@ -311,6 +315,7 @@ function ProjectRow({ project }: { project: string }) {
   const [ref, onScreen] = useOnScreen<HTMLLIElement>();
   const pulse = useProjectPulse(project, onScreen);
   const home = useProjectHome(project);
+  const title = useProjectTitles()(project);
   return (
     <li
       ref={ref}
@@ -318,8 +323,8 @@ function ProjectRow({ project }: { project: string }) {
     >
       <span className="flex min-w-0 items-center gap-2.5">
         <ProjectIcon project={project} size={20} />
-        <Link to={home.to} params={home.params} className="truncate text-[0.9375rem] font-[550] text-ink outline-hidden after:absolute after:inset-0 focus-visible:underline">
-          {project}
+        <Link to={home.to} params={home.params} className="min-w-0 text-[0.9375rem] font-[550] text-ink outline-hidden after:absolute after:inset-0 focus-visible:underline">
+          <ProjectName name={project} title={title} />
         </Link>
       </span>
       <span className="col-span-2 row-start-2 flex min-w-0 items-center gap-2 text-[0.8125rem] text-ink-2 sm:col-span-1 sm:row-start-auto">

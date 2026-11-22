@@ -5,6 +5,7 @@ import { useDeferredValue, useState } from "react";
 import type { BoxResources } from "@/api/client";
 import { Empty, Skeleton } from "@/components/page";
 import { ProjectIcon } from "@/components/project-icon";
+import { ProjectName, useProjectTitles } from "@/components/project-name";
 import { DiskBreakdown } from "@/components/usage-disk";
 import { cn } from "@/lib/cn";
 import { bytes, dec } from "@/lib/format";
@@ -51,7 +52,8 @@ export function UsageProjects({
   const [all, setAll] = useState(false);
   const needle = useDeferredValue(find.trim().toLowerCase());
   const rows = sortRows(rowsOf(names, res, shares.totalMB, report), sort);
-  const hits = needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows;
+  const titleOf = useProjectTitles();
+  const hits = needle ? rows.filter((r) => r.name.toLowerCase().includes(needle) || !!titleOf(r.name)?.toLowerCase().includes(needle)) : rows;
   const shown = needle || all ? hits : hits.slice(0, FIRST);
 
   const head = (key: SortKey, label: string, right = true) => {
@@ -144,6 +146,7 @@ function ProjectRow({ r, open, held, diskPending }: { r: Row; open: boolean; hel
   const disk = r.diskBytes > 0 ? bytes(r.diskBytes) : "–";
   const oom = r.total?.pressure === "oom";
   const trouble = oom ? "ran out of memory" : held ? "read-only: the disk is nearly full" : undefined;
+  const title = useProjectTitles()(r.name);
   return (
     <A.Item value={r.name} asChild>
       <li className="border-b border-rule">
@@ -159,7 +162,7 @@ function ProjectRow({ r, open, held, diskPending }: { r: Row; open: boolean; hel
                 <ChevronRight aria-hidden className="size-3.5 shrink-0 text-ink-4 transition-transform duration-[var(--dur-state)] group-data-[state=open]:rotate-90 group-hover:text-ink-3" />
                 <ProjectIcon project={r.name} size={20} />
                 <span className="min-w-0">
-                  <span className="block truncate text-[0.875rem] font-[550] text-ink">{r.name}</span>
+                  <ProjectName name={r.name} title={title} className="text-[0.875rem] font-[550] text-ink" />
                   <span className="block truncate text-xs text-ink-3">
                     {/* A phone has no columns: the two numbers go under the name. */}
                     <span className={trouble ? "hidden" : "sm:hidden"}>

@@ -520,6 +520,28 @@ moved to another box ([copying and moving](https://shiptiffin.com/docs/moving.md
 resource, set by `tiffin projects stop` or a move) keeps its data but runs no apps, and
 refuses deploys until it is started again.
 
+### A project's name and title
+A project's name (`project` in `tiffin.config.ts`) never changes: its addresses, database,
+files, keys and commands are all made from it. To have lists say something clearer than
+the name, give the project a **title**. The dashboard's lists, ⌘K, Usage, Analytics and
+`tiffin projects list` show it, with the name small beside it:
+
+```ts
+project: "website",
+title: "ShipTiffin website", // up to 60 characters on one line
+```
+
+```bash
+tiffin projects title website "ShipTiffin website"   # or Settings › General › Title
+tiffin projects title website ""                     # clears it
+```
+
+Setting a title is a change like any other, with an undo in History, and it moves nothing.
+Set outside the config, it is a [change made outside your config](#changes-made-outside-your-config):
+put it in `tiffin.config.ts` too, or the next apply from the config offers to clear it.
+For a new name, [duplicate](https://shiptiffin.com/docs/moving.md#duplicate) the project under it instead (its custom
+domains and GitHub deploys stay with the original).
+
 ## Sharing the box
 Launch as many projects as you like: they divide the box between them on their own.
 Tiffin keeps memory for itself first (its services, plus Postgres's and Valkey's caches;
@@ -842,17 +864,21 @@ A box made with `tiffin up` is not managed and none of this runs on it.
 
 1. **Account.** Sign in at shiptiffin.com/start with an email link, Google or GitHub. No
    password.
-2. **Pay.** Stripe Checkout, one subscription per box, by card. The box is ready for setup
-   once the first payment has gone through; a second payment for the same box (two tabs)
-   is cancelled and refunded automatically.
-3. **Connect Hetzner.** In the Hetzner Cloud Console make a **new project just for
+2. **Connect Hetzner.** In the Hetzner Cloud Console make a **new project just for
    ShipTiffin**, then Security → API tokens → Generate API token → **Read & Write**, and
    paste it. The page checks it at once: that Hetzner accepts it, that it can write (with
    one request that creates nothing), how many servers the project already holds, and
-   which sizes Hetzner sells you where, at your account's prices and stock.
-4. **Choose.** A name (your address is `<name>.shiptiffin.app`), a size and a place. We
+   which sizes Hetzner sells you where, at your account's prices and stock. Nothing has
+   been charged yet: if Hetzner can sell your account none of the sizes, the page says so
+   and you never reach payment.
+3. **Choose.** A name (your address is `<name>.shiptiffin.app`), a size and a place. We
    suggest `cx23` in the first EU location that has stock, then `cax11`, `cx33` and
    `cax21`; US locations offer CPX sizes. Each comes with a 40 GB data volume.
+4. **Pay.** One subscription per box, by card, in Stripe's payment form inside the same
+   page. The page is never left, so the token it holds in memory is still there when the
+   payment goes through, and setup starts at once. A second payment for the same box (two
+   tabs) is cancelled and refunded automatically. If you close the page between paying and
+   setup starting, open /start again and paste the token once more: it was never stored.
 5. **Create.** A worker on ShipTiffin's own box makes the server, firewall, volume and a
    setup SSH key in your project (all labelled `tiffin-box=<name>` and
    `shiptiffin-box=<box id>`; it never touches anything without that second label), points
@@ -6572,9 +6598,28 @@ tiffin analytics realtime --project shop               # the last 5 and 30 minut
 tiffin analytics events --project shop --period 30d    # custom events and their properties
 ```
 
-Agents get the same as MCP tools (`analytics_overview`, `analytics_realtime`,
+Agents get the same as MCP tools (`analytics_overview`, `analytics_box`, `analytics_realtime`,
 `analytics_events`, `analytics_vitals`, `analytics_setup`, `analytics_privacy`). Paths, referrers and event names come from
 visitors, so tools mark their output as untrusted data.
+
+### Every project at once
+
+The dashboard's **Analytics** page (in the main menu, beside Usage) shows the
+whole box: visitors and page views for the last 24 hours, 7 days or 30 days
+against the period before, a chart of them over time, and one row per project,
+most visitors first, with its trend, visitors, page views, change and top
+source. A project nobody visited is listed at zero. A row opens that project's
+own Analytics page.
+
+```bash
+tiffin analytics box                # the last 7 days
+tiffin analytics box --period 30d   # 24h, 7d or 30d
+```
+
+Each project's numbers are the ones its own overview gives for the same
+period. Visitors are counted per project, so a person who visits two projects
+counts in both, and the box's total is the sum of its projects. It mixes every
+project's data, so it needs a key for all projects.
 
 ## Privacy
 

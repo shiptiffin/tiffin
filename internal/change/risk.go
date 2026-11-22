@@ -99,6 +99,12 @@ func Classify(op Op) (Tier, string) {
 			if !reflect.DeepEqual(a.Resources, b.Resources) {
 				return TierReversible, "changes the project's share of the box; applies live without restarting apps, and undo restores the previous limits"
 			}
+			if untitled, untitledB := a, b; a.Title != b.Title {
+				untitled.Title, untitledB.Title = "", ""
+				if reflect.DeepEqual(untitled, untitledB) {
+					return TierReversible, "changes the title lists show for the project; its name, addresses and data stay as they are, and undo restores the previous title"
+				}
+			}
 			return TierReversible, "changes the project's settings; applies without restarting apps, and undo restores the previous settings"
 		case KindSecret:
 			return TierReversible, "replaces secret " + name + "'s value; undo restores the previous value"

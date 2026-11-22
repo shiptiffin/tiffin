@@ -594,15 +594,17 @@ func (s *DB) ListProjects(ctx context.Context) ([]string, error) {
 // ProjectCount is a project's version and how many resources it has.
 type ProjectCount struct {
 	Name      string
+	Title     string // the project resource's title ("": none)
 	Version   int64
 	Resources int
 }
 
-// ProjectCounts returns ListProjects' projects with their versions and
-// resource counts, in one query.
+// ProjectCounts returns ListProjects' projects with their titles, versions
+// and resource counts, in one query.
 func (s *DB) ProjectCounts(ctx context.Context) ([]ProjectCount, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT r.project, COALESCE(p.version, 0), COUNT(*) FROM resources r
-		LEFT JOIN projects p ON p.name = r.project GROUP BY r.project ORDER BY r.project`)
+	rows, err := s.sql.QueryContext(ctx, `SELECT r.project, COALESCE(p.version, 0), COUNT(*),
+		COALESCE((SELECT json_extract(t.spec, '$.title') FROM resources t WHERE t.project = r.project AND t.address = 'project'), '')
+		FROM resources r LEFT JOIN projects p ON p.name = r.project GROUP BY r.project ORDER BY r.project`)
 	if err != nil {
 		return nil, err
 	}
@@ -610,7 +612,7 @@ func (s *DB) ProjectCounts(ctx context.Context) ([]ProjectCount, error) {
 	var out []ProjectCount
 	for rows.Next() {
 		var c ProjectCount
-		if err := rows.Scan(&c.Name, &c.Version, &c.Resources); err != nil {
+		if err := rows.Scan(&c.Name, &c.Version, &c.Resources, &c.Title); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

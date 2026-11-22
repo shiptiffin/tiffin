@@ -336,9 +336,28 @@ tiffin analytics realtime --project shop               # the last 5 and 30 minut
 tiffin analytics events --project shop --period 30d    # custom events and their properties
 ```
 
-Agents get the same as MCP tools (`analytics_overview`, `analytics_realtime`,
+Agents get the same as MCP tools (`analytics_overview`, `analytics_box`, `analytics_realtime`,
 `analytics_events`, `analytics_vitals`, `analytics_setup`, `analytics_privacy`). Paths, referrers and event names come from
 visitors, so tools mark their output as untrusted data.
+
+### Every project at once
+
+The dashboard's **Analytics** page (in the main menu, beside Usage) shows the
+whole box: visitors and page views for the last 24 hours, 7 days or 30 days
+against the period before, a chart of them over time, and one row per project,
+most visitors first, with its trend, visitors, page views, change and top
+source. A project nobody visited is listed at zero. A row opens that project's
+own Analytics page.
+
+```bash
+tiffin analytics box                # the last 7 days
+tiffin analytics box --period 30d   # 24h, 7d or 30d
+```
+
+Each project's numbers are the ones its own overview gives for the same
+period. Visitors are counted per project, so a person who visits two projects
+counts in both, and the box's total is the sum of its projects. It mixes every
+project's data, so it needs a key for all projects.
 
 ## Privacy
 

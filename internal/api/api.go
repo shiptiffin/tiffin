@@ -403,6 +403,11 @@ type destroyBody struct {
 	KeepDNS bool   `json:"keepDns,omitempty" doc:"Keep the DNS records the box created for the project's domains (by default it deletes the ones that still point at this box)."`
 }
 
+type titleBody struct {
+	Title  string `json:"title" maxLength:"200" doc:"The title, up to 60 characters on one line (spaces around it are dropped). Empty clears it."`
+	Intent string `json:"intent,omitempty" maxLength:"500" doc:"Why, in one sentence (History shows it)."`
+}
+
 // ApplyResult is the outcome of a confirmed apply or undo.
 type ApplyResult struct {
 	Applied bool           `json:"applied" doc:"False when the plan was empty (nothing to do)."`
@@ -415,6 +420,7 @@ type ApplyResult struct {
 // ProjectSummary is one row of the project list.
 type ProjectSummary struct {
 	Name      string   `json:"name"`
+	Title     string   `json:"title,omitempty" doc:"The name people read, shown beside the slug (absent: none). Commands, paths and keys always use name."`
 	Version   int64    `json:"version"`
 	Resources int      `json:"resources"`
 	Failing   []string `json:"failing,omitempty" doc:"Resources whose last reconcile failed, with the first line of the reason"`
@@ -431,6 +437,7 @@ func truncate(s string, n int) string {
 // ProjectState is a project's current resources.
 type ProjectState struct {
 	Name      string            `json:"name"`
+	Title     string            `json:"title,omitempty" doc:"The name people read, shown beside the slug (absent: none). Commands, paths and keys always use name."`
 	Version   int64             `json:"version"`
 	Resources []change.Resource `json:"resources"`
 	Secrets   []string          `json:"secrets,omitempty" doc:"Names of the project's secrets (values are never shown)"`
@@ -558,7 +565,7 @@ func (a *API) register() {
 				if !p.CanProject(pc.Name) {
 					continue
 				}
-				ps := ProjectSummary{Name: pc.Name, Version: pc.Version, Resources: pc.Resources}
+				ps := ProjectSummary{Name: pc.Name, Title: pc.Title, Version: pc.Version, Resources: pc.Resources}
 				st := statuses[pc.Name]
 				if st == nil {
 					st = map[string]state.ResourceStatus{}
@@ -595,7 +602,7 @@ func (a *API) register() {
 			if v == 0 {
 				return nil, problem(404, "not_found", "project "+in.Project+" does not exist")
 			}
-			out := ProjectState{Name: in.Project, Version: v, Resources: make([]change.Resource, 0, len(res))}
+			out := ProjectState{Name: in.Project, Title: change.ProjectTitle(res), Version: v, Resources: make([]change.Resource, 0, len(res))}
 			for _, r := range res {
 				if change.Kind(r.Address) == change.KindSecret {
 					out.Secrets = append(out.Secrets, change.Name(r.Address))
@@ -765,6 +772,49 @@ func (a *API) register() {
 			res.Body.DNS = cleaner.CleanupDNS(ctx, hosts, in.Body.KeepDNS, true, p.Name)
 		}
 		return res, nil
+	}))
+
+	ti := op("project-title", http.MethodPost, "/v1/projects/{project}/title", "projects title", RiskWrite, "Set a project's title",
+		"Sets the name people read for the project, shown beside its slug in the dashboard's lists, ⌘K and projects list (\"Shop storefront\"); "+
+			"an empty title clears it. Only a label: the project's name, addresses, data, keys and commands stay as they are. "+
+			"A change in History with an undo, the same as title in tiffin.config.ts: put it there too, or the next apply from the config clears it.", "projects")
+	ti.Errors = append(ti.Errors, 404, 409)
+	huma.Register(api, ti, wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Body    titleBody
+	}) (*struct{ Body ApplyResult }, error) {
+		p := PrincipalFrom(ctx)
+		if err := p.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+			return nil, err
+		}
+		title := manifest.CleanTitle(in.Body.Title)
+		if why := manifest.TitleProblem(title); why != "" {
+			pr := problem(422, "validation", "title "+why)
+			pr.Errors = []FieldError{{Path: "/title", Message: why}}
+			return nil, pr
+		}
+		v, _, err := a.deps.DB.Load(ctx, in.Project)
+		if err != nil {
+			return nil, err
+		}
+		if v == 0 {
+			return nil, problem(404, "not_found", "project "+in.Project+" does not exist")
+		}
+		plan, err := a.deps.Engine.PlanEdit(ctx, in.Project, func(cur map[string]change.Resource) (map[string]change.Resource, error) {
+			return change.WithTitle(cur, title)
+		})
+		if err != nil {
+			return nil, err
+		}
+		intent := in.Body.Intent
+		switch {
+		case intent != "":
+		case title == "":
+			intent = "Clear the title of " + in.Project
+		default:
+			intent = fmt.Sprintf("Title %s %q", in.Project, title)
+		}
+		return a.applyWith(ctx, p, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Intent: intent})
 	}))
 
 	type changesQuery struct {

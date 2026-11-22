@@ -337,6 +337,7 @@ type Setup struct {
 func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	m.registerPrivacyAPI(a)
 	m.registerRevenueAPI(a)
+	m.registerBoxAPI(a)
 	huma.Register(a, api.Untrusted(api.Op("analytics-overview", http.MethodGet, "/v1/analytics/overview", "analytics overview", api.RiskRead,
 		"Show web analytics",
 		"Visitors, pageviews, sessions, bounce rate, visit duration and custom events for a project or one app over a period, "+
