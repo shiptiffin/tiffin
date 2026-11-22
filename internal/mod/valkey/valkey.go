@@ -34,9 +34,9 @@ import (
 
 // Pinned upstream build (download.valkey.io, Ubuntu 24.04 "noble" binaries).
 const (
-	Version   = "9.1.2"
-	sumArm64  = "eb601c28401d06d68d3fcb526645c4a01078c12d89de5fc70f5674c8a27bd2fd"
-	sumX86_64 = "0d2a79936cbafa5f527a5175536bb17bd3f767f95f53529e59dddfacf762eec0"
+	Version   = "9.1.4"
+	sumArm64  = "3c4e16c85086809ef6778f0d267cfdeed1be4514445d5b9ab39e96e4f8fd54c8"
+	sumX86_64 = "407a17088596974c17a72554bf27ce2d7c6a060c2ded7d2d067f539aeac5e8cd"
 )
 
 // Layout on the box.
