@@ -15,27 +15,34 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
+// freePorts hands out ports below the OS's ephemeral range (macOS 49152+,
+// Linux 32768+). Ports from a ":0" listen are ephemeral: once closed, another
+// test package running in parallel can be given the same one (by its own ":0"
+// listen or an outgoing connection) before the edge binds it.
 func freePorts(t *testing.T, n int) []int {
 	t.Helper()
-	var ls []net.Listener
 	var ports []int
-	for range n {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
+	for len(ports) < n {
+		if nextPort.Load() == 0 {
+			nextPort.CompareAndSwap(0, int32(20000+os.Getpid()%500*20))
 		}
-		ls = append(ls, l)
-		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
-	}
-	for _, l := range ls {
-		l.Close()
+		p := int(nextPort.Add(1))
+		if p >= 30000 {
+			t.Fatal("no free test port below 30000")
+		}
+		if portFree(p) {
+			ports = append(ports, p)
+		}
 	}
 	return ports
 }
+
+var nextPort atomic.Int32
 
 func portFree(port int) bool {
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(port))
