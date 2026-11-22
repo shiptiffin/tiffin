@@ -115,6 +115,13 @@ func runProgram(ctx context.Context, code string, tools map[string]*Tool, sorted
 		}
 		sub := &sdk.CallToolRequest{Session: req.Session, Extra: req.Extra, Params: &sdk.CallToolParamsRaw{Name: name, Arguments: raw}}
 		res, _ := t.call(ctx, h, tok, sub)
+		// A call that came back after the limit fails the program, even
+		// when it answered before the interrupt reached the VM.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			panic(vm.NewGoError(errors.New("time limit reached")))
+		} else if ctx.Err() != nil {
+			panic(vm.NewGoError(errors.New("cancelled")))
+		}
 		if api.IsUntrusted(t.op) {
 			untrusted = true
 		}
@@ -174,6 +181,9 @@ func runProgram(ctx context.Context, code string, tools map[string]*Tool, sorted
 	_ = vm.Set("console", console)
 
 	v, err := vm.RunString("(function(){\n" + code + "\n})()")
+	if err == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		err = errors.New("time limit reached") // it finished, but past its limit
+	}
 	out := map[string]any{"calls": calls}
 	if len(logs) > 0 {
 		out["logs"] = logs
