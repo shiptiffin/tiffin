@@ -25,12 +25,12 @@ var engineBundle []byte
 
 // BunVersion is the Bun release that runs the engine: the one app builds
 // use (runtime.BunVersion), so one Bun is tested and patched.
-const BunVersion = "1.4.4"
+const BunVersion = "1.4.5"
 
 // bunRelease is the pinned Bun download for each architecture.
 var bunRelease = map[string]struct{ asset, sha256 string }{
-	"arm64": {"bun-linux-aarch64", "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"},
-	"amd64": {"bun-linux-x64", "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"},
+	"arm64": {"bun-linux-aarch64", "18656a3bf0ea5641f5796ae4213b75255579a70a0fded2f337933785568cdf84"},
+	"amd64": {"bun-linux-x64", "94559b3b528995a49452f9f2404cec74f2efd7d06e0a000a8cd214b02c3666eb"},
 }
 
 // EngineBundle returns the engine JavaScript.

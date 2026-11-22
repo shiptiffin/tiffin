@@ -16,7 +16,7 @@ package runtime
 const (
 	NerdctlVersion  = "2.4.1"
 	RailpackVersion = "0.40.1"
-	BunVersion      = "1.4.4"
+	BunVersion      = "1.4.5"
 	NodeVersion     = "24.22.3"
 )
 
@@ -37,7 +37,7 @@ const (
 	// RailpackFrontend is the BuildKit frontend matching RailpackVersion.
 	RailpackFrontend = "ghcr.io/railwayapp/railpack-frontend:v" + RailpackVersion + "@sha256:f1973377693af30c9b37a92c97c661c07b277ccdc6be909213c74c771f8d2d6d"
 	// BunImage runs `bun install && bun run build` for static sites.
-	BunImage = "docker.io/oven/bun:" + BunVersion + "-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4"
+	BunImage = "docker.io/oven/bun:" + BunVersion + "-slim@sha256:b780593f3e10918cbdaec3d5a08d52224b9198069a65eb47812085c2ec007643"
 )
 
 // WorkflowPostgresWorld is the Workflow DevKit's Postgres world (Apache-2.0)
