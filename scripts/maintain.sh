@@ -9,9 +9,11 @@
 #      was merged,
 #   4. with --box, looks after the box itself: installs every pending Ubuntu
 #      update (Postgres packages stay with Tiffin's maintenance window),
-#      reboots when the kernel or a running service needs it, and rebuilds
-#      each running app from its live source so base images, Node and Bun
-#      pick up their fixes (zero downtime, like any deploy),
+#      reboots when the kernel or a running service needs it, rebuilds one
+#      running app picked at random as a smoke test of the build path (apps
+#      pick up base image, Node and Bun fixes on their next deploy), and
+#      checks that every app is up: each web route answers over HTTPS and
+#      each worker is live,
 #   5. clears the Go, staticcheck and Bun caches its checks filled.
 #
 #   scripts/maintain.sh                        # defensive: scan + security fixes
@@ -134,24 +136,49 @@ EOF
     echo "no reboot needed"
   fi
 
-  step "box: rebuild running apps"
-  # Static sites have no runtime to patch. One build at a time: the box is small.
-  for p in $(tf projects list --json | jq -r '.[].name'); do
-    for a in $(tf projects get "$p" --json | jq -r '
-        [.resources[] | select(.address|startswith("app/")) | select(.spec.framework != "static") | .address] as $apps
-        | .status | to_entries[] | select(.key as $k | $apps | index($k)) | select(.value.release == "live")
-        | .key | sub("app/";"")'); do
-      printf '%s/%s: ' "$p" "$a"
-      id=$(tf deploys redeploy "$p" "$a" --no-wait --json 2>/dev/null | jq -r '.id // empty')
-      if [ -z "$id" ]; then echo "cannot rebuild (prebuilt image or no source kept)"; skipped+=("$p/$a (no source to rebuild: redeploy it from its source)"); continue; fi
+  # Every project's state once: "project|app|role|framework|release|routes".
+  apps=$(for p in $(tf projects list --json | jq -r '.[].name'); do
+    tf projects get "$p" --json | jq -r --arg p "$p" '
+      .status as $st | .resources[] | select(.address|startswith("app/"))
+      | [$p, (.address|sub("app/";"")), (.spec.role // "web"), (.spec.framework // ""),
+         ($st[.address].release // "none"), ((.spec.routes // []) | join(","))] | join("|")'
+  done)
+
+  step "box: rebuild one app (smoke test)"
+  # Not every app: each picks up base image, Node and Bun fixes on its next
+  # deploy. One random live, non-static app proves the build path still works.
+  pick=$(awk -F'|' '$4 != "static" && $5 == "live"' <<<"$apps" | awk 'BEGIN{srand()} {l[NR]=$0} END{if (NR) print l[int(rand()*NR)+1]}')
+  if [ -n "$pick" ]; then
+    IFS='|' read -r p a _ <<<"$pick"
+    printf '%s/%s: ' "$p" "$a"
+    id=$(tf deploys redeploy "$p" "$a" --no-wait --json 2>/dev/null | jq -r '.id // empty')
+    if [ -z "$id" ]; then
+      echo "cannot rebuild (prebuilt image or no source kept)"
+    else
       for _ in $(seq 8); do # the API waits at most 300s per call: up to 40 minutes
         st=$(tf deploys get "$p" "$a" "$id" --wait 300 --json 2>/dev/null | jq -r '.status // "unknown"')
         case $st in queued | building | starting | restarting) ;; *) break ;; esac
       done
       echo "$st"
-      if [ "$st" = live ]; then box+=("rebuilt $p/$a"); else failed+=("box: rebuild of $p/$a ($id: $st; tiffin deploys build-log $p $a $id)"); fi
+      if [ "$st" = live ]; then box+=("rebuilt $p/$a (smoke test)"); else failed+=("box: rebuild of $p/$a ($id: $st; tiffin deploys build-log $p $a $id)"); fi
+    fi
+  fi
+
+  step "box: every app is up"
+  domain=$(tf domain status --json 2>/dev/null | jq -r '.appsDomain // empty')
+  up=0
+  while IFS='|' read -r p a role _ release routes; do
+    [ -z "$p" ] && continue
+    if [ "$release" != live ]; then failed+=("box: $p/$a is not live ($release)"); continue; fi
+    [ "$role" = worker ] && { up=$((up + 1)); continue; }
+    for r in ${routes//,/ }; do
+      [[ $r == *.* ]] && host=$r || host=$r.$domain
+      code=$(curl -s -o /dev/null -m 20 -A "claude-code/maintain" -w '%{http_code}' "https://$host/")
+      if [[ $code =~ ^[23] ]]; then up=$((up + 1)); else failed+=("box: https://$host/ ($p/$a) answered $code"); fi
     done
-  done
+  done <<<"$apps"
+  echo "$up up"
+  box+=("$up app addresses and workers up")
 
   step "box: health"
   tf doctor >/dev/null 2>&1 && echo ok || failed+=("box: tiffin doctor reports a problem")
