@@ -6,9 +6,9 @@ import { createHmac as createHmac2 } from "crypto";
 
 // ../../packages/sdk/src/verify.ts
 import { createHmac, timingSafeEqual } from "crypto";
-function verifySignature(secret, header, body, toleranceSeconds = 300, now = Date.now()) {
-  if (!secret || !header)
-    return false;
+function signatureParts(header, toleranceSeconds, now) {
+  if (!header)
+    return null;
   let ts = "";
   let sig = "";
   for (const part of header.split(",")) {
@@ -19,10 +19,41 @@ function verifySignature(secret, header, body, toleranceSeconds = 300, now = Dat
       sig = v ?? "";
   }
   const t = Number(ts);
-  if (!Number.isInteger(t) || !sig || Math.abs(now / 1000 - t) > toleranceSeconds)
+  if (!Number.isInteger(t) || !/^[0-9a-f]{64}$/.test(sig) || Math.abs(now / 1000 - t) > toleranceSeconds)
+    return null;
+  return { ts, sig };
+}
+function verifySignature(secret, header, body, toleranceSeconds = 300, now = Date.now()) {
+  const p = signatureParts(header, toleranceSeconds, now);
+  if (!secret || !p)
     return false;
-  const want = createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex");
-  return want.length === sig.length && timingSafeEqual(Buffer.from(want), Buffer.from(sig));
+  const want = createHmac("sha256", secret).update(`${p.ts}.${body}`).digest("hex");
+  return timingSafeEqual(Buffer.from(want), Buffer.from(p.sig));
+}
+var MAX_CALL_BYTES = 2 << 20;
+async function readSigned(req, maxBytes, toleranceSeconds = 300) {
+  if (!signatureParts(req.headers.get("tiffin-signature"), toleranceSeconds, Date.now()))
+    return null;
+  const declared = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes)
+    return "too large";
+  if (!req.body)
+    return "";
+  const reader = req.body.getReader();
+  const chunks = [];
+  let n = 0;
+  for (;; ) {
+    const { done, value } = await reader.read();
+    if (done)
+      break;
+    n += value.byteLength;
+    if (n > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return "too large";
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 // ../../packages/sdk/src/queue.ts
@@ -78,7 +109,7 @@ function settings() {
     fetch: overrides.fetch ?? fetch
   };
 }
-async function boxCall(method, path, body) {
+async function boxCall(method, path, body, signal) {
   const s = settings();
   if (!s.url || !s.key) {
     throw new QueueError(0, "precondition", "TIFFIN_QUEUE_URL and TIFFIN_QUEUE_KEY are not set", "run on a Tiffin box, or call configure({ url, key })");
@@ -86,7 +117,8 @@ async function boxCall(method, path, body) {
   const res = await s.fetch(s.url + path, {
     method,
     headers: { "content-type": "application/json", authorization: `Bearer ${s.key}` },
-    body: body === undefined ? null : JSON.stringify(body)
+    body: body === undefined ? null : JSON.stringify(body),
+    ...signal ? { signal } : {}
   });
   const text = await res.text();
   let data = undefined;
@@ -121,19 +153,19 @@ function sendBody(name, payload, opts) {
 async function send(name, payload, opts = {}) {
   return boxCall("POST", "/v1/queue-internal/send", { ...sendBody(name, payload, opts), fromApp: currentApp() });
 }
-var OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
+var OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::text::jsonb, $3::text::jsonb, $4)";
 async function sendTx(db, name, payload, opts = {}) {
   const b = sendBody(name, payload, opts);
   const options = { ...b };
   delete options.name;
   delete options.payload;
   const params = [name, JSON.stringify(b.payload), JSON.stringify(options), currentApp()];
-  if (typeof db === "function")
-    await db(OUTBOX_INSERT, params);
-  else if ("unsafe" in db)
+  if ("unsafe" in db && typeof db.unsafe === "function")
     await db.unsafe(OUTBOX_INSERT, params);
-  else if ("query" in db)
+  else if ("query" in db && typeof db.query === "function")
     await db.query(OUTBOX_INSERT, params);
+  else if (typeof db === "function")
+    await db(OUTBOX_INSERT, params);
   else
     throw new TypeError("sendTx needs a SQL handle with unsafe() or query(), or a function");
 }
@@ -167,12 +199,15 @@ function sign(secret, body, now = Date.now()) {
   const ts = Math.floor(now / 1000).toString();
   return `t=${ts},v1=${createHmac2("sha256", secret).update(`${ts}.${body}`).digest("hex")}`;
 }
-async function readDelivery(req, secret) {
+async function readDelivery(req, secret, maxBytes = MAX_CALL_BYTES) {
   if (req.method !== "POST")
     return new Response("method not allowed", { status: 405 });
-  const body = await req.text();
+  const body = await readSigned(req, maxBytes);
+  if (body === "too large") {
+    return Response.json({ error: `the delivery is over ${maxBytes} bytes (raise maxBytes on the handler)` }, { status: 413 });
+  }
   const key = secret ?? settings().secret;
-  if (!verifySignature(key, req.headers.get("tiffin-signature"), body)) {
+  if (body === null || !verifySignature(key, req.headers.get("tiffin-signature"), body)) {
     return Response.json({ error: "invalid or missing Tiffin-Signature" }, { status: 401 });
   }
   try {
@@ -202,6 +237,7 @@ function heartbeater(d, ctrl) {
     }
   };
 }
+var REPORT_TIMEOUT_MS = 1e4;
 function reporter(base, extra = {}) {
   let chain = Promise.resolve();
   const post = (kind, value) => {
@@ -211,14 +247,14 @@ function reporter(base, extra = {}) {
     if (size > limit)
       throw new TypeError(`${kind === "progress" ? "progress" : "an output chunk"} is ${size} bytes; the limit is ${limit >> 10} KB`);
     const body = { ...extra, [kind === "progress" ? "progress" : "data"]: JSON.parse(json) };
-    chain = chain.then(() => boxCall("POST", `${base}/${kind}`, body).then(() => {}, (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`)));
+    chain = chain.then(() => boxCall("POST", `${base}/${kind}`, body, AbortSignal.timeout(REPORT_TIMEOUT_MS)).then(() => {}, (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`)));
     return chain;
   };
   return { progress: (v) => post("progress", v), output: (v) => post("output", v), flush: () => chain };
 }
 function defineHandler(fn, opts = {}) {
   return async (req) => {
-    const d = await readDelivery(req, opts.secret);
+    const d = await readDelivery(req, opts.secret, opts.maxBytes);
     if (d instanceof Response)
       return d;
     const ctrl = new AbortController;
@@ -248,14 +284,18 @@ function defineHandler(fn, opts = {}) {
     } catch (err) {
       return errorResponse(err);
     } finally {
-      if (timer)
-        clearInterval(timer);
-      await rep.flush();
+      try {
+        await rep.flush();
+      } finally {
+        if (timer)
+          clearInterval(timer);
+      }
     }
   };
 }
 // ../../packages/sdk/src/workflow.ts
 var DEFAULT_PATH = "/_tiffin/workflows";
+var MAX_TURN_BYTES = 64 << 20;
 
 class NonDeterminismError extends NonRetryableError {
   name = "NonDeterminismError";
@@ -303,14 +343,19 @@ class Suspend {
 
 class Turn {
   run;
+  fence;
+  signal;
   seq = 0;
   byName = new Map;
   bySeq = new Map;
   inflight = new Set;
+  failures = [];
   maxRecordedSeq;
   report;
-  constructor(run) {
+  constructor(run, fence, signal) {
     this.run = run;
+    this.fence = fence;
+    this.signal = signal;
     this.report = reporter(`/v1/queue-internal/workflows/runs/${run.id}`);
     let max = -1;
     for (const s of run.steps) {
@@ -345,7 +390,7 @@ class Turn {
     return { seq, rec };
   }
   async wait(body) {
-    const rec = await boxCall("POST", `/v1/queue-internal/workflows/runs/${this.run.id}/waits`, body);
+    const rec = await boxCall("POST", `/v1/queue-internal/workflows/runs/${this.run.id}/waits`, { ...body, ...this.fence });
     this.byName.set(rec.name, rec);
     return rec;
   }
@@ -367,6 +412,7 @@ function ctxFor(t) {
   const ctx = {
     runId: run.id,
     workflow: run.workflow,
+    signal: t.signal,
     release: run.release,
     step(name, fn, opts = {}) {
       return t.track((async () => {
@@ -381,15 +427,16 @@ function ctxFor(t) {
         try {
           const value = await fn();
           const output = value === undefined ? null : JSON.parse(JSON.stringify(value));
-          await boxCall("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
+          const stored = await boxCall("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
             name,
             seq,
             ok: true,
             output,
             startedAt: started.toISOString(),
-            durationMs: Date.now() - started.getTime()
+            durationMs: Date.now() - started.getTime(),
+            ...t.fence
           });
-          return output;
+          return stored?.state === "completed" ? stored.output ?? null : output;
         } catch (err) {
           if (err instanceof Suspend)
             throw err;
@@ -399,7 +446,8 @@ function ctxFor(t) {
             ok: false,
             error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
             startedAt: started.toISOString(),
-            durationMs: Date.now() - started.getTime()
+            durationMs: Date.now() - started.getTime(),
+            ...t.fence
           }).catch(() => {});
           throw err;
         }
@@ -452,8 +500,17 @@ function ctxFor(t) {
       };
     },
     async all(branches) {
-      const ps = branches.map((b) => t.track(Promise.resolve(typeof b === "function" ? b() : b)));
-      return await Promise.all(ps);
+      const ps = branches.map((b) => t.track((async () => {
+        return await (typeof b === "function" ? b() : b);
+      })()));
+      const settled = await Promise.allSettled(ps);
+      const failed = settled.flatMap((r) => r.status === "rejected" ? [r.reason] : []);
+      const errors = failed.filter((e) => !(e instanceof Suspend));
+      if (errors.length)
+        throw errors.find((e) => e instanceof NonRetryableError) ?? errors[0];
+      if (failed.length)
+        throw failed[0];
+      return settled.map((r) => r.value);
     },
     patched(id) {
       const key = `patch:${id}`;
@@ -463,7 +520,7 @@ function ctxFor(t) {
         return false;
       const rec = { name: key, seq: t.seq, kind: "patch", state: "completed", attempts: 0 };
       t.byName.set(key, rec);
-      t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }));
+      t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }).catch((err) => void t.failures.push(err)));
       return true;
     },
     progress(value) {
@@ -475,21 +532,27 @@ function ctxFor(t) {
   };
   return ctx;
 }
-async function runTurn(run) {
+async function runTurn(run, fence, signal = new AbortController().signal) {
   const wf = registry.get(run.workflow);
   if (!wf) {
     throw new NonRetryableError(`workflow "${run.workflow}" is not defined in this app (defined: ${[...registry.keys()].join(", ") || "none"})`);
   }
-  const t = new Turn(run);
+  const t = new Turn(run, fence, signal);
   try {
     const out = await wf.fn(ctxFor(t), run.input);
-    await Promise.allSettled([...t.inflight]);
+    while (t.inflight.size)
+      await Promise.allSettled([...t.inflight]);
+    if (t.failures.length)
+      throw t.failures[0];
     return { status: "completed", output: out === undefined ? null : out };
   } catch (err) {
     while (t.inflight.size)
       await Promise.allSettled([...t.inflight]);
-    if (err instanceof Suspend)
+    if (err instanceof Suspend) {
+      if (t.failures.length)
+        throw t.failures[0];
       return { status: "suspended" };
+    }
     throw err;
   } finally {
     await t.report.flush();
@@ -497,7 +560,7 @@ async function runTurn(run) {
 }
 function handler(opts = {}) {
   return async (req) => {
-    const d = await readDelivery(req, opts.secret);
+    const d = await readDelivery(req, opts.secret, opts.maxBytes ?? MAX_TURN_BYTES);
     if (d instanceof Response)
       return d;
     if (d.type !== "workflow" || !d.run)
@@ -506,7 +569,7 @@ function handler(opts = {}) {
     const beat = heartbeater(d, ctrl);
     const timer = setInterval(() => beat().catch(() => {}), Math.max(1000, d.leaseSeconds * 1000 / 3));
     try {
-      return Response.json(await runTurn(d.run));
+      return Response.json(await runTurn(d.run, { jobId: d.id, attemptId: d.attemptId }, ctrl.signal));
     } catch (err) {
       return errorResponse(err);
     } finally {
@@ -516,27 +579,27 @@ function handler(opts = {}) {
 }
 var workflow = { define, start, startWithToken, subscribeToken, emit, get, handler, DEFAULT_PATH };
 export {
-  workflow,
-  verifySignature,
-  toMs,
-  subscribeToken,
-  sign,
-  sendWithToken,
-  sendTx,
-  send,
-  reporter,
-  readDelivery,
-  queue,
-  heartbeater,
-  flush,
-  errorResponse,
-  defineHandler,
-  currentApp,
-  configure,
-  boxCall,
-  RetryAfterError,
-  QueueError,
-  OUTBOX_INSERT,
+  NonDeterminismError,
   NonRetryableError,
-  NonDeterminismError
+  OUTBOX_INSERT,
+  QueueError,
+  RetryAfterError,
+  boxCall,
+  configure,
+  currentApp,
+  defineHandler,
+  errorResponse,
+  flush,
+  heartbeater,
+  queue,
+  readDelivery,
+  reporter,
+  send,
+  sendTx,
+  sendWithToken,
+  sign,
+  subscribeToken,
+  toMs,
+  verifySignature,
+  workflow
 };
