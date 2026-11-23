@@ -7,7 +7,7 @@ import { DocsNav } from "./nav";
 export const dynamic = "force-static";
 
 export const metadata: Metadata = pageMeta({
-  title: "Docs",
+  title: "App Deployment and Hosting Docs",
   description:
     "How ShipTiffin works: getting a box, deploying apps, Postgres, KV, files, sign-in, email, jobs, domains, monitoring, and working with coding agents.",
   path: "/docs",
