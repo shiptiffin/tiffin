@@ -124,19 +124,111 @@ var ErrNoZone = errors.New("no connected DNS provider manages this name")
 
 // SetRecords creates or replaces records (each name+type keeps exactly the
 // given values) in the zone that holds them. TTL 0 means automatic.
+//
+// A name+type with at most one record now and one value wanted goes through
+// the provider's own SetRecords (an update in place). Any other is diffed
+// against what the zone holds: values already there stay, missing ones are
+// added, then the rest are deleted, so the name is never without records.
+// Providers can't be trusted with several values per name+type in
+// SetRecords (libdns/cloudflare refuses when more than one record exists).
 func SetRecords(ctx context.Context, p Provider, zone string, recs []Record) error {
-	var lib []libdns.Record
+	type group struct {
+		want []libdns.Record
+		have []libdns.Record
+	}
+	groups := map[string]*group{}
+	var order []string
 	for _, r := range recs {
 		rr, err := toLibdns(r, zone)
 		if err != nil {
 			return err
 		}
-		lib = append(lib, rr)
+		k := recordKey(rr.RR(), zone)
+		g := groups[k]
+		if g == nil {
+			g = &group{}
+			groups[k] = g
+			order = append(order, k)
+		}
+		if !slices.ContainsFunc(g.want, func(w libdns.Record) bool { return sameRecordValue(w.RR(), rr.RR()) }) {
+			g.want = append(g.want, rr)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	_, err := p.SetRecords(ctx, zone+".", lib)
-	return err
+	have, err := p.GetRecords(ctx, zone+".")
+	if err != nil {
+		return err
+	}
+	for _, h := range have {
+		if g := groups[recordKey(h.RR(), zone)]; g != nil {
+			g.have = append(g.have, h)
+		}
+	}
+	// set: one record replacing at most one. retire: a kept value whose TTL
+	// changes, deleted before it is added again (a provider may refuse an
+	// identical second record). add, then drop: the diff.
+	var set, retire, add, drop []libdns.Record
+	for _, k := range order {
+		g := groups[k]
+		if len(g.want) == 1 && len(g.have) <= 1 {
+			set = append(set, g.want[0])
+			continue
+		}
+		kept := make([]bool, len(g.have))
+		for _, w := range g.want {
+			i := slices.IndexFunc(g.have, func(h libdns.Record) bool { return sameRecordValue(h.RR(), w.RR()) })
+			switch {
+			case i < 0:
+				add = append(add, w)
+			case autoTTL(g.have[i].RR().TTL) != autoTTL(w.RR().TTL):
+				kept[i] = true
+				retire = append(retire, g.have[i])
+				add = append(add, w)
+			default:
+				kept[i] = true
+			}
+		}
+		for i, h := range g.have {
+			if !kept[i] {
+				drop = append(drop, h)
+			}
+		}
+	}
+	for _, step := range []struct {
+		recs []libdns.Record
+		do   func(context.Context, string, []libdns.Record) ([]libdns.Record, error)
+	}{{set, p.SetRecords}, {retire, p.DeleteRecords}, {add, p.AppendRecords}, {drop, p.DeleteRecords}} {
+		if len(step.recs) == 0 {
+			continue
+		}
+		if _, err := step.do(ctx, zone+".", step.recs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordKey is a record's absolute lowercase name and type, within zone.
+func recordKey(rr libdns.RR, zone string) string {
+	return strings.ToLower(libdns.AbsoluteName(rr.Name, zone+".")) + "\x00" + strings.ToUpper(rr.Type)
+}
+
+// sameRecordValue reports whether two records of one name and type hold the
+// same value (TXT may come back quoted).
+func sameRecordValue(a, b libdns.RR) bool {
+	if strings.EqualFold(a.Type, "TXT") {
+		return strings.Trim(a.Data, `"`) == strings.Trim(b.Data, `"`)
+	}
+	return SameValue(a.Type, a.Data, b.Data)
+}
+
+// autoTTL treats Cloudflare's 1 second ("automatic") as 0.
+func autoTTL(d time.Duration) time.Duration {
+	if d <= time.Second {
+		return 0
+	}
+	return d
 }
 
 // AddRecords adds records beside the others at the same name and type (a
