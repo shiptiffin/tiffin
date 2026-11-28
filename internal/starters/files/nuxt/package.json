@@ -8,9 +8,9 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "nuxt": "4.6.4",
+    "nuxt": "4.7.0",
     "postgres": "3.4.9",
-    "vue": "3.5.45",
-    "vue-router": "5.4.0"
+    "vue": "3.5.46",
+    "vue-router": "5.5.1"
   }
 }

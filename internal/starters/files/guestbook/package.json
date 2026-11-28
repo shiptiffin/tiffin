@@ -7,7 +7,7 @@
     "start": "bun index.ts"
   },
   "dependencies": {
-    "hono": "4.13.16",
+    "hono": "4.13.22",
     "postgres": "3.4.9"
   },
   "devDependencies": {
